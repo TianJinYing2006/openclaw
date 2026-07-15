@@ -1,0 +1,40 @@
+# IntelliJ IDEA and other editors
+.idea/
+*.iml
+out/
+.vscode/
+
+# Java and Maven build output
+*.class
+target/
+build/
+.gradle/
+
+# Node.js dependencies and logs
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+application-local.properties
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Runtime logs and crash files
+*.log
+hs_err_pid*
+replay_pid*
+
+# Local Codex planning files
+.planning/
+task_plan.md
+findings.md
+progress.md
