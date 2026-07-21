@@ -257,7 +257,7 @@ Controller 没有实现 iLink 协议，只是调用 `ILinkBotService`。
 | 文件 | SDK 下载解密后缓存 5 分钟；下一条普通话与文件正文组合交给模型，内部 `FILE_GEN||JSON` 决定返回文字还是生成文件 | 一次 1 个、最大 20 MiB；输出支持 DOCX、XLSX、PDF、TXT，属于内容级重建 |
 | 视频 | SDK 下载解密，FFmpeg 固定抽取 10 帧并提取音轨转写，交给视觉模型 | 当前最长 60 秒、最大 20 MiB |
 
-完整视频实现请继续阅读 [ILINK_VIDEO_ANALYSIS_GUIDE.md](ILINK_VIDEO_ANALYSIS_GUIDE.md)。
+完整视频实现请继续阅读 [ILINK_VIDEO_ANALYSIS_GUIDE.md](../features/ILINK_VIDEO_ANALYSIS_GUIDE.md)。
 
 SDK 当前公开了 `sendImage`、`sendVoice`、`sendFile`、`sendVideo` 等发送方法，但“SDK 有方法”不等于业务已经实现。我们还需要决定：发给谁、使用哪个 contextToken、文件从哪里来、允许多大、失败如何重试。
 

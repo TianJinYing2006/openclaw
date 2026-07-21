@@ -29,17 +29,18 @@
 
 | 阅读顺序 | 文件 | 主要职责 |
 |---|---|---|
-| 1 | [YkdSummerApplication.java](src/main/java/com/example/ykdsummer/YkdSummerApplication.java) | Spring Boot 启动入口 |
-| 2 | [ILinkBotService.java](src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) | 创建 SDK、启动长轮询、接收消息、调度任务、发送回复 |
-| 3 | [ILinkSessionStore.java](src/main/java/com/example/ykdsummer/bot/session/ILinkSessionStore.java) | 保存登录会话和消息游标 |
-| 4 | [ILinkReplyService.java](src/main/java/com/example/ykdsummer/bot/service/ILinkReplyService.java) | 提取消息内容并决定走哪个功能分支 |
-| 5 | [AiChatService.java](src/main/java/com/example/ykdsummer/ai/service/AiChatService.java) | 保存每个用户的文字上下文并调用文字模型 |
-| 6 | [OpenAiResponsesGateway.java](src/main/java/com/example/ykdsummer/ai/service/OpenAiResponsesGateway.java) | 组装 Responses API 请求并读取文字结果 |
-| 7 | [AiImageGenerationService.java](src/main/java/com/example/ykdsummer/ai/service/AiImageGenerationService.java) | 调用 `gpt-image-2` 生成图片字节 |
-| 8 | [ILinkMediaDownloader.java](src/main/java/com/example/ykdsummer/bot/service/ILinkMediaDownloader.java) | 下载并解密用户发来的微信图片 |
-| 9 | [ILinkFileDownloader.java](src/main/java/com/example/ykdsummer/bot/service/ILinkFileDownloader.java) | 下载、解密并校验用户发来的微信文件 |
-| 10 | [ILinkController.java](src/main/java/com/example/ykdsummer/bot/controller/ILinkController.java) | 提供状态、二维码和主动发文字的本地 HTTP 接口 |
-| 11 | [application.properties](src/main/resources/application.properties) | iLink、文字模型、图片模型、超时等配置 |
+| 1 | [YkdSummerApplication.java](../../src/main/java/com/example/ykdsummer/YkdSummerApplication.java) | Spring Boot 启动入口 |
+| 2 | [ILinkBotService.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) | 创建 SDK、启动长轮询、接收消息、调度任务、发送回复 |
+| 3 | [ILinkSessionStore.java](../../src/main/java/com/example/ykdsummer/bot/session/ILinkSessionStore.java) | 保存登录会话和消息游标 |
+| 4 | [ILinkReplyService.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkReplyService.java) | 提取消息内容并决定走哪个功能分支 |
+| 5 | [AiChatService.java](../../src/main/java/com/example/ykdsummer/ai/service/AiChatService.java) | 保存每个用户的文字上下文并调用文字模型 |
+| 6 | [OpenAiResponsesGateway.java](../../src/main/java/com/example/ykdsummer/ai/service/OpenAiResponsesGateway.java) | 组装 Responses API 请求并读取文字结果 |
+| 7 | [RoutingLlmGateway.java](../../src/main/java/com/example/ykdsummer/ai/service/RoutingLlmGateway.java) | 纯文本走 Spring AI Completion；图片、文件、视频帧走 Responses |
+| 8 | [AiImageGenerationService.java](../../src/main/java/com/example/ykdsummer/ai/service/AiImageGenerationService.java) | 调用 `gpt-image-2` 生成图片字节 |
+| 9 | [ILinkMediaDownloader.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkMediaDownloader.java) | 下载并解密用户发来的微信图片 |
+| 10 | [ILinkFileDownloader.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkFileDownloader.java) | 下载、解密并校验用户发来的微信文件 |
+| 11 | [ILinkController.java](../../src/main/java/com/example/ykdsummer/bot/controller/ILinkController.java) | 提供状态、二维码和主动发文字的本地 HTTP 接口 |
+| 12 | [application.properties](../../src/main/resources/application.properties) | iLink、文字模型、图片模型、超时等配置 |
 
 ## 3. 总体时序图
 
@@ -484,20 +485,20 @@ SDK 负责把 Java 对象变成 iLink 网络请求
 
 | 图片中的要求 | 当前项目对应位置 | 当前状态 | 应该怎样讲 |
 |---|---|---|---|
-| 理解 SDK 怎样连接微信 | [ILinkBotService.java](src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) 的 `start()` | 已完成 | Java 创建 `ILinkClient` 和 `ILinkBot`，SDK 再连接腾讯 iLink，不是 Java 直接连接手机微信进程 |
-| 登录凭证的获取和保存 | [ILinkSessionStore.java](src/main/java/com/example/ykdsummer/bot/session/ILinkSessionStore.java) 的 `loadSession()`、`persistSession(...)`、`onQrcode(...)` | 已完成 | 首次没有会话时扫码；成功后把会话写入 `.ilink/session.properties`，下次启动优先恢复 |
-| 理解上下文 `contextToken` | [ILinkBotService.java](src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) 的回复和生图发送逻辑 | 已完成 | 它来自入站消息，回复时原样交给 SDK，用于告诉腾讯“这条回复属于哪次微信对话” |
-| 理解游标 `cursor/getUpdatesBuf` | [ILinkSessionStore.java](src/main/java/com/example/ykdsummer/bot/session/ILinkSessionStore.java) 的 `loadCursor()`、`confirmGetUpdatesBuf(...)` | 已完成 | 游标只表示消息读取进度，不保存聊天内容；第 5 节时序图是重点 |
-| 理解消息监听机制 | [ILinkBotService.java](src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) 的 `startAutoPull(this::handleInboundMessage)` | 已完成 | SDK 用 `getupdates` 长轮询，有消息就回调 `handleInboundMessage(...)` |
-| 理解消息类型处理 | [ILinkReplyService.java](src/main/java/com/example/ykdsummer/bot/service/ILinkReplyService.java) | 已完成当前版本 | 文字、图片、文件、语音转写、短视频和固定命令均已有明确分流；文件上传后缓存 5 分钟，下一条普通话由模型识别分析、修改、转换或生成意图 |
-| 理解加密资源 | [ILinkMediaDownloader.java](src/main/java/com/example/ykdsummer/bot/service/ILinkMediaDownloader.java)、[ILinkFileDownloader.java](src/main/java/com/example/ykdsummer/bot/service/ILinkFileDownloader.java) 与 [ILinkVideoDownloader.java](src/main/java/com/example/ykdsummer/bot/video/ILinkVideoDownloader.java) | 已完成图片、文件和短视频 | 微信媒体先从 CDN 下载密文，再由 SDK 解密；文件转为当前轮 `input_file`，视频抽 10 帧并提取 WAV，二进制不写入聊天历史 |
-| 理解视频声音 | [FfmpegVideoAudioExtractor.java](src/main/java/com/example/ykdsummer/bot/audio/FfmpegVideoAudioExtractor.java) 与 [TencentCloudAsrService.java](src/main/java/com/example/ykdsummer/bot/audio/TencentCloudAsrService.java) | 已完成代码与本地测试 | 视频音轨转成 16kHz 单声道 WAV，直接上传腾讯一句话识别；返回文字与 10 帧共同交给 LLM |
-| 理解消息发送机制 | [ILinkBotService.java](src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) 的文字回复与图片回复方法 | 已完成 | 文字走 `replyText(...)`；图片走 `sendImage(...)`，SDK 内部还会加密和上传 CDN |
-| 理解异常与重试 | [OpenAiClientConfiguration.java](src/main/java/com/example/ykdsummer/ai/config/OpenAiClientConfiguration.java) 和第 12 节 | 已完成当前策略 | 当前模型调用不自动重试；失败只回复友好提示，不中断 iLink 长轮询 |
-| 接入 LLM，完成基本中文对话 | [AiChatService.java](src/main/java/com/example/ykdsummer/ai/service/AiChatService.java) 与 [OpenAiResponsesGateway.java](src/main/java/com/example/ykdsummer/ai/service/OpenAiResponsesGateway.java) | 已完成 | 普通问题连同当前用户最近的历史一起发送给文字模型 |
-| 不同用户的上下文隔离 | [AiChatService.java](src/main/java/com/example/ykdsummer/ai/service/AiChatService.java) | 已完成 Caffeine 内存版 | 使用微信用户编号作为键；每个用户最多保留最近 20 条，空闲 2 小时淘汰，缓存用户总数有上限 |
+| 理解 SDK 怎样连接微信 | [ILinkBotService.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) 的 `start()` | 已完成 | Java 创建 `ILinkClient` 和 `ILinkBot`，SDK 再连接腾讯 iLink，不是 Java 直接连接手机微信进程 |
+| 登录凭证的获取和保存 | [ILinkSessionStore.java](../../src/main/java/com/example/ykdsummer/bot/session/ILinkSessionStore.java) 的 `loadSession()`、`persistSession(...)`、`onQrcode(...)` | 已完成 | 首次没有会话时扫码；成功后把会话写入 `.ilink/session.properties`，下次启动优先恢复 |
+| 理解上下文 `contextToken` | [ILinkBotService.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) 的回复和生图发送逻辑 | 已完成 | 它来自入站消息，回复时原样交给 SDK，用于告诉腾讯“这条回复属于哪次微信对话” |
+| 理解游标 `cursor/getUpdatesBuf` | [ILinkSessionStore.java](../../src/main/java/com/example/ykdsummer/bot/session/ILinkSessionStore.java) 的 `loadCursor()`、`confirmGetUpdatesBuf(...)` | 已完成 | 游标只表示消息读取进度，不保存聊天内容；第 5 节时序图是重点 |
+| 理解消息监听机制 | [ILinkBotService.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) 的 `startAutoPull(this::handleInboundMessage)` | 已完成 | SDK 用 `getupdates` 长轮询，有消息就回调 `handleInboundMessage(...)` |
+| 理解消息类型处理 | [ILinkReplyService.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkReplyService.java) | 已完成当前版本 | 文字、图片、文件、语音转写、短视频和固定命令均已有明确分流；文件上传后缓存 5 分钟，下一条普通话由模型识别分析、修改、转换或生成意图 |
+| 理解加密资源 | [ILinkMediaDownloader.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkMediaDownloader.java)、[ILinkFileDownloader.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkFileDownloader.java) 与 [ILinkVideoDownloader.java](../../src/main/java/com/example/ykdsummer/bot/video/ILinkVideoDownloader.java) | 已完成图片、文件和短视频 | 微信媒体先从 CDN 下载密文，再由 SDK 解密；文件转为当前轮 `input_file`，视频抽 10 帧并提取 WAV，二进制不写入聊天历史 |
+| 理解视频声音 | [FfmpegVideoAudioExtractor.java](../../src/main/java/com/example/ykdsummer/bot/audio/FfmpegVideoAudioExtractor.java) 与 [TencentCloudAsrService.java](../../src/main/java/com/example/ykdsummer/bot/audio/TencentCloudAsrService.java) | 已完成代码与本地测试 | 视频音轨转成 16kHz 单声道 WAV，直接上传腾讯一句话识别；返回文字与 10 帧共同交给 LLM |
+| 理解消息发送机制 | [ILinkBotService.java](../../src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) 的文字回复与图片回复方法 | 已完成 | 文字走 `replyText(...)`；图片走 `sendImage(...)`，SDK 内部还会加密和上传 CDN |
+| 理解异常与重试 | [OpenAiClientConfiguration.java](../../src/main/java/com/example/ykdsummer/ai/config/OpenAiClientConfiguration.java) 和第 12 节 | 已完成当前策略 | 当前模型调用不自动重试；失败只回复友好提示，不中断 iLink 长轮询 |
+| 接入 LLM，完成基本中文对话 | [AiChatService.java](../../src/main/java/com/example/ykdsummer/ai/service/AiChatService.java) 与 [OpenAiResponsesGateway.java](../../src/main/java/com/example/ykdsummer/ai/service/OpenAiResponsesGateway.java) | 已完成 | 普通问题连同当前用户最近的历史一起发送给文字模型 |
+| 不同用户的上下文隔离 | [AiChatService.java](../../src/main/java/com/example/ykdsummer/ai/service/AiChatService.java) | 已完成 Caffeine 内存版 | 使用微信用户编号作为键；每个用户最多保留最近 20 条，空闲 2 小时淘汰，缓存用户总数有上限 |
 | 学习 Agent | 当前没有 Agent 工具调用层 | 未完成、也不是本阶段必要功能 | 现在是“收到问题→调用模型→返回回答”的聊天机器人，还不是能自主调用工具的 Agent |
-| Spring AI / LangChain4j | [pom.xml](pom.xml) 已引入 Spring AI 1.1.8；当前未使用 LangChain4j | Spring AI 基础已完成，Agent 路由未接入 | 普通文件/多模态仍走已验证的 Responses 网关；后续 Agent/Tool 使用 Spring AI Chat Completions |
+| Spring AI / LangChain4j | [pom.xml](../../pom.xml) 已引入 Spring AI 1.1.8；当前未使用 LangChain4j | 纯文本 Completion 与天气 Tool 已接入；完整业务 Agent 待扩展 | 普通文件/多模态仍走已验证的 Responses 网关；纯文本可由 Spring AI 调用 Tool |
 
 ### 15.1 哪些代码属于 SDK，哪些属于我们项目
 
