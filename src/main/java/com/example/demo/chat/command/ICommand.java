@@ -1,4 +1,4 @@
-package com.example.demo;
+package com.example.demo.chat.command;
 
 /**
  * 命令接口 — 基于策略模式，所有命令实现此接口

@@ -1,12 +1,12 @@
-# 01 — Switch LLM backend to DashScope qwen-plus
+# 01 — 切换 LLM 后端到百炼 DashScope qwen-plus
 
-**What to build:** Update the LLM connection so the Clawbot talks to Alibaba Cloud Bailian's DashScope API (`qwen-plus`) instead of the current default mimo endpoint. After this change, typing any non-command text into the CLI produces a reply from qwen-plus.
+**要构建的内容：** 将 LLM 连接切换到阿里云百炼 DashScope API（`qwen-plus`），替换当前默认的 mimo 端点。完成后，在 CLI 中输入任意非命令文本，都会收到 qwen-plus 的回复。
 
-**Blocked by:** None — can start immediately.
+**阻塞于：** 无 — 可立即开始。
 
-**Status:** ready-for-agent
+**状态：** ready-for-agent
 
-- [ ] `application.properties` defaults changed: `llm.api-url` = `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`, `llm.model` = `qwen-plus`
-- [ ] `llm.api-key` set to the Bailian API key
-- [ ] Remove the old system prompt placeholder if no longer relevant; set a minimal Bailian-appropriate system prompt that can be overridden in config
-- [ ] Verify from the CLI: type a free-text query, get a sensible qwen-plus reply
+- [ ] `application.properties` 默认值已更改：`llm.api-url` = `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`，`llm.model` = `qwen-plus`
+- [ ] `llm.api-key` 设置为百炼 API Key
+- [ ] 移除旧的系统提示词占位；设置适合百炼的系统提示词，允许通过配置覆盖
+- [ ] 验证：从 CLI 输入自由文本查询，收到 qwen-plus 的正常回复

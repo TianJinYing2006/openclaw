@@ -1,7 +1,7 @@
-package com.example.demo.command;
+package com.example.demo.chat.command;
 
-import com.example.demo.ICommand;
-import com.example.demo.service.ILinkService;
+import com.example.demo.chat.command.ICommand;
+import com.example.demo.wechat.ILinkService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;

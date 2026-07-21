@@ -1,13 +1,13 @@
-package com.example.demo.command;
+package com.example.demo.chat.command;
 
-import com.example.demo.control.CommandManager;
-import com.example.demo.ICommand;
+import com.example.demo.chat.CommandManager;
+import com.example.demo.chat.command.ICommand;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 @Component
-public class HelpCommand implements ICommand {
+public class VersionCommand implements ICommand {
 
     @Autowired
     @Lazy
@@ -15,16 +15,16 @@ public class HelpCommand implements ICommand {
 
     @Override
     public String getName() {
-        return "help";
+        return "version";
     }
 
     @Override
     public String getDescription() {
-        return "显示此帮助信息";
+        return "显示当前版本";
     }
 
     @Override
     public String execute(String[] args) {
-        return commandManager.getHelpText();
+        return commandManager.getVersion();
     }
 }

@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Local API credentials and workspace overrides
+src/main/resources/application-local.properties

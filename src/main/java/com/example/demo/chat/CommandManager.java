@@ -1,6 +1,6 @@
-package com.example.demo.control;
+package com.example.demo.chat;
 
-import com.example.demo.ICommand;
+import com.example.demo.chat.command.ICommand;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
