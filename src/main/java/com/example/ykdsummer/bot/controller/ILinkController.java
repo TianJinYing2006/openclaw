@@ -26,6 +26,7 @@ public class ILinkController {
     private final ILinkBotService botService;
 
     public ILinkController(ILinkBotService botService) {
+        // Spring 把已经创建好的主业务服务传进来，Controller 不手动 new SDK。
         this.botService = botService;
     }
 
@@ -65,6 +66,7 @@ public class ILinkController {
      */
     @PostMapping("/send")
     public ResponseEntity<?> send(@RequestBody SendTextRequest request) {
+        // Spring 已把请求 JSON 转换为 SendTextRequest；这里只做最基本的空值校验。
         if (request == null || isBlank(request.toUserId()) || isBlank(request.contextToken()) || isBlank(request.text())) {
             return ResponseEntity.badRequest().body(Map.of(
                     "message",

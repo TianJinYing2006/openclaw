@@ -23,6 +23,7 @@ pnpm-debug.log*
 !.env.example
 application-local.properties
 .ilink/
+.documents/
 
 # Operating-system files
 .DS_Store

@@ -37,6 +37,16 @@ import java.util.Properties;
  * </ul>
  *
  * <p>会话文件含 token，属于密码级敏感信息，不能打印内容、上传或提交到 Git。</p>
+ *
+ * <p>四个容易混淆的概念：</p>
+ * <ul>
+ *     <li><strong>Session：</strong>登录身份、token、服务地址和账号，决定“我是谁”；</li>
+ *     <li><strong>Cursor：</strong>getupdates 已确认读取到的位置，决定“下次从哪里继续拉”；</li>
+ *     <li><strong>contextToken：</strong>每条会话的回复上下文，决定“回复回哪个微信对话”；</li>
+ *     <li><strong>messageId：</strong>一条消息的唯一编号，本项目用它做近期去重。</li>
+ * </ul>
+ * <p>本类只保存前两个。contextToken 在 {@code WeixinMessage} 中随消息传递，messageId
+ * 由 {@code RecentMessageIds} 在内存中管理。</p>
  */
 @Component
 public class ILinkSessionStore implements SessionHandler {
@@ -152,15 +162,28 @@ public class ILinkSessionStore implements SessionHandler {
             List<WeixinMessage> receivedMessages,
             boolean fullyProcessed
     ) {
+        /*
+         * fullyProcessed 的含义是 SDK 已把这一批逐条交给消息回调且回调没有抛出异常。
+         * 当前 handleInboundMessage 入队成功就会返回，所以这里确认的是“已交给本地队列”，
+         * 不是“AI 已经生成并成功发回微信”。
+         */
         if (!fullyProcessed || suggestedGetUpdatesBuf == null || suggestedGetUpdatesBuf.isBlank()) {
             return currentGetUpdatesBuf;
         }
 
+        /*
+         * 三个游标的先后关系：
+         * 1. currentGetUpdatesBuf 是 SDK 本轮请求前正在使用的旧游标；
+         * 2. suggestedGetUpdatesBuf 是腾讯随本批响应给出的建议新游标；
+         * 3. currentCursor 是本类准备持久化到 session.properties 的本地副本。
+         * 写盘成功后 SDK 返回值、本地 currentCursor、文件 cursor 都成为建议新游标。
+         */
         String previousCursor = currentCursor;
         currentCursor = suggestedGetUpdatesBuf;
         try {
             if (currentSession != null) {
                 writeState();
+                runtimeState.authenticated(currentSession.accountId());
             }
             return suggestedGetUpdatesBuf;
         } catch (IOException exception) {
@@ -175,6 +198,7 @@ public class ILinkSessionStore implements SessionHandler {
      * Service 创建 SDK 客户端后调用，把磁盘恢复出的游标交还给 SDK。
      */
     public synchronized String loadCursor() {
+        // start() 紧接 loadSession() 之后调用，所以这里通常已是磁盘文件中恢复出的 cursor。
         return currentCursor;
     }
 
@@ -212,8 +236,13 @@ public class ILinkSessionStore implements SessionHandler {
     private static void moveAtomically(Path source, Path target) throws IOException {
         try {
             Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException exception) {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException atomicFailure) {
+            try {
+                Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException fallbackFailure) {
+                fallbackFailure.addSuppressed(atomicFailure);
+                throw fallbackFailure;
+            }
         }
     }
 

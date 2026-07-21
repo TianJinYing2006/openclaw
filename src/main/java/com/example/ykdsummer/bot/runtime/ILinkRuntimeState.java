@@ -80,6 +80,7 @@ public class ILinkRuntimeState {
      * 复制当前状态供 HTTP 接口读取，避免 Controller 直接修改内部字段。
      */
     public Snapshot snapshot(boolean enabled, boolean polling) {
+        // record 在创建时复制各字段值；之后内部状态再变化，不会反过来修改已经返回的快照。
         return new Snapshot(
                 enabled,
                 polling,

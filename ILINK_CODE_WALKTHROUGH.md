@@ -80,8 +80,8 @@ sequenceDiagram
                 S-->>B: 发送成功，或抛出发送异常
                 T-->>W: 微信显示机器人回复
             else 收到图片、语音、文件或视频
-                B->>B: 当前版本识别类型并记录日志
-                Note over B: 语音可记录转写文字；图片等尚未下载或自动回复
+                B->>B: 图片/文件下载解密；语音读取转写；视频进入独立视听分析队列
+                Note over B: 文件包装为 Responses input_file；视频抽 10 帧并转写音轨
             end
         end
 
@@ -187,7 +187,7 @@ startedBot.startAutoPull(this::handleInboundMessage);
 当前处理顺序：
 
 1. 只接受普通用户消息；
-2. 把空 `itemList` 转为空列表；
+2. 把空 `itemList` 转为空列表
 3. 把 SDK 整数类型转换为 `TEXT`、`IMAGE`、`VOICE` 等枚举；
 4. 记录接收数量和最近类型；
 5. 对非文字 item 记录日志；
@@ -244,19 +244,20 @@ SDK/协议使用整数类型码。这个类把整数翻译为业务可读名称�
 
 Controller 没有实现 iLink 协议，只是调用 `ILinkBotService`。
 
-## 四、图片、语音和文件现在怎样处理
+## 四、图片、语音、文件和视频现在怎样处理
 
-入口是 `ILinkBotService.logNonTextItems(...)`。当前实现是“能识别，但不做完整业务”：
+入口先由 `ILinkBotService.logNonTextItems(...)` 记录不含隐私内容的类型日志，再由
+`ILinkReplyService` 决定真正的业务分支：
 
 | 类型 | 当前行为 | 后续应做什么 |
 | --- | --- | --- |
-| 文字 | 提取第一段文字并固定回复 | 可改为关键词、数据库或 AI 回复 |
-| 语音 | 若 SDK 给出转写文字则打印 transcript | 校验转写；再复用文字处理，或取得音频数据送 ASR |
-| 图片 | 记录收到 IMAGE | 读取 `imageItem()` 元数据，按 SDK 支持方式下载/解密，再做存储或视觉识别 |
-| 文件 | 记录收到 FILE | 读取 `fileItem()`，校验大小和类型后下载 |
-| 视频 | 记录收到 VIDEO | 读取 `videoItem()`，下载前做大小、超时和权限限制 |
+| 文字 | 合并全部文字；固定命令优先，其余交给大模型 | 可继续增加业务命令 |
+| 语音 | 有微信转写文字时复用文字模型；无转写时固定提示 | 后续可增加独立 ASR |
+| 图片 | SDK 下载并解密，转成 Data URL 交给视觉模型 | 当前一次最多 3 张 |
+| 文件 | SDK 下载解密后保存原版并进入文档模式；文字先区分只读分析、明确修改或歧义确认；Office 由 Java 在副本上执行受限操作 | 当前支持 12 类格式；一次 1 个、最大 20 MiB；PDF 仍是内容级重建，旧 DOC 只分析 |
+| 视频 | SDK 下载解密，FFmpeg 固定抽取 10 帧并提取音轨转写，交给视觉模型 | 当前最长 60 秒、最大 20 MiB |
 
-不要只根据日志里的 URL 盲目下载媒体。图片可能涉及 CDN 鉴权、加密、临时地址和大小限制，应先核对 SDK 的媒体字段与服务端规则，再实现专门的 `MediaService`。
+完整视频实现请继续阅读 [ILINK_VIDEO_ANALYSIS_GUIDE.md](ILINK_VIDEO_ANALYSIS_GUIDE.md)。
 
 SDK 当前公开了 `sendImage`、`sendVoice`、`sendFile`、`sendVideo` 等发送方法，但“SDK 有方法”不等于业务已经实现。我们还需要决定：发给谁、使用哪个 contextToken、文件从哪里来、允许多大、失败如何重试。
 

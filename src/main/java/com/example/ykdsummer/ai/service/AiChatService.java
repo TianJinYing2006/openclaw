@@ -1,0 +1,212 @@
+package com.example.ykdsummer.ai.service;
+
+import com.example.ykdsummer.ai.config.AiProperties;
+import com.example.ykdsummer.ai.model.AiFile;
+import com.example.ykdsummer.ai.model.AiImage;
+import com.example.ykdsummer.ai.model.ConversationMessage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * 管理每个微信用户的内存对话，并把普通问题交给模型网关。
+ *
+ * <p>本类不直接发送 HTTP，也不知道微信如何长轮询。它接收
+ * {@link com.example.ykdsummer.bot.service.ILinkReplyService} 整理好的用户 ID、文字和图片，
+ * 找到该用户自己的历史记录，然后调用 {@link LlmGateway}。</p>
+ *
+ * <p>历史记录只存在当前 Java 进程内存中，以 iLink 的 {@code fromUserId} 为键。两个微信
+ * 用户使用不同的键，因此聊天不会混在一起；应用重启后这些记录会全部消失。</p>
+ */
+@Service
+public class AiChatService {
+
+    public static final String DISABLED_REPLY = "AI 功能暂未启用";
+    public static final String AUTH_ERROR_REPLY = "AI 服务认证失败，请联系管理员";
+    public static final String UNAVAILABLE_REPLY = "AI 暂时没有响应，请稍后重试";
+    public static final String EMPTY_REPLY = "暂时没有生成有效回答";
+
+    private static final Logger log = LoggerFactory.getLogger(AiChatService.class);
+
+    private final AiProperties properties;
+    private final LlmGateway gateway;
+    /** key 是 iLink fromUserId，value 是该微信用户自己的最近对话。 */
+    private final ConcurrentHashMap<String, UserConversation> conversations = new ConcurrentHashMap<>();
+
+    public AiChatService(AiProperties properties, LlmGateway gateway) {
+        this.properties = properties;
+        this.gateway = gateway;
+    }
+
+    /**
+     * 回答一条普通问题。调用者是 ILinkReplyService，返回值最终仍会作为文字发回微信。
+     *
+     * @param userId 入站 WeixinMessage.fromUserId()，用于隔离不同用户的历史
+     * @param prompt 当前消息中的文字，或微信已提供的语音转写
+     * @param images 本轮入站图片的解密字节；没有图片时是空列表
+     */
+    public String answer(String userId, String prompt, List<AiImage> images) {
+        return answer(userId, prompt, images, List.of());
+    }
+
+    /** 文件和图片都只用于当前轮次，不把二进制内容放入聊天记忆。 */
+    public String answer(String userId, String prompt, List<AiImage> images, List<AiFile> files) {
+        return answer(userId, prompt, prompt, images, files);
+    }
+
+    /**
+     * “语音：”模式的回答入口。模型额外收到简洁播报要求，但聊天记录只保存用户真实问题，
+     * 不把内部的长度限制带进下一轮对话。
+     */
+    public String answerForVoice(String userId, String prompt) {
+        String modelPrompt = prompt + "\n\n请用自然、适合语音播报的简洁中文回答，最多 120 个汉字。";
+        return answer(userId, prompt, modelPrompt, List.of(), List.of());
+    }
+
+    private String answer(
+            String userId,
+            String memoryPrompt,
+            String modelPrompt,
+            List<AiImage> images,
+            List<AiFile> files
+    ) {
+        if (!properties.isEnabled()) {
+            return DISABLED_REPLY;
+        }
+        // 第一次对话或旧记录已超时，就为这个 userId 创建一份新的空会话。
+        UserConversation conversation = conversations.compute(userId, (ignored, existing) ->
+                existing == null || existing.isExpired(properties.getMemoryIdleTimeout())
+                        ? new UserConversation()
+                        : existing
+        );
+        /*
+         * ConcurrentHashMap 只保证“查 Map”安全，不能保证同一用户两次请求的历史顺序。
+         * synchronized 锁住该用户自己的会话：同一用户必须一个问题回答完再记下一条；
+         * 不同用户锁的是不同对象，仍然可以并行。
+         */
+        synchronized (conversation) {
+            conversation.touch();
+            try {
+                /*
+                 * 因为 Responses 请求设置 store=false，服务端不替我们保存上下文。
+                 * 所以每次调用都复制最近历史，并连同本轮 prompt/images 重新发给模型。
+                 */
+                LlmGateway.ModelReply reply = gateway.generate(
+                        conversation.copyMessages(), modelPrompt, images, files);
+                // 只有模型成功返回后才把这一问一答写入历史，失败提示不会污染下一轮上下文。
+                conversation.remember(
+                        new ConversationMessage(ConversationMessage.Role.USER, memoryText(memoryPrompt, images, files)),
+                        properties.getMaxMemoryMessages()
+                );
+                conversation.remember(
+                        new ConversationMessage(ConversationMessage.Role.ASSISTANT, reply.text()),
+                        properties.getMaxMemoryMessages()
+                );
+                return reply.text();
+            } catch (AiGatewayException exception) {
+                log.warn(
+                        "AI request failed, user={}, kind={}",
+                        anonymize(userId),
+                        exception.kind()
+                );
+                return switch (exception.kind()) {
+                    case AUTHENTICATION -> AUTH_ERROR_REPLY;
+                    case EMPTY_RESPONSE -> EMPTY_REPLY;
+                    case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
+                };
+            } catch (RuntimeException exception) {
+                log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
+                return UNAVAILABLE_REPLY;
+            } finally {
+                conversation.touch();
+            }
+        }
+    }
+
+    public void clear(String userId) {
+        // “清空”命令传入当前发送者 ID，只删除这一位用户的记录。
+        UserConversation removed = conversations.remove(userId);
+        if (removed != null) {
+            synchronized (removed) {
+                removed.messages.clear();
+            }
+        }
+    }
+
+    public boolean isEnabled() {
+        return properties.isEnabled();
+    }
+
+    public String model() {
+        return properties.getModel();
+    }
+
+    /** 每十分钟删除一次超过两小时没有继续使用的会话。 */
+    @Scheduled(fixedDelay = 600_000L)
+    void removeExpiredConversations() {
+        Duration timeout = properties.getMemoryIdleTimeout();
+        conversations.entrySet().removeIf(entry -> entry.getValue().isExpired(timeout));
+    }
+
+    int conversationCount() {
+        return conversations.size();
+    }
+
+    /**
+     * 图片只服务于当前模型请求，不把 Base64 大数据放进历史；历史中只留下“本轮带图”的文字提示。
+     */
+    private static String memoryText(String prompt, List<AiImage> images, List<AiFile> files) {
+        int imageCount = images == null ? 0 : images.size();
+        List<AiFile> safeFiles = files == null ? List.of() : files;
+        StringBuilder memory = new StringBuilder(prompt);
+        if (imageCount > 0) {
+            memory.append("\n[本轮附带了 ").append(imageCount).append(" 张图片]");
+        }
+        if (!safeFiles.isEmpty()) {
+            memory.append("\n[本轮附带文件：")
+                    .append(safeFiles.stream().map(AiFile::fileName).collect(java.util.stream.Collectors.joining("、")))
+                    .append(']');
+        }
+        return memory.toString();
+    }
+
+    private static String anonymize(String userId) {
+        return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
+    }
+
+    private static final class UserConversation {
+        /** USER 和 ASSISTANT 消息交替存放，条数达到上限时从最旧消息开始删除。 */
+        private final List<ConversationMessage> messages = new ArrayList<>();
+        private volatile Instant lastAccess = Instant.now();
+
+        private List<ConversationMessage> copyMessages() {
+            return List.copyOf(messages);
+        }
+
+        private void remember(ConversationMessage message, int maxMessages) {
+            messages.add(message);
+            // maxMessages 统计的是消息条数，不是问答轮数；默认 20 条约等于 10 轮。
+            while (messages.size() > maxMessages) {
+                messages.removeFirst();
+            }
+        }
+
+        private void touch() {
+            lastAccess = Instant.now();
+        }
+
+        private boolean isExpired(Duration timeout) {
+            Duration safeTimeout = timeout == null || timeout.isNegative() || timeout.isZero()
+                    ? Duration.ofHours(2)
+                    : timeout;
+            return lastAccess.plus(safeTimeout).isBefore(Instant.now());
+        }
+    }
+}

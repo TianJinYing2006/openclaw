@@ -37,7 +37,9 @@ public final class RecentMessageIds {
         return messageId != null && ids.containsKey(messageId);
     }
 
-    /** 在业务处理完成或确认不需要处理后记住消息 ID。 */
+    /**
+     * 在消息被接受入队，或确认是无需回复的旧消息后记住 ID。注意它不表示 AI 和发送已经成功。
+     */
     public synchronized void remember(Long messageId) {
         if (messageId != null) {
             ids.put(messageId, Boolean.TRUE);

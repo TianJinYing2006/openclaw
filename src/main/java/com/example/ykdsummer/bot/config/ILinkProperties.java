@@ -28,7 +28,10 @@ public class ILinkProperties {
     /** SDK 发给服务端的通道版本标识，不是本项目自身的版本号。 */
     private String channelVersion = "1.0.0";
 
-    /** 收到文字消息后发送的固定回复内容。 */
+    /**
+     * 早期固定回复 Demo 保留的配置。当前扩充后的回复由 ILinkReplyService 决定，
+     * 此字段不再参与普通消息处理。
+     */
     private String fixedReply = "你好，我已经收到你的文本消息。";
 
     /** 登录会话和消息游标的本地保存位置；文件含敏感凭据，不能提交到 Git。 */

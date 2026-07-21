@@ -35,10 +35,12 @@ class ILinkSessionStoreTest {
         );
 
         store.persistSession(expected);
+        runtimeState.failed("simulated previous write failure");
         String committed = store.confirmGetUpdatesBuf("", "next-cursor", List.of(), true);
 
         assertEquals("next-cursor", committed);
         assertTrue(Files.exists(sessionFile));
+        assertEquals("CONNECTED", runtimeState.snapshot(true, true).connectionStatus());
 
         ILinkSessionStore reloaded = new ILinkSessionStore(settings, new ILinkRuntimeState());
         ILinkAuthSession actual = reloaded.loadSession();

@@ -34,10 +34,41 @@
             <version>1.0.0</version>
         </dependency>
 
+        <!-- Official OpenAI-compatible Java client. MooseCloud exposes the Responses API. -->
+        <dependency>
+            <groupId>com.openai</groupId>
+            <artifactId>openai-java</artifactId>
+            <version>4.43.0</version>
+        </dependency>
+
+        <!-- Official Tencent Cloud Java SDK module for ASR SentenceRecognition. -->
+        <dependency>
+            <groupId>com.tencentcloudapi</groupId>
+            <artifactId>tencentcloud-sdk-java-asr</artifactId>
+            <version>3.1.1500</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- PDF and Office renderers for document-edit mode; tests also use them to build samples. -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.5</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.4.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.14.1</version>
         </dependency>
     </dependencies>
 

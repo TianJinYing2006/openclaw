@@ -1,11 +1,14 @@
 package com.example.ykdsummer.bot.service;
 
 import com.example.ykdsummer.bot.config.ILinkProperties;
+import com.example.ykdsummer.bot.config.VideoProcessingProperties;
 import com.example.ykdsummer.bot.message.ILinkMessageType;
 import com.example.ykdsummer.bot.message.RecentMessageIds;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.session.ILinkSessionStore;
+import com.example.ykdsummer.bot.video.ILinkVideoDownloader;
 import io.github.morningwn.client.ILinkBot;
+import io.github.morningwn.client.ILinkClient;
 import io.github.morningwn.client.ILinkClientConfig;
 import io.github.morningwn.protocol.MessageItem;
 import io.github.morningwn.protocol.ProtocolValues;
@@ -18,22 +21,31 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
- * iLink 的主业务编排类：管理 SDK 生命周期，并实现“收到文字后固定回复”的 Demo。
+ * iLink 的主业务编排类：管理 SDK 生命周期，把收到的消息交给命令/AI 回复服务。
  *
  * <p>建议按下面顺序阅读：</p>
  * <ol>
  *     <li>{@link #start()}：Spring 启动后创建 SDK 客户端；</li>
  *     <li>{@code startAutoPull(this::handleInboundMessage)}：SDK 在后台长轮询微信消息；</li>
  *     <li>{@link #handleInboundMessage(WeixinMessage)}：SDK 每收到一条消息就回调本项目；</li>
- *     <li>本项目分类、去重、提取文字，再调用 SDK 的 {@code replyText} 回复；</li>
+ *     <li>本项目分类、去重，交给 {@link ILinkReplyService} 决定回复内容；</li>
+ *     <li>再调用 SDK 的 {@code replyText} 把统一的文字回复发回微信；</li>
  *     <li>{@link #stop()}：Spring 关闭时释放 SDK 的轮询线程和网络资源。</li>
  * </ol>
  *
  * <p><strong>边界：</strong>HTTP 请求、协议序列化、鉴权、getupdates 长轮询和 sendmessage
- * 请求由第三方 Java SDK 封装；是否回复、回复什么、如何处理图片/语音则由本类决定。</p>
+ * 请求由第三方 Java SDK 封装；是否回复、回复什么以及图片/语音如何进入 AI，主要由
+ * {@link ILinkReplyService} 决定，本类负责把这些步骤串起来。</p>
  */
 @Service
 public class ILinkBotService {
@@ -44,24 +56,72 @@ public class ILinkBotService {
 
     /** 启动时只接受最近两分钟的消息，避免恢复旧游标后回复很久以前的历史消息。 */
     private static final long STARTUP_MESSAGE_GRACE_MS = 120_000;
+    private static final String VIDEO_QUEUE_BUSY_REPLY = "当前视频任务较多，请稍后重试";
 
     private final ILinkProperties settings;
     private final ILinkSessionStore sessionStore;
     private final ILinkRuntimeState runtimeState;
+    private final ILinkReplyService replyService;
+    private final ILinkMediaDownloader mediaDownloader;
+    private final ILinkFileDownloader fileDownloader;
+    private final ILinkVideoDownloader videoDownloader;
     private final RecentMessageIds recentMessageIds = new RecentMessageIds(RECENT_MESSAGE_WINDOW);
     private final long startedAtMs = System.currentTimeMillis();
 
+    /**
+     * 8 条文字队列。相同用户总是进入同一条单线程队列，因此文字消息严格保持提交顺序；
+     * 不同用户通常可以并行处理。
+     */
+    private final ExecutorService[] textReplyExecutors = IntStream.range(0, 8)
+            .mapToObj(index -> Executors.newSingleThreadExecutor(
+                    runnable -> daemonThread(runnable, "ilink-text-reply-" + index)))
+            .toArray(ExecutorService[]::new);
+
+    /**
+     * “生图：”任务使用的独立线程池，最多同时处理两张生成任务。
+     * 普通文字和用户发来图片让模型理解的任务都不会进入这里。
+     */
+    private final ExecutorService imageReplyExecutor = Executors.newFixedThreadPool(
+            2, runnable -> daemonThread(runnable, "ilink-image-reply"));
+
+    /**
+     * 视频下载、FFmpeg 解码和多图模型调用都比较重，因此只允许一个任务执行，并限制等待数量。
+     * AbortPolicy 会在队列满时抛出 RejectedExecutionException，让用户收到“稍后重试”。
+     */
+    private final ExecutorService videoReplyExecutor;
+
     /** 当前 SDK 客户端；volatile 让 HTTP 线程和 SDK 回调线程看到最新引用。 */
     private volatile ILinkBot bot;
+    /** 与 ILinkBot 共用的底层客户端，供图片、文件和视频从腾讯 CDN 下载解密。 */
+    private volatile ILinkClient lowLevelClient;
 
     public ILinkBotService(
             ILinkProperties settings,
             ILinkSessionStore sessionStore,
-            ILinkRuntimeState runtimeState
+            ILinkRuntimeState runtimeState,
+            ILinkReplyService replyService,
+            ILinkMediaDownloader mediaDownloader,
+            ILinkFileDownloader fileDownloader,
+            ILinkVideoDownloader videoDownloader,
+            VideoProcessingProperties videoProperties
     ) {
+        // 这些对象都由 Spring 创建并传入；构造器本身不会连接腾讯服务器。
         this.settings = settings;
         this.sessionStore = sessionStore;
         this.runtimeState = runtimeState;
+        this.replyService = replyService;
+        this.mediaDownloader = mediaDownloader;
+        this.fileDownloader = fileDownloader;
+        this.videoDownloader = videoDownloader;
+        this.videoReplyExecutor = new ThreadPoolExecutor(
+                1,
+                1,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(videoProperties.getQueueCapacity()),
+                runnable -> daemonThread(runnable, "ilink-video-reply"),
+                new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 
     /**
@@ -89,10 +149,15 @@ public class ILinkBotService {
              * 创建 SDK 客户端，并把 sessionStore 注册为回调。
              * SDK 随后会通过 SessionHandler 自动加载旧会话或生成扫码二维码。
              */
-            ILinkBot startedBot = new ILinkBot(clientConfig, "ykd-summer", sessionStore);
+            ILinkClient startedClient = new ILinkClient(clientConfig);
+            ILinkBot startedBot = new ILinkBot(startedClient, clientConfig, "ykd-summer", sessionStore);
 
             // 把上次已确认的消息位置交给 SDK，避免每次重启都从旧消息重新开始。
             startedBot.setGetUpdatesBuf(sessionStore.loadCursor());
+            lowLevelClient = startedClient;
+            mediaDownloader.attach(startedClient);
+            fileDownloader.attach(startedClient);
+            videoDownloader.attach(startedClient);
             bot = startedBot;
 
             /*
@@ -103,6 +168,7 @@ public class ILinkBotService {
             startedBot.startAutoPull(this::handleInboundMessage);
             log.info("iLink long polling started");
         } catch (RuntimeException exception) {
+            closeSdkClients();
             runtimeState.failed(safeErrorMessage(exception));
             log.error("Cannot start iLink bot", exception);
         }
@@ -111,11 +177,29 @@ public class ILinkBotService {
     /** Spring 应用停止时自动调用，关闭 SDK，避免后台线程和连接泄漏。 */
     @PreDestroy
     public void stop() {
+        for (ExecutorService executor : textReplyExecutors) {
+            executor.shutdownNow();
+        }
+        imageReplyExecutor.shutdownNow();
+        videoReplyExecutor.shutdownNow();
+        closeSdkClients();
+    }
+
+    private void closeSdkClients() {
         ILinkBot currentBot = bot;
+        ILinkClient currentClient = lowLevelClient;
         bot = null;
+        lowLevelClient = null;
+        // 先关闭 ILinkBot 的自动拉取，再解除下载器引用，最后关闭共用的 HTTP 客户端。
         if (currentBot != null) {
             currentBot.close();
             log.info("iLink bot stopped");
+        }
+        mediaDownloader.detach(currentClient);
+        fileDownloader.detach(currentClient);
+        videoDownloader.detach(currentClient);
+        if (currentClient != null) {
+            currentClient.close();
         }
     }
 
@@ -169,23 +253,8 @@ public class ILinkBotService {
                 .collect(Collectors.joining(","));
         runtimeState.messageReceived(messageTypes.isBlank() ? ILinkMessageType.UNKNOWN.name() : messageTypes);
 
-        // 当前版本对图片/语音/文件/视频只做识别和日志记录，还没有下载或自动回复。
+        // 记录消息类型，但不记录用户的文字、语音转写或图片内容。
         logNonTextItems(message, items);
-
-        // 找到本条消息中第一段非空文字；没有文字就结束，不发送固定回复。
-        String text = items.stream()
-                .filter(Objects::nonNull)
-                .filter(item -> ILinkMessageType.from(item.type()) == ILinkMessageType.TEXT)
-                .map(MessageItem::textItem)
-                .filter(Objects::nonNull)
-                .map(textItem -> textItem.text())
-                .filter(value -> value != null && !value.isBlank())
-                .findFirst()
-                .orElse(null);
-
-        if (text == null) {
-            return;
-        }
 
         // 先去重，防止 getupdates 重试时同一 messageId 被再次回复。
         if (recentMessageIds.contains(message.messageId())) {
@@ -199,14 +268,96 @@ public class ILinkBotService {
             return;
         }
 
-        log.info("Received iLink text from {}: {}", message.fromUserId(), text);
+        log.info(
+                "Processing iLink message {}, user={}, itemCount={}, types={}",
+                message.messageId(),
+                anonymize(message.fromUserId()),
+                items.size(),
+                messageTypes
+        );
+        /*
+         * 从这里开始可能要等待外部 AI 数十秒，必须移交给回复线程池。
+         * SDK 的 ilink-auto-pull 线程立即返回，继续维持 getupdates 长轮询连接。
+         */
+        /*
+         * 这里的“记住”表示本进程已经接受这条消息并准备入队，不代表 AI 已回答成功。
+         * 先记住可以挡住 SDK 短时间内的重复投递。
+         */
+        recentMessageIds.remember(message.messageId());
         try {
+            List<MessageItem> safeItems = List.copyOf(items);
+            /*
+             * 只有“生图：描述”进入图片线程池。普通文字、语音转写、用户上传图片或文件的理解请求，
+             * 都按用户 ID 分配到文字队列，以便多轮上下文保持顺序。
+             */
+            boolean videoMessage = replyService.isVideoMessage(safeItems);
+            ExecutorService executor = videoMessage
+                    ? videoReplyExecutor
+                    : replyService.isImageGenerationMessage(safeItems)
+                            ? imageReplyExecutor
+                            : textExecutorFor(message.fromUserId());
+            executor.execute(() -> processReply(message, safeItems));
+            /*
+             * execute 成功后本方法立即返回，SDK 就可能认为业务回调已完成，并提交本批建议游标。
+             * 好处是慢 AI 不会卡住 getupdates；代价是程序若在入队后、回复前崩溃，内存任务
+             * 不会随游标自动恢复。当前 Demo 没有持久化任务队列。
+             */
+        } catch (RejectedExecutionException exception) {
+            boolean videoMessage = replyService.isVideoMessage(items);
+            String reason = videoMessage ? VIDEO_QUEUE_BUSY_REPLY : "回复任务队列已关闭";
+            runtimeState.messageDeliveryFailed(reason);
+            log.warn("Could not schedule reply for iLink message {}", message.messageId());
+            if (videoMessage) {
+                replyVideoQueueBusy(message);
+            }
+        }
+    }
+
+    /** 视频队列满时直接发送一条很短的固定提示，不再调用 AI。 */
+    private void replyVideoQueueBusy(WeixinMessage message) {
+        try {
+            requireRunningBot().replyText(message, VIDEO_QUEUE_BUSY_REPLY);
+            runtimeState.messageSent();
+        } catch (RuntimeException exception) {
+            log.warn("Could not send video queue busy reply for message {}", message.messageId());
+        }
+    }
+
+    /** 在独立工作线程中调用大模型并发送回复，不阻塞 iLink 长轮询。 */
+    private void processReply(WeixinMessage message, List<MessageItem> items) {
+        try {
+            ILinkReply reply = replyService.createReply(message, items, status());
+            if (reply == null) {
+                return;
+            }
             /*
              * replyText 是 SDK 封装的方法。SDK 会从入站 message 中取得回复目标和
              * contextToken，再发出 sendmessage；本项目只决定回复的文本内容。
              */
-            requireRunningBot().replyText(message, settings.getFixedReply());
-            recentMessageIds.remember(message.messageId());
+            ILinkBot runningBot = requireRunningBot();
+            if (reply instanceof ILinkReply.Text textReply) {
+                if (textReply.value() == null || textReply.value().isBlank()) {
+                    return;
+                }
+                runningBot.replyText(message, textReply.value());
+            } else if (reply instanceof ILinkReply.Image imageReply) {
+                /*
+                 * 本项目交给 SDK 的是原始 PNG 字节。SDK 内部还会生成 AES key、加密图片、
+                 * 请求腾讯 CDN 上传地址、上传密文、组装 ImageItem，最后调用 sendmessage。
+                 * 因此微信收到的是可直接显示的图片，而不是需要用户点击的外部链接。
+                 */
+                runningBot.sendImage(message.fromUserId(), message.contextToken(), imageReply.bytes());
+            } else if (reply instanceof ILinkReply.AudioFile audioReply) {
+                // TTS 已在上一层完成：这里只发送 MP3 文件，不额外发送文字答案。
+                runningBot.sendFile(message.fromUserId(), message.contextToken(), audioReply.fileName(), audioReply.bytes());
+            } else if (reply instanceof ILinkReply.DocumentFile documentReply) {
+                // 文档结果先发文件，再发状态说明，手机端可以紧接着继续输入修改要求或命令。
+                runningBot.sendFile(message.fromUserId(), message.contextToken(),
+                        documentReply.fileName(), documentReply.bytes());
+                if (documentReply.followUpText() != null && !documentReply.followUpText().isBlank()) {
+                    runningBot.replyText(message, documentReply.followUpText());
+                }
+            }
             runtimeState.messageSent();
             log.info("Replied to iLink message {}", message.messageId());
         } catch (RuntimeException exception) {
@@ -214,7 +365,6 @@ public class ILinkBotService {
              * 即使发送失败也不把异常抛回 SDK，否则整批消息可能被判定为未处理，旧消息会
              * 持续重放。这里记录错误和 messageId，让消息游标仍可继续向前。
              */
-            recentMessageIds.remember(message.messageId());
             runtimeState.messageDeliveryFailed(safeErrorMessage(exception));
             log.warn(
                     "Could not reply to iLink message {}; continue so the message cursor can advance",
@@ -222,6 +372,22 @@ public class ILinkBotService {
                     exception
             );
         }
+    }
+
+    private ExecutorService textExecutorFor(String userId) {
+        /*
+         * 相同 userId 每次算出的 index 相同，所以会进入同一条单线程队列并按顺序执行。
+         * 这里只建了 8 条队列，不同用户也可能算到同一个 index；这时他们会共用队列，
+         * 但 AiChatService 中的聊天记录仍按真实 userId 分开。
+         */
+        int index = Math.floorMod(Objects.hashCode(userId), textReplyExecutors.length);
+        return textReplyExecutors[index];
+    }
+
+    private static Thread daemonThread(Runnable runnable, String name) {
+        Thread thread = new Thread(runnable, name);
+        thread.setDaemon(true);
+        return thread;
     }
 
     /** 判断消息创建时间是否早于“本次启动时间减去两分钟”。 */
@@ -245,11 +411,11 @@ public class ILinkBotService {
             if (type == ILinkMessageType.VOICE && item.voiceItem() != null) {
                 log.info(
                         "Received iLink voice from {}, transcript={}",
-                        message.fromUserId(),
-                        item.voiceItem().text()
+                        anonymize(message.fromUserId()),
+                        item.voiceItem().text() != null && !item.voiceItem().text().isBlank()
                 );
             } else if (type != ILinkMessageType.TEXT) {
-                log.info("Received iLink {} item from {}", type, message.fromUserId());
+                log.info("Received iLink {} item from {}", type, anonymize(message.fromUserId()));
             }
         }
     }
@@ -272,5 +438,9 @@ public class ILinkBotService {
     private static String safeErrorMessage(RuntimeException exception) {
         String message = exception.getMessage();
         return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
+    }
+
+    private static String anonymize(String userId) {
+        return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
     }
 }
