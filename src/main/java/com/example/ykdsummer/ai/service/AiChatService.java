@@ -93,7 +93,7 @@ public class AiChatService {
         synchronized (conversation) {
             try {
                 /*
-                 * 因为 Responses 请求设置 store=false，服务端不替我们保存上下文。
+                 * Completion 与 Responses 请求都设置为 store=false，服务端不替我们保存上下文。
                  * 所以每次调用都复制最近历史，并连同本轮 prompt/images 重新发给模型。
                  */
                 LlmGateway.ModelReply reply = gateway.generate(

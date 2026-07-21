@@ -1,6 +1,9 @@
 package com.example.ykdsummer.bot;
 
 import com.example.ykdsummer.ai.config.ImageOpenAiClientProperties;
+import com.example.ykdsummer.ai.config.AiProperties;
+import com.example.ykdsummer.ai.service.LlmGateway;
+import com.example.ykdsummer.ai.service.RoutingLlmGateway;
 import com.example.ykdsummer.bot.config.ILinkProperties;
 import com.example.ykdsummer.bot.config.ILinkRateLimitProperties;
 import com.example.ykdsummer.bot.config.DocumentEditProperties;
@@ -49,6 +52,12 @@ class ILinkApplicationContextTest {
     @Autowired
     private ChatModel springAiChatModel;
 
+    @Autowired
+    private LlmGateway llmGateway;
+
+    @Autowired
+    private AiProperties aiProperties;
+
     @Test
     void startsWithoutContactingWeChatWhenDisabled() {
         var status = botService.status();
@@ -86,6 +95,9 @@ class ILinkApplicationContextTest {
     @Test
     void loadsSpringAiAndBoundedQueueDefaults() {
         assertEquals("OpenAiChatModel", springAiChatModel.getClass().getSimpleName());
+        assertEquals(RoutingLlmGateway.class, llmGateway.getClass());
+        assertEquals(600, aiProperties.getMaxCompletionTokens());
+        assertEquals(AiProperties.DEFAULT_SYSTEM_PROMPT, aiProperties.getSystemPrompt());
         assertEquals(100, properties.getTextQueueCapacity());
         assertEquals(10, properties.getImageQueueCapacity());
         assertEquals(20, rateLimitProperties.limitFor("text"));

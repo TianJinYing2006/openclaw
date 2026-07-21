@@ -7,8 +7,9 @@ import com.example.ykdsummer.ai.model.ConversationMessage;
 import java.util.List;
 
 /**
- * AiChatService 与具体 HTTP SDK 之间的一层小接口。正式运行使用 OpenAiResponsesGateway，
- * 单元测试可传入假的实现并检查历史、当前问题和图片，而不消耗真实额度。
+ * AiChatService 与具体模型协议之间的一层小接口。正式运行使用 RoutingLlmGateway：
+ * 普通纯文本进入 Spring AI Chat Completions，文件和多模态进入 Responses。
+ * 单元测试可传入假的实现并检查历史、当前问题和媒体，而不消耗真实额度。
  */
 public interface LlmGateway {
 

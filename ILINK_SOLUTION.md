@@ -167,7 +167,7 @@ public interface BotChannel {
 | iLink | 社区 Java SDK 1.0.0，封装在腾讯 iLink 直连适配器内 | 经过审计并带契约测试的 Java 直连适配器；持续跟踪腾讯官方插件协议变化 |
 | 状态 | 本地加密文件 | Redis + 密钥管理 |
 | 业务路由 | Spring Bean Handler Chain | Handler Chain + 消息队列 |
-| AI | 暂不接入 | 独立 `AiProvider` 接口 |
+| AI | Spring AI Chat Completions（纯文本）+ OpenAI Responses（文件/多模态） | 在 Spring AI 通道增加 Agent/Tool，保留 Responses 作为多模态适配器 |
 | 运维 | 日志 + 状态 API | Metrics、Tracing、告警、审计 |
 
 ## 10. 验收标准

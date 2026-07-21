@@ -198,9 +198,18 @@ PDF 仍采用内容级重建。旧版 DOC 可以分析，如需修改请先转�
 文档问答会优先由 Java 本地提取 TXT、PDF、DOCX、XLSX、PPTX 等格式的文字，再把文字和问题交给模型；
 不会在每次提问时都让中转重新解析整个二进制附件。无法本地提取的旧 DOC 等格式才回退到 Responses 文件输入。
 
-## 10. 当前能力边界
+## 10. AI 协议路由
 
-- 文本：支持固定命令和大模型多轮对话
+- 普通纯文本：使用 Spring AI 1.1.8 调用 `/v1/chat/completions`，并携带 system、历史 USER/ASSISTANT 和当前问题；这条路线用于后续 Agent/Tool。
+- 图片、文件、视频帧：继续使用已经验证的 Responses 协议，保留 `input_image`、`input_file` 和 reasoning 能力。
+- 文档分析、修改和生成：显式指定 reasoning effort，因此即使 Java 已提取成纯文字，也固定走 Responses，避免协议切换改变结构化输出。
+- 两条模型请求都设置 `store=false`；短期上下文仍由 Java 按用户隔离保存在内存中，重启后清空。
+
+Spring AI 默认使用 `SPRING_AI_BASE_URL=https://moosecloud.cc` 和 `/v1/chat/completions`，密钥默认复用 `AI_API_KEY`；如需与 Responses 分开，可设置 `SPRING_AI_API_KEY`、`SPRING_AI_BASE_URL` 和 `SPRING_AI_MODEL`。
+
+## 11. 当前能力边界
+
+- 文本：支持固定命令和 Spring AI Chat Completions 多轮对话，默认采用自然、直接、简洁的微信口吻
 - 语音输入：有腾讯转写文字时进入大模型；没有转写时提示改发文字
 - 语音输出：`语音：问题` 只返回 MP3 文件；支持按用户实时切换音色；不是微信原生语音气泡
 - 图片：支持 CDN 下载解密并交给视觉模型理解

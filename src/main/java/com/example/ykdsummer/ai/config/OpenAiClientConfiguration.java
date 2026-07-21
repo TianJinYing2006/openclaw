@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 创建全应用共享的 OpenAI HTTP 客户端，并开启会话过期清理任务。
- * {@link Bean} 方法的返回对象会由 Spring 保存，文字网关和图片服务注入的是同一个客户端。
+ * {@link Bean} 方法的返回对象会由 Spring 保存，Responses 网关和图片服务按名称注入各自客户端。
  */
 @Configuration
 @EnableScheduling
