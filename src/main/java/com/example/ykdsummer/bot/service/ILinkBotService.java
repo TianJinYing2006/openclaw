@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -57,11 +56,15 @@ public class ILinkBotService {
     /** 启动时只接受最近两分钟的消息，避免恢复旧游标后回复很久以前的历史消息。 */
     private static final long STARTUP_MESSAGE_GRACE_MS = 120_000;
     private static final String VIDEO_QUEUE_BUSY_REPLY = "当前视频任务较多，请稍后重试";
+    private static final String IMAGE_QUEUE_BUSY_REPLY = "当前生图任务较多，请稍后重试";
+    private static final String TEXT_QUEUE_BUSY_REPLY = "当前对话任务较多，请稍后重试";
+    private static final int TEXT_EXECUTOR_PARTITIONS = 8;
 
     private final ILinkProperties settings;
     private final ILinkSessionStore sessionStore;
     private final ILinkRuntimeState runtimeState;
     private final ILinkReplyService replyService;
+    private final ILinkMessageRateLimiter rateLimiter;
     private final ILinkMediaDownloader mediaDownloader;
     private final ILinkFileDownloader fileDownloader;
     private final ILinkVideoDownloader videoDownloader;
@@ -70,19 +73,15 @@ public class ILinkBotService {
 
     /**
      * 8 条文字队列。相同用户总是进入同一条单线程队列，因此文字消息严格保持提交顺序；
-     * 不同用户通常可以并行处理。
+     * 不同用户通常可以并行处理；每条队列都有等待上限，慢模型不会造成无限堆积。
      */
-    private final ExecutorService[] textReplyExecutors = IntStream.range(0, 8)
-            .mapToObj(index -> Executors.newSingleThreadExecutor(
-                    runnable -> daemonThread(runnable, "ilink-text-reply-" + index)))
-            .toArray(ExecutorService[]::new);
+    private final ExecutorService[] textReplyExecutors;
 
     /**
      * “生图：”任务使用的独立线程池，最多同时处理两张生成任务。
      * 普通文字和用户发来图片让模型理解的任务都不会进入这里。
      */
-    private final ExecutorService imageReplyExecutor = Executors.newFixedThreadPool(
-            2, runnable -> daemonThread(runnable, "ilink-image-reply"));
+    private final ExecutorService imageReplyExecutor;
 
     /**
      * 视频下载、FFmpeg 解码和多图模型调用都比较重，因此只允许一个任务执行，并限制等待数量。
@@ -100,6 +99,7 @@ public class ILinkBotService {
             ILinkSessionStore sessionStore,
             ILinkRuntimeState runtimeState,
             ILinkReplyService replyService,
+            ILinkMessageRateLimiter rateLimiter,
             ILinkMediaDownloader mediaDownloader,
             ILinkFileDownloader fileDownloader,
             ILinkVideoDownloader videoDownloader,
@@ -110,9 +110,22 @@ public class ILinkBotService {
         this.sessionStore = sessionStore;
         this.runtimeState = runtimeState;
         this.replyService = replyService;
+        this.rateLimiter = rateLimiter;
         this.mediaDownloader = mediaDownloader;
         this.fileDownloader = fileDownloader;
         this.videoDownloader = videoDownloader;
+        this.textReplyExecutors = IntStream.range(0, TEXT_EXECUTOR_PARTITIONS)
+                .mapToObj(index -> boundedExecutor(
+                        1,
+                        settings.getTextQueueCapacity(),
+                        "ilink-text-reply-" + index
+                ))
+                .toArray(ExecutorService[]::new);
+        this.imageReplyExecutor = boundedExecutor(
+                2,
+                settings.getImageQueueCapacity(),
+                "ilink-image-reply"
+        );
         this.videoReplyExecutor = new ThreadPoolExecutor(
                 1,
                 1,
@@ -268,6 +281,15 @@ public class ILinkBotService {
             return;
         }
 
+        String rateLimitType = rateLimitType(items);
+        if (!rateLimiter.tryAcquire(message.fromUserId(), rateLimitType)) {
+            recentMessageIds.remember(message.messageId());
+            log.info("Rate limited iLink message {}, user={}, type={}",
+                    message.messageId(), anonymize(message.fromUserId()), rateLimitType);
+            replyQueueBusy(message, "消息发送过快，请稍后再试");
+            return;
+        }
+
         log.info(
                 "Processing iLink message {}, user={}, itemCount={}, types={}",
                 message.messageId(),
@@ -304,22 +326,23 @@ public class ILinkBotService {
              */
         } catch (RejectedExecutionException exception) {
             boolean videoMessage = replyService.isVideoMessage(items);
-            String reason = videoMessage ? VIDEO_QUEUE_BUSY_REPLY : "回复任务队列已关闭";
+            boolean imageMessage = !videoMessage && replyService.isImageGenerationMessage(items);
+            String reason = videoMessage
+                    ? VIDEO_QUEUE_BUSY_REPLY
+                    : imageMessage ? IMAGE_QUEUE_BUSY_REPLY : TEXT_QUEUE_BUSY_REPLY;
             runtimeState.messageDeliveryFailed(reason);
             log.warn("Could not schedule reply for iLink message {}", message.messageId());
-            if (videoMessage) {
-                replyVideoQueueBusy(message);
-            }
+            replyQueueBusy(message, reason);
         }
     }
 
-    /** 视频队列满时直接发送一条很短的固定提示，不再调用 AI。 */
-    private void replyVideoQueueBusy(WeixinMessage message) {
+    /** 任一有界队列满时直接发送固定提示，不再调用外部 AI。 */
+    private void replyQueueBusy(WeixinMessage message, String reason) {
         try {
-            requireRunningBot().replyText(message, VIDEO_QUEUE_BUSY_REPLY);
+            requireRunningBot().replyText(message, reason);
             runtimeState.messageSent();
         } catch (RuntimeException exception) {
-            log.warn("Could not send video queue busy reply for message {}", message.messageId());
+            log.warn("Could not send queue busy reply for message {}", message.messageId());
         }
     }
 
@@ -384,10 +407,42 @@ public class ILinkBotService {
         return textReplyExecutors[index];
     }
 
+    private static String rateLimitType(List<MessageItem> items) {
+        boolean hasImage = false;
+        boolean hasFile = false;
+        boolean hasVoice = false;
+        for (MessageItem item : items) {
+            if (item == null) {
+                continue;
+            }
+            ILinkMessageType type = ILinkMessageType.from(item.type());
+            if (type == ILinkMessageType.VIDEO) return "video";
+            if (type == ILinkMessageType.IMAGE) hasImage = true;
+            if (type == ILinkMessageType.FILE) hasFile = true;
+            if (type == ILinkMessageType.VOICE) hasVoice = true;
+        }
+        if (hasImage) return "image";
+        if (hasFile) return "file";
+        if (hasVoice) return "voice";
+        return "text";
+    }
+
     private static Thread daemonThread(Runnable runnable, String name) {
         Thread thread = new Thread(runnable, name);
         thread.setDaemon(true);
         return thread;
+    }
+
+    private static ExecutorService boundedExecutor(int threadCount, int queueCapacity, String threadName) {
+        return new ThreadPoolExecutor(
+                threadCount,
+                threadCount,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(Math.max(1, queueCapacity)),
+                runnable -> daemonThread(runnable, threadName),
+                new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 
     /** 判断消息创建时间是否早于“本次启动时间减去两分钟”。 */

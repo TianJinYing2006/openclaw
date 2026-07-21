@@ -28,6 +28,7 @@ class ILinkBotServiceDocumentReplyTest {
                 mock(ILinkSessionStore.class),
                 runtimeState,
                 replyService,
+                mock(ILinkMessageRateLimiter.class),
                 mock(ILinkMediaDownloader.class),
                 mock(ILinkFileDownloader.class),
                 mock(ILinkVideoDownloader.class),

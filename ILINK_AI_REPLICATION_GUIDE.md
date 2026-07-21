@@ -2,7 +2,7 @@
 
 > 基线日期：2026-07-16  
 > 目标读者：接手项目的 AI 编程助手、Java 开发人员、验收人员  
-> 基线工程：Spring Boot 4.1.0、Java 21、Maven、`weixin-ilink-sdk:1.0.0`
+> 基线工程：Spring Boot 3.5.16、Spring AI 1.1.8、Java 21、Maven 3.9.x、`weixin-ilink-sdk:1.0.0`
 
 ## 1. 文档用途
 
@@ -71,7 +71,8 @@ iLink 的工作方式是：
 |---|---|
 | JDK | Java 21 推荐；SDK 最低要求 Java 17 |
 | Maven | Maven 3.9+ |
-| Spring Boot | 当前基线 4.1.0 |
+| Spring Boot | 当前基线 3.5.16 |
+| Spring AI | 当前基线 1.1.8，用于后续 Chat Completions、Agent 和 Tool |
 | IDE | IntelliJ IDEA，可选 |
 | 网络 | 能访问 Maven 仓库和腾讯 iLink/CDN 域名 |
 | 端口 | 默认 8080；冲突时可使用 8081 |
@@ -889,4 +890,3 @@ MVP 不能直接当作生产系统。至少补充：
 - [Maven Central：weixin-ilink-sdk 1.0.0](https://central.sonatype.com/artifact/io.github.morningwn/weixin-ilink-sdk)
 - 当前工程入门指南：`ILINK_GUIDE.md`
 - 当前工程架构方案：`ILINK_SOLUTION.md`
-

@@ -33,6 +33,9 @@ public class AiProperties {
     /** 多久没有继续对话后清理该用户的内存记录。 */
     private Duration memoryIdleTimeout = Duration.ofHours(2);
 
+    /** 单实例最多缓存多少位用户的短期对话，超出后由 Caffeine 近似 LRU 淘汰。 */
+    private long maxMemoryUsers = 10_000L;
+
     /** 是否允许文字生成图片。 */
     private boolean imageEnabled = true;
 
@@ -90,6 +93,14 @@ public class AiProperties {
 
     public void setMemoryIdleTimeout(Duration memoryIdleTimeout) {
         this.memoryIdleTimeout = memoryIdleTimeout;
+    }
+
+    public long getMaxMemoryUsers() {
+        return maxMemoryUsers;
+    }
+
+    public void setMaxMemoryUsers(long maxMemoryUsers) {
+        this.maxMemoryUsers = Math.max(1L, maxMemoryUsers);
     }
 
     public boolean isImageEnabled() { return imageEnabled; }

@@ -1,19 +1,18 @@
 package com.example.ykdsummer.ai.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 管理每个微信用户的内存对话，并把普通问题交给模型网关。
@@ -38,11 +37,15 @@ public class AiChatService {
     private final AiProperties properties;
     private final LlmGateway gateway;
     /** key 是 iLink fromUserId，value 是该微信用户自己的最近对话。 */
-    private final ConcurrentHashMap<String, UserConversation> conversations = new ConcurrentHashMap<>();
+    private final Cache<String, UserConversation> conversations;
 
     public AiChatService(AiProperties properties, LlmGateway gateway) {
         this.properties = properties;
         this.gateway = gateway;
+        this.conversations = Caffeine.newBuilder()
+                .maximumSize(properties.getMaxMemoryUsers())
+                .expireAfterAccess(safeMemoryTimeout(properties.getMemoryIdleTimeout()))
+                .build();
     }
 
     /**
@@ -80,19 +83,14 @@ public class AiChatService {
         if (!properties.isEnabled()) {
             return DISABLED_REPLY;
         }
-        // 第一次对话或旧记录已超时，就为这个 userId 创建一份新的空会话。
-        UserConversation conversation = conversations.compute(userId, (ignored, existing) ->
-                existing == null || existing.isExpired(properties.getMemoryIdleTimeout())
-                        ? new UserConversation()
-                        : existing
-        );
+        // Caffeine 按访问时间自动过期，并对总用户数设置上限，避免长期运行后 Map 无限增长。
+        UserConversation conversation = conversations.get(userId, ignored -> new UserConversation());
         /*
-         * ConcurrentHashMap 只保证“查 Map”安全，不能保证同一用户两次请求的历史顺序。
+         * Caffeine 负责会话对象的容量和过期，不负责同一用户两次请求的历史顺序。
          * synchronized 锁住该用户自己的会话：同一用户必须一个问题回答完再记下一条；
          * 不同用户锁的是不同对象，仍然可以并行。
          */
         synchronized (conversation) {
-            conversation.touch();
             try {
                 /*
                  * 因为 Responses 请求设置 store=false，服务端不替我们保存上下文。
@@ -124,15 +122,14 @@ public class AiChatService {
             } catch (RuntimeException exception) {
                 log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
                 return UNAVAILABLE_REPLY;
-            } finally {
-                conversation.touch();
             }
         }
     }
 
     public void clear(String userId) {
         // “清空”命令传入当前发送者 ID，只删除这一位用户的记录。
-        UserConversation removed = conversations.remove(userId);
+        UserConversation removed = conversations.getIfPresent(userId);
+        conversations.invalidate(userId);
         if (removed != null) {
             synchronized (removed) {
                 removed.messages.clear();
@@ -148,15 +145,9 @@ public class AiChatService {
         return properties.getModel();
     }
 
-    /** 每十分钟删除一次超过两小时没有继续使用的会话。 */
-    @Scheduled(fixedDelay = 600_000L)
-    void removeExpiredConversations() {
-        Duration timeout = properties.getMemoryIdleTimeout();
-        conversations.entrySet().removeIf(entry -> entry.getValue().isExpired(timeout));
-    }
-
     int conversationCount() {
-        return conversations.size();
+        conversations.cleanUp();
+        return Math.toIntExact(conversations.estimatedSize());
     }
 
     /**
@@ -181,10 +172,15 @@ public class AiChatService {
         return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
     }
 
+    private static Duration safeMemoryTimeout(Duration configured) {
+        return configured == null || configured.isZero() || configured.isNegative()
+                ? Duration.ofHours(2)
+                : configured;
+    }
+
     private static final class UserConversation {
         /** USER 和 ASSISTANT 消息交替存放，条数达到上限时从最旧消息开始删除。 */
         private final List<ConversationMessage> messages = new ArrayList<>();
-        private volatile Instant lastAccess = Instant.now();
 
         private List<ConversationMessage> copyMessages() {
             return List.copyOf(messages);
@@ -198,15 +194,5 @@ public class AiChatService {
             }
         }
 
-        private void touch() {
-            lastAccess = Instant.now();
-        }
-
-        private boolean isExpired(Duration timeout) {
-            Duration safeTimeout = timeout == null || timeout.isNegative() || timeout.isZero()
-                    ? Duration.ofHours(2)
-                    : timeout;
-            return lastAccess.plus(safeTimeout).isBefore(Instant.now());
-        }
     }
 }

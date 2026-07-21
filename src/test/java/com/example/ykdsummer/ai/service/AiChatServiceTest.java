@@ -92,6 +92,19 @@ class AiChatServiceTest {
                 .containsExactly("总结\n[本轮附带文件：notes.txt]", "回答1");
     }
 
+    @Test
+    void boundsCachedUsersWithCaffeine() {
+        AiProperties properties = new AiProperties();
+        properties.setMaxMemoryUsers(1);
+        RecordingGateway gateway = new RecordingGateway();
+        AiChatService service = new AiChatService(properties, gateway);
+
+        service.answer("user-a", "问题A", List.of());
+        service.answer("user-b", "问题B", List.of());
+
+        assertThat(service.conversationCount()).isLessThanOrEqualTo(1);
+    }
+
     private static AiChatService serviceThrowing(AiProperties properties, AiGatewayException.Kind kind) {
         return new AiChatService(properties, (history, prompt, images, files) -> {
             throw new AiGatewayException(kind);

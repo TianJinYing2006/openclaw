@@ -2,11 +2,13 @@ package com.example.ykdsummer.bot;
 
 import com.example.ykdsummer.ai.config.ImageOpenAiClientProperties;
 import com.example.ykdsummer.bot.config.ILinkProperties;
+import com.example.ykdsummer.bot.config.ILinkRateLimitProperties;
 import com.example.ykdsummer.bot.config.DocumentEditProperties;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
 import com.example.ykdsummer.bot.service.ILinkBotService;
 import com.openai.client.OpenAIClient;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -34,12 +36,18 @@ class ILinkApplicationContextTest {
     private DocumentEditProperties documentProperties;
 
     @Autowired
+    private ILinkRateLimitProperties rateLimitProperties;
+
+    @Autowired
     @Qualifier("openAIClient")
     private OpenAIClient textClient;
 
     @Autowired
     @Qualifier("imageOpenAIClient")
     private OpenAIClient imageClient;
+
+    @Autowired
+    private ChatModel springAiChatModel;
 
     @Test
     void startsWithoutContactingWeChatWhenDisabled() {
@@ -73,5 +81,14 @@ class ILinkApplicationContextTest {
         assertEquals(20, documentProperties.getMaxVersions());
         assertEquals(2, documentProperties.getIdleTimeout().toHours());
         assertEquals(20 * 1024 * 1024, documentProperties.getMaxOutputBytes());
+    }
+
+    @Test
+    void loadsSpringAiAndBoundedQueueDefaults() {
+        assertEquals("OpenAiChatModel", springAiChatModel.getClass().getSimpleName());
+        assertEquals(100, properties.getTextQueueCapacity());
+        assertEquals(10, properties.getImageQueueCapacity());
+        assertEquals(20, rateLimitProperties.limitFor("text"));
+        assertEquals(2, rateLimitProperties.limitFor("video"));
     }
 }

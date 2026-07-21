@@ -37,6 +37,12 @@ public class ILinkProperties {
     /** 登录会话和消息游标的本地保存位置；文件含敏感凭据，不能提交到 Git。 */
     private Path sessionFile = Path.of(".ilink", "session.properties");
 
+    /** 每条文字分片队列最多等待的任务数，防止外部模型变慢时内存无限增长。 */
+    private int textQueueCapacity = 100;
+
+    /** 生图队列最多等待的任务数。 */
+    private int imageQueueCapacity = 10;
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -75,5 +81,21 @@ public class ILinkProperties {
 
     public void setSessionFile(Path sessionFile) {
         this.sessionFile = sessionFile;
+    }
+
+    public int getTextQueueCapacity() {
+        return textQueueCapacity;
+    }
+
+    public void setTextQueueCapacity(int textQueueCapacity) {
+        this.textQueueCapacity = Math.max(1, textQueueCapacity);
+    }
+
+    public int getImageQueueCapacity() {
+        return imageQueueCapacity;
+    }
+
+    public void setImageQueueCapacity(int imageQueueCapacity) {
+        this.imageQueueCapacity = Math.max(1, imageQueueCapacity);
     }
 }

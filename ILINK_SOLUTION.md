@@ -163,7 +163,7 @@ public interface BotChannel {
 | 位置 | MVP | 生产建议 |
 |---|---|---|
 | Java | Java 21 | Java 21 LTS |
-| 框架 | Spring Boot 4.1 | Spring Boot 4.x |
+| 框架 | Spring Boot 3.5.16 + Spring AI 1.1.8 | 保持 Boot 3.5.x / Spring AI 1.1.x 兼容线并按补丁版本升级 |
 | iLink | 社区 Java SDK 1.0.0，封装在腾讯 iLink 直连适配器内 | 经过审计并带契约测试的 Java 直连适配器；持续跟踪腾讯官方插件协议变化 |
 | 状态 | 本地加密文件 | Redis + 密钥管理 |
 | 业务路由 | Spring Bean Handler Chain | Handler Chain + 消息队列 |

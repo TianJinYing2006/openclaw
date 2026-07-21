@@ -495,9 +495,9 @@ SDK 负责把 Java 对象变成 iLink 网络请求
 | 理解消息发送机制 | [ILinkBotService.java](src/main/java/com/example/ykdsummer/bot/service/ILinkBotService.java) 的文字回复与图片回复方法 | 已完成 | 文字走 `replyText(...)`；图片走 `sendImage(...)`，SDK 内部还会加密和上传 CDN |
 | 理解异常与重试 | [OpenAiClientConfiguration.java](src/main/java/com/example/ykdsummer/ai/config/OpenAiClientConfiguration.java) 和第 12 节 | 已完成当前策略 | 当前模型调用不自动重试；失败只回复友好提示，不中断 iLink 长轮询 |
 | 接入 LLM，完成基本中文对话 | [AiChatService.java](src/main/java/com/example/ykdsummer/ai/service/AiChatService.java) 与 [OpenAiResponsesGateway.java](src/main/java/com/example/ykdsummer/ai/service/OpenAiResponsesGateway.java) | 已完成 | 普通问题连同当前用户最近的历史一起发送给文字模型 |
-| 不同用户的上下文隔离 | [AiChatService.java](src/main/java/com/example/ykdsummer/ai/service/AiChatService.java) | 已完成内存版 | 使用微信用户编号作为键；每个用户最多保留最近 20 条，空闲 2 小时清理 |
+| 不同用户的上下文隔离 | [AiChatService.java](src/main/java/com/example/ykdsummer/ai/service/AiChatService.java) | 已完成 Caffeine 内存版 | 使用微信用户编号作为键；每个用户最多保留最近 20 条，空闲 2 小时淘汰，缓存用户总数有上限 |
 | 学习 Agent | 当前没有 Agent 工具调用层 | 未完成、也不是本阶段必要功能 | 现在是“收到问题→调用模型→返回回答”的聊天机器人，还不是能自主调用工具的 Agent |
-| Spring AI / LangChain4j | 当前项目没有使用这两个框架 | 未使用 | 当前直接使用 OpenAI Java SDK，不能在汇报时误说成 Spring AI 或 LangChain4j |
+| Spring AI / LangChain4j | [pom.xml](pom.xml) 已引入 Spring AI 1.1.8；当前未使用 LangChain4j | Spring AI 基础已完成，Agent 路由未接入 | 普通文件/多模态仍走已验证的 Responses 网关；后续 Agent/Tool 使用 Spring AI Chat Completions |
 
 ### 15.1 哪些代码属于 SDK，哪些属于我们项目
 
