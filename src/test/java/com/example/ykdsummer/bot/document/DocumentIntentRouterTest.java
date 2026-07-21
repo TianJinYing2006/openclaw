@@ -21,6 +21,26 @@ class DocumentIntentRouterTest {
     }
 
     @Test
+    void recognizesNaturalFileRequestsWithoutCommandPrefixes() {
+        assertThat(router.route("帮我根据这份材料写一份项目周报").intent())
+                .isEqualTo(DocumentIntentRouter.Intent.GENERATE);
+        assertThat(router.route("给我做一个关于它的建议文案").intent())
+                .isEqualTo(DocumentIntentRouter.Intent.GENERATE);
+        assertThat(router.route("整理出一个 Excel 表格").intent())
+                .isEqualTo(DocumentIntentRouter.Intent.GENERATE);
+        assertThat(router.route("把第三段补充完整").intent())
+                .isEqualTo(DocumentIntentRouter.Intent.EDIT);
+        assertThat(router.route("总结一下它的核心观点").intent())
+                .isEqualTo(DocumentIntentRouter.Intent.ANALYZE);
+        assertThat(router.route("帮我看看这份材料").intent())
+                .isEqualTo(DocumentIntentRouter.Intent.ANALYZE);
+        assertThat(router.route("刚才生成的文件有什么问题").intent())
+                .isEqualTo(DocumentIntentRouter.Intent.ANALYZE);
+        assertThat(router.route("这个文件是怎么生成的？").intent())
+                .isEqualTo(DocumentIntentRouter.Intent.ANALYZE);
+    }
+
+    @Test
     void explicitPrefixesTakePriorityAndAreRemoved() {
         assertThat(router.route("分析：标题合理吗"))
                 .isEqualTo(new DocumentIntentRouter.Decision(DocumentIntentRouter.Intent.ANALYZE, "标题合理吗"));

@@ -259,7 +259,8 @@ class ILinkReplyServiceTest {
 
         ILinkReply reply = replyService.createReply(message("user"), List.of(fileItem), status());
 
-        assertThat(textValue(reply)).contains("已接收：report.pdf", "文档模式", "撤销", "复杂排版");
+        assertThat(textValue(reply)).contains("已接收：report.pdf", "直接告诉我", "撤销", "复杂排版")
+                .doesNotContain("可用指令：");
         verify(documentSessions).open("user", file);
         verify(aiChatService, never()).answer(any(), any(), any(), any());
         verify(mediaDownloader, never()).downloadImages(any());
@@ -282,7 +283,7 @@ class ILinkReplyServiceTest {
         ILinkReply.DocumentFile fileReply = (ILinkReply.DocumentFile) reply;
         assertThat(fileReply.fileName()).isEqualTo("report_v2.txt");
         assertThat(fileReply.bytes()).containsExactly(bytes);
-        assertThat(fileReply.followUpText()).contains("版本 v2", "修改：要求", "分析：问题", "完成", "关闭文件");
+        assertThat(fileReply.followUpText()).contains("v2", "直接说修改要求", "撤销", "完成");
         verify(documentEditService).edit("user", "把标题改掉");
         verify(aiChatService, never()).answer(any(), any(), any());
     }
@@ -295,7 +296,7 @@ class ILinkReplyServiceTest {
         ILinkReply reply = replyService.createReply(
                 message("user"), List.of(text("我认为第二自然段有问题")), status());
 
-        assertThat(textValue(reply)).contains("第二段论据不足", "只做了分析", "应用建议");
+        assertThat(textValue(reply)).contains("第二段论据不足", "文件未修改", "应用建议");
         verify(documentAnalysisService).analyze("user", "我认为第二自然段有问题");
         verify(documentEditService, never()).edit(any(), any());
         verify(documentSessions, never()).addVersion(any(), any(), any());
@@ -308,7 +309,7 @@ class ILinkReplyServiceTest {
         ILinkReply reply = replyService.createReply(
                 message("user"), List.of(text("第二自然段")), status());
 
-        assertThat(textValue(reply)).contains("分析当前文件", "回复“分析”“修改”或“生成”", "不会改动文件");
+        assertThat(textValue(reply)).contains("想分析、修改", "回复“分析”“修改”或“生成”", "不会改动");
         verify(documentSessions).savePendingInstruction("user", "第二自然段");
         verify(documentEditService, never()).edit(any(), any());
         verify(documentAnalysisService, never()).analyze(any(), any());
@@ -322,7 +323,7 @@ class ILinkReplyServiceTest {
         when(documentAnalysisService.analyze("user", "第二自然段")).thenReturn("建议压缩第二段");
 
         assertThat(textValue(replyService.createReply(message("user"), List.of(text("分析")), status())))
-                .contains("建议压缩第二段", "没有修改文件");
+                .contains("建议压缩第二段", "文件未修改");
 
         when(documentSessions.lastAnalysis("user")).thenReturn(Optional.of("建议压缩第二段"));
         when(documentEditService.edit(eq("user"), any())).thenReturn(new DocumentEditService.EditResult(
@@ -334,17 +335,33 @@ class ILinkReplyServiceTest {
     }
 
     @Test
+    void naturalFollowUpCanApplyTheLastAnalysis() {
+        byte[] bytes = "changed".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        when(documentSessions.hasActive("user")).thenReturn(true);
+        when(documentSessions.lastAnalysis("user")).thenReturn(Optional.of("建议压缩第二段"));
+        when(documentEditService.edit(eq("user"), any())).thenReturn(new DocumentEditService.EditResult(
+                "report_v2.txt", bytes,
+                new DocumentSessionService.DocumentSnapshot("doc", "report.txt", "txt", 2, 2, Instant.now()), ""));
+
+        ILinkReply reply = replyService.createReply(
+                message("user"), List.of(text("那就按刚才的建议修改一下")), status());
+
+        assertThat(reply).isInstanceOf(ILinkReply.DocumentFile.class);
+        verify(documentEditService).edit(eq("user"), org.mockito.ArgumentMatchers.contains("建议压缩第二段"));
+    }
+
+    @Test
     void generationCreatesIndependentFileWithoutChangingCurrentVersion() {
         byte[] bytes = "new-docx".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         when(documentSessions.hasActive("user")).thenReturn(true);
         DocumentSessionService.DocumentSnapshot source = new DocumentSessionService.DocumentSnapshot(
                 "doc", "source.docx", "docx", 1, 1, Instant.now());
-        when(documentGenerationService.generate("user", "基于它生成一份建议文案 Word"))
+        when(documentGenerationService.generate("user", "帮我根据它写一份建议文案 Word"))
                 .thenReturn(new DocumentGenerationService.GenerationResult(
                         "generated_document.docx", bytes, "docx", "完整建议文案", source, ""));
 
         ILinkReply reply = replyService.createReply(message("user"),
-                List.of(text("生成：基于它生成一份建议文案 Word")), status());
+                List.of(text("帮我根据它写一份建议文案 Word")), status());
 
         assertThat(reply).isInstanceOf(ILinkReply.DocumentFile.class);
         ILinkReply.DocumentFile file = (ILinkReply.DocumentFile) reply;

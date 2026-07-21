@@ -49,16 +49,7 @@ public class ILinkReplyService {
     static final String MIXED_VIDEO_ATTACHMENT_REPLY = "暂不支持在同一条消息中同时发送视频和图片或文件";
     static final String DEFAULT_IMAGE_PROMPT = "请描述这张图片";
     static final String DEFAULT_FILE_PROMPT = "请读取并总结这个文件";
-    static final String DOCUMENT_COMMANDS = "可用指令：\n"
-            + "- 分析：问题：只分析当前文件，不生成新版本\n"
-            + "- 修改：要求：明确修改当前文件\n"
-            + "- 生成：要求：参考当前文件另生成独立文件，原文件不变\n"
-            + "- 应用建议：按最近一次分析结果修改\n"
-            + "- 当前文件：查看当前版本\n"
-            + "- 撤销：退回上一个版本\n"
-            + "- 使用原版：切换回最初上传的版本\n"
-            + "- 完成：发送当前版本并退出文档模式\n"
-            + "- 关闭文件：退出文档模式，不删除文件";
+    static final String DOCUMENT_HINT = "直接说你的要求即可；版本操作可发送：撤销、使用原版、完成、关闭文件。";
 
     private static final Logger log = LoggerFactory.getLogger(ILinkReplyService.class);
 
@@ -131,9 +122,8 @@ public class ILinkReplyService {
                                 message.fromUserId(), snapshot.originalFileName(), text,
                                 RecentDocumentContextService.Kind.SOURCE));
                 return new ILinkReply.Text("已接收：" + snapshot.originalFileName() + "\n"
-                        + "已进入文档模式。你可以围绕文件提问，也可以明确要求修改。\n"
-                        + "为避免误改，无法判断意图时我会先向你确认。\n\n"
-                        + DOCUMENT_COMMANDS + simplifiedFormatNotice(snapshot.extension()));
+                        + "直接告诉我你想做什么，例如“总结重点”“把第二段改短”或“根据内容写一份建议 Word”。\n"
+                        + DOCUMENT_HINT + simplifiedFormatNotice(snapshot.extension()));
             } catch (ILinkFileDownloader.FileProcessingException exception) {
                 log.warn("Could not prepare iLink file, user={}, reason={}",
                         anonymize(message.fromUserId()), exception.userMessage());
@@ -231,6 +221,9 @@ public class ILinkReplyService {
     private ILinkReply handleDocumentMode(String userId, String prompt) {
         String command = prompt.trim();
         try {
+            if (isApplyLastAnalysisRequest(command)) {
+                return applyLastAnalysis(userId);
+            }
             return switch (command) {
                 case "当前文件", "文件状态" -> documentSessions.current(userId)
                         .<ILinkReply>map(snapshot -> new ILinkReply.Text(documentStatus(snapshot)))
@@ -239,7 +232,7 @@ public class ILinkReplyService {
                         .<ILinkReply>map(snapshot -> documentReply(
                                 documentSessions.currentFile(userId),
                                 "已撤销到版本 v" + snapshot.currentVersion() + "，当前仍处于文档模式。"))
-                        .orElseGet(() -> new ILinkReply.Text("当前已经是原版，无法继续撤销。\n\n" + DOCUMENT_COMMANDS));
+                        .orElseGet(() -> new ILinkReply.Text("当前已经是原版，无法继续撤销。"));
                 case "使用原版", "回到原版" -> {
                     DocumentSessionService.DocumentSnapshot snapshot = documentSessions.useOriginal(userId);
                     yield documentReply(documentSessions.currentFile(userId),
@@ -256,19 +249,15 @@ public class ILinkReplyService {
                     documentSessions.close(userId);
                     yield new ILinkReply.Text("已退出文档模式，已生成的文件和版本没有删除。后续普通文字恢复为正常对话。");
                 }
-                case "应用建议" -> documentSessions.lastAnalysis(userId)
-                        .<ILinkReply>map(analysis -> editDocument(userId,
-                                "请依据下面最近一次分析建议修改当前文件，只应用与文件有关且明确可执行的建议：\n" + analysis))
-                        .orElseGet(() -> new ILinkReply.Text("当前还没有分析建议。请先发送“分析：你的问题”。\n\n" + DOCUMENT_COMMANDS));
                 case "分析" -> documentSessions.consumePendingInstruction(userId)
                         .<ILinkReply>map(question -> analyzeDocument(userId, question))
-                        .orElseGet(() -> new ILinkReply.Text("当前没有等待确认的内容。请发送“分析：你的问题”。\n\n" + DOCUMENT_COMMANDS));
+                        .orElseGet(() -> new ILinkReply.Text("当前没有等待确认的内容，请直接告诉我你想分析什么。"));
                 case "修改" -> documentSessions.consumePendingInstruction(userId)
                         .<ILinkReply>map(instruction -> editDocument(userId, instruction))
-                        .orElseGet(() -> new ILinkReply.Text("当前没有等待确认的内容。请发送“修改：你的要求”。\n\n" + DOCUMENT_COMMANDS));
+                        .orElseGet(() -> new ILinkReply.Text("当前没有等待确认的内容，请直接告诉我你想怎么修改。"));
                 case "生成" -> documentSessions.consumePendingInstruction(userId)
                         .<ILinkReply>map(instruction -> generateDocument(userId, instruction))
-                        .orElseGet(() -> new ILinkReply.Text("当前没有等待确认的内容。请发送“生成：你的要求”。\n\n" + DOCUMENT_COMMANDS));
+                        .orElseGet(() -> new ILinkReply.Text("当前没有等待确认的内容，请直接告诉我想生成什么文件。"));
                 default -> {
                     DocumentIntentRouter.Decision decision = documentIntentRouter.route(prompt);
                     yield switch (decision.intent()) {
@@ -277,22 +266,28 @@ public class ILinkReplyService {
                         case GENERATE -> generateDocument(userId, decision.instruction());
                         case AMBIGUOUS -> {
                             documentSessions.savePendingInstruction(userId, decision.instruction());
-                            yield new ILinkReply.Text("你希望我分析当前文件、修改当前文件，还是另生成一个独立文件？\n"
-                                    + "回复“分析”“修改”或“生成”。在你确认前，我不会改动文件。\n\n" + DOCUMENT_COMMANDS);
+                            yield new ILinkReply.Text("这句话还不够明确：你想分析、修改，还是另生成一个文件？\n"
+                                    + "回复“分析”“修改”或“生成”即可；确认前文件不会改动。");
                         }
                     };
                 }
             };
         } catch (DocumentEditException exception) {
             log.warn("Document mode failed, user={}, reason={}", anonymize(userId), exception.getMessage());
-            return new ILinkReply.Text(exception.userMessage() + "\n\n当前仍处于文档模式。\n" + DOCUMENT_COMMANDS);
+            return new ILinkReply.Text(exception.userMessage() + "\n当前文件仍可继续处理。");
         }
+    }
+
+    private ILinkReply applyLastAnalysis(String userId) {
+        return documentSessions.lastAnalysis(userId)
+                .<ILinkReply>map(analysis -> editDocument(userId,
+                        "请依据下面最近一次分析建议修改当前文件，只应用与文件有关且明确可执行的建议：\n" + analysis))
+                .orElseGet(() -> new ILinkReply.Text("当前还没有分析建议，请先直接告诉我你想分析什么。"));
     }
 
     private ILinkReply analyzeDocument(String userId, String question) {
         String answer = documentAnalysisService.analyze(userId, question);
-        return new ILinkReply.Text(answer + "\n\n本次只做了分析，没有修改文件或创建新版本。\n"
-                + "若认可这些建议，可回复“应用建议”。\n\n" + DOCUMENT_COMMANDS);
+        return new ILinkReply.Text(answer + "\n\n文件未修改；若认可这些建议，回复“应用建议”即可。");
     }
 
     private ILinkReply editDocument(String userId, String instruction) {
@@ -302,9 +297,8 @@ public class ILinkReplyService {
                         userId, result.fileName(), text, RecentDocumentContextService.Kind.MODIFIED));
         String warning = result.warning().isBlank() ? "" : "\n注意：" + result.warning();
         return new ILinkReply.DocumentFile(result.fileName(), result.bytes(),
-                "已生成版本 v" + result.snapshot().currentVersion() + "。\n"
-                        + "如果不满意，可继续发“修改：要求”；也可先发“分析：问题”。"
-                        + warning + "\n\n" + DOCUMENT_COMMANDS);
+                "已修改并生成 v" + result.snapshot().currentVersion() + "。"
+                        + warning + "\n可继续直接说修改要求；不满意发“撤销”，满意发“完成”。");
     }
 
     private ILinkReply generateDocument(String userId, String instruction) {
@@ -316,7 +310,7 @@ public class ILinkReplyService {
                 "已参考当前文件生成独立的 "
                         + result.extension().toUpperCase(java.util.Locale.ROOT) + " 文件。\n"
                         + "原文件和当前版本 v" + result.sourceSnapshot().currentVersion() + " 没有修改。"
-                        + warning + "\n当前仍处于文档模式，可继续分析、修改或生成。\n\n" + DOCUMENT_COMMANDS);
+                        + warning + "\n可继续直接说下一步要求。");
     }
 
     private ILinkReply generateDocumentFromRecent(
@@ -345,14 +339,14 @@ public class ILinkReplyService {
             DocumentSessionService.VersionFile file,
             String message
     ) {
-        return new ILinkReply.DocumentFile(file.fileName(), file.bytes(), message + "\n\n" + DOCUMENT_COMMANDS);
+        return new ILinkReply.DocumentFile(file.fileName(), file.bytes(), message + "\n" + DOCUMENT_HINT);
     }
 
     private static String documentStatus(DocumentSessionService.DocumentSnapshot snapshot) {
         return "当前文件：" + snapshot.originalFileName() + "\n"
                 + "当前版本：v" + snapshot.currentVersion() + "\n"
                 + "已生成版本数：" + snapshot.versionCount() + "\n"
-                + "当前仍处于文档模式。\n\n" + DOCUMENT_COMMANDS;
+                + DOCUMENT_HINT;
     }
 
     private static String simplifiedFormatNotice(String extension) {
@@ -406,7 +400,7 @@ public class ILinkReplyService {
                     + "10. 发送“当前音色”或“重置音色”\n"
                     + "11. 发送 60 秒以内的短视频进行画面与语音联合分析\n"
                     + "12. 发送 TXT、MD、JSON、CSV、HTML、XML、Java、PDF、DOC、DOCX、XLSX 或 PPTX 文件进入文档模式\n"
-                    + "13. 文档模式用“分析：问题”只读问答，用“修改：要求”修改当前文件，用“生成：要求”另生成独立文件\n"
+                    + "13. 上传文件后直接说“总结重点”“把第二段改短”“写一份建议 Word”即可；分析/修改/生成前缀也兼容\n"
                     + "14. 退出后可问“刚才的文档讲了什么”，或发“生成 PDF/Word/PPT/Excel：要求”直接生成文件\n"
                     + "15. 文档模式还可用“应用建议、当前文件、撤销、使用原版、完成、关闭文件”";
             case "状态" -> "微信连接：" + status.connectionStatus() + "\n"
@@ -475,6 +469,21 @@ public class ILinkReplyService {
                         + "txt|纯文本|markdown|md文件|md格式|json|csv|html|xml).*"
         );
         return explicitGeneration && explicitFormat;
+    }
+
+    private static boolean isApplyLastAnalysisRequest(String prompt) {
+        String text = prompt == null ? "" : prompt.strip();
+        if (List.of("应用建议", "按建议修改", "按这些建议修改", "按刚才的建议修改",
+                "按照建议修改", "采纳建议", "采用建议").contains(text)) {
+            return true;
+        }
+        boolean referencesRecentAnalysis = List.of(
+                "这些建议", "上述建议", "上面的建议", "刚才的建议", "你的建议",
+                "刚才的分析", "分析结果").stream().anyMatch(text::contains);
+        boolean asksToApply = List.of(
+                "应用", "采用", "采纳", "按", "按照", "修改", "改一下", "调整", "优化"
+        ).stream().anyMatch(text::contains);
+        return referencesRecentAnalysis && asksToApply;
     }
 
     private static ExtractedContent extract(List<MessageItem> items) {
