@@ -2,8 +2,10 @@ package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.ConversationMessage;
+import com.example.ykdsummer.ai.tool.WeatherTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -31,18 +33,27 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
 
     private static final Logger log = LoggerFactory.getLogger(SpringAiChatCompletionsGateway.class);
 
-    private final ChatModel chatModel;
+    private final ChatClient chatClient;
     private final AiProperties properties;
+    private final WeatherTools weatherTools;
 
-    public SpringAiChatCompletionsGateway(ChatModel chatModel, AiProperties properties) {
-        this.chatModel = chatModel;
+    public SpringAiChatCompletionsGateway(
+            ChatModel chatModel,
+            AiProperties properties,
+            WeatherTools weatherTools
+    ) {
+        this.chatClient = ChatClient.create(chatModel);
         this.properties = properties;
+        this.weatherTools = weatherTools;
     }
 
     @Override
     public LlmGateway.ModelReply generate(List<ConversationMessage> history, String prompt) {
         try {
-            ChatResponse response = chatModel.call(buildPrompt(history, prompt));
+            ChatResponse response = chatClient.prompt(buildPrompt(history, prompt))
+                    .tools(weatherTools)
+                    .call()
+                    .chatResponse();
             String text = extractText(response);
             if (text.isBlank()) {
                 throw new AiGatewayException(AiGatewayException.Kind.EMPTY_RESPONSE);

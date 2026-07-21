@@ -888,5 +888,5 @@ MVP 不能直接当作生产系统。至少补充：
 - [腾讯官方插件中文说明](https://github.com/Tencent/openclaw-weixin/blob/main/README.zh_CN.md)
 - [Java 社区 SDK](https://github.com/morningwn/weixin-ilink-sdk)
 - [Maven Central：weixin-ilink-sdk 1.0.0](https://central.sonatype.com/artifact/io.github.morningwn/weixin-ilink-sdk)
-- 当前工程入门指南：`ILINK_GUIDE.md`
-- 当前工程架构方案：`ILINK_SOLUTION.md`
+- 当前工程入门指南：[ILINK_GUIDE.md](../getting-started/ILINK_GUIDE.md)
+- 当前工程架构方案：[ILINK_SOLUTION.md](../architecture/ILINK_SOLUTION.md)
