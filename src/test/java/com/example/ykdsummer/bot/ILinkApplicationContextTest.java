@@ -6,7 +6,7 @@ import com.example.ykdsummer.ai.service.LlmGateway;
 import com.example.ykdsummer.ai.service.RoutingLlmGateway;
 import com.example.ykdsummer.bot.config.ILinkProperties;
 import com.example.ykdsummer.bot.config.ILinkRateLimitProperties;
-import com.example.ykdsummer.bot.config.DocumentEditProperties;
+import com.example.ykdsummer.bot.config.FileProcessingProperties;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
 import com.example.ykdsummer.bot.service.ILinkBotService;
 import com.openai.client.OpenAIClient;
@@ -36,7 +36,7 @@ class ILinkApplicationContextTest {
     private VideoProcessingProperties videoProperties;
 
     @Autowired
-    private DocumentEditProperties documentProperties;
+    private FileProcessingProperties fileProperties;
 
     @Autowired
     private ILinkRateLimitProperties rateLimitProperties;
@@ -86,10 +86,8 @@ class ILinkApplicationContextTest {
     }
 
     @Test
-    void bindsSafeDocumentModeDefaults() {
-        assertEquals(20, documentProperties.getMaxVersions());
-        assertEquals(2, documentProperties.getIdleTimeout().toHours());
-        assertEquals(20 * 1024 * 1024, documentProperties.getMaxOutputBytes());
+    void bindsSafeFileOutputDefault() {
+        assertEquals(20 * 1024 * 1024, fileProperties.getMaxOutputBytes());
     }
 
     @Test

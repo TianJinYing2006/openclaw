@@ -73,6 +73,19 @@ public class AiChatService {
         return answer(userId, prompt, modelPrompt, List.of(), List.of());
     }
 
+    /**
+     * 允许业务层附加用户不可见的内部协议提示，同时聊天记忆只保存用户真正发送的文字。
+     * TJY 文件生成协议使用这个入口让模型返回 FILE_GEN||JSON 标记。
+     */
+    public String answerWithInternalPrompt(
+            String userId,
+            String userPrompt,
+            String modelPrompt,
+            List<AiFile> files
+    ) {
+        return answer(userId, userPrompt, modelPrompt, List.of(), files == null ? List.of() : files);
+    }
+
     private String answer(
             String userId,
             String memoryPrompt,

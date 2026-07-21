@@ -254,7 +254,7 @@ Controller 没有实现 iLink 协议，只是调用 `ILinkBotService`。
 | 文字 | 合并全部文字；固定命令优先，其余交给大模型 | 可继续增加业务命令 |
 | 语音 | 有微信转写文字时复用文字模型；无转写时固定提示 | 后续可增加独立 ASR |
 | 图片 | SDK 下载并解密，转成 Data URL 交给视觉模型 | 当前一次最多 3 张 |
-| 文件 | SDK 下载解密后保存原版并进入文档模式；文字先区分只读分析、明确修改或歧义确认；Office 由 Java 在副本上执行受限操作 | 当前支持 12 类格式；一次 1 个、最大 20 MiB；PDF 仍是内容级重建，旧 DOC 只分析 |
+| 文件 | SDK 下载解密后缓存 5 分钟；下一条普通话与文件正文组合交给模型，内部 `FILE_GEN||JSON` 决定返回文字还是生成文件 | 一次 1 个、最大 20 MiB；输出支持 DOCX、XLSX、PDF、TXT，属于内容级重建 |
 | 视频 | SDK 下载解密，FFmpeg 固定抽取 10 帧并提取音轨转写，交给视觉模型 | 当前最长 60 秒、最大 20 MiB |
 
 完整视频实现请继续阅读 [ILINK_VIDEO_ANALYSIS_GUIDE.md](ILINK_VIDEO_ANALYSIS_GUIDE.md)。

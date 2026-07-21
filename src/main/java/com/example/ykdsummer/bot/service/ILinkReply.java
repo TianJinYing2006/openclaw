@@ -25,7 +25,7 @@ public sealed interface ILinkReply permits ILinkReply.Text, ILinkReply.Image, IL
         @Override public byte[] bytes() { return bytes.clone(); }
     }
 
-    /** 文档模式先发送文件，再发送 followUpText 说明当前版本和可用指令。 */
+    /** 文件生成链先发送文件，再发送简短的 followUpText 结果说明。 */
     record DocumentFile(String fileName, byte[] bytes, String followUpText) implements ILinkReply {
         public DocumentFile { bytes = bytes == null ? new byte[0] : bytes.clone(); }
         @Override public byte[] bytes() { return bytes.clone(); }

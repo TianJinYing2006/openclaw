@@ -7,14 +7,8 @@ import com.example.ykdsummer.ai.service.AiImageGenerationService;
 import com.example.ykdsummer.bot.audio.SpeechSynthesisException;
 import com.example.ykdsummer.bot.audio.TextToSpeechService;
 import com.example.ykdsummer.bot.audio.TtsVoiceSelectionService;
-import com.example.ykdsummer.bot.document.DocumentEditException;
-import com.example.ykdsummer.bot.document.DocumentEditService;
-import com.example.ykdsummer.bot.document.DocumentAnalysisService;
-import com.example.ykdsummer.bot.document.DocumentIntentRouter;
-import com.example.ykdsummer.bot.document.DocumentGenerationService;
-import com.example.ykdsummer.bot.document.DocumentTextExtractor;
-import com.example.ykdsummer.bot.document.RecentDocumentContextService;
-import com.example.ykdsummer.bot.document.DocumentSessionService;
+import com.example.ykdsummer.bot.file.FileInstructionService;
+import com.example.ykdsummer.bot.file.FileSessionService;
 import com.example.ykdsummer.bot.message.ILinkMessageType;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.video.VideoAnalysisService;
@@ -48,8 +42,6 @@ public class ILinkReplyService {
     static final String UNSUPPORTED_REPLY = "暂时只支持文字、图片、文件、短视频和带转写文字的语音";
     static final String MIXED_VIDEO_ATTACHMENT_REPLY = "暂不支持在同一条消息中同时发送视频和图片或文件";
     static final String DEFAULT_IMAGE_PROMPT = "请描述这张图片";
-    static final String DEFAULT_FILE_PROMPT = "请读取并总结这个文件";
-    static final String DOCUMENT_HINT = "直接说你的要求即可；版本操作可发送：撤销、使用原版、完成、关闭文件。";
 
     private static final Logger log = LoggerFactory.getLogger(ILinkReplyService.class);
 
@@ -60,13 +52,8 @@ public class ILinkReplyService {
     private final VideoAnalysisService videoAnalysisService;
     private final TextToSpeechService textToSpeechService;
     private final TtsVoiceSelectionService voiceSelectionService;
-    private final DocumentSessionService documentSessions;
-    private final DocumentEditService documentEditService;
-    private final DocumentAnalysisService documentAnalysisService;
-    private final DocumentIntentRouter documentIntentRouter;
-    private final DocumentGenerationService documentGenerationService;
-    private final DocumentTextExtractor documentTextExtractor;
-    private final RecentDocumentContextService recentDocumentContexts;
+    private final FileSessionService fileSessions;
+    private final FileInstructionService fileInstructionService;
 
     public ILinkReplyService(AiChatService aiChatService, ILinkMediaDownloader mediaDownloader,
                              ILinkFileDownloader fileDownloader,
@@ -74,13 +61,8 @@ public class ILinkReplyService {
                              VideoAnalysisService videoAnalysisService,
                              TextToSpeechService textToSpeechService,
                              TtsVoiceSelectionService voiceSelectionService,
-                             DocumentSessionService documentSessions,
-                             DocumentEditService documentEditService,
-                             DocumentAnalysisService documentAnalysisService,
-                             DocumentIntentRouter documentIntentRouter,
-                             DocumentGenerationService documentGenerationService,
-                             DocumentTextExtractor documentTextExtractor,
-                             RecentDocumentContextService recentDocumentContexts) {
+                             FileSessionService fileSessions,
+                             FileInstructionService fileInstructionService) {
         this.aiChatService = aiChatService;
         this.mediaDownloader = mediaDownloader;
         this.fileDownloader = fileDownloader;
@@ -88,13 +70,8 @@ public class ILinkReplyService {
         this.videoAnalysisService = videoAnalysisService;
         this.textToSpeechService = textToSpeechService;
         this.voiceSelectionService = voiceSelectionService;
-        this.documentSessions = documentSessions;
-        this.documentEditService = documentEditService;
-        this.documentAnalysisService = documentAnalysisService;
-        this.documentIntentRouter = documentIntentRouter;
-        this.documentGenerationService = documentGenerationService;
-        this.documentTextExtractor = documentTextExtractor;
-        this.recentDocumentContexts = recentDocumentContexts;
+        this.fileSessions = fileSessions;
+        this.fileInstructionService = fileInstructionService;
     }
 
     public ILinkReply createReply(
@@ -105,7 +82,7 @@ public class ILinkReplyService {
         // 第一步只整理 SDK item，不做网络请求：文字会合并，语音取微信已有转写，图片只记存在。
         ExtractedContent content = extract(items);
 
-        // 手机端先单独发文件：保存原版并进入文档模式，下一条纯文字由本地规则区分分析或修改。
+        // 复刻 TJY：文件只缓存 5 分钟，等待下一条普通话指令，不进入版本/撤销文档模式。
         if (content.hasFile()) {
             if (content.hasImage() || content.hasVideo()) {
                 return new ILinkReply.Text("文档模式一次只能发送一个文件，不能同时附带图片或视频");
@@ -115,27 +92,18 @@ public class ILinkReplyService {
                 if (uploaded.size() != 1) {
                     return new ILinkReply.Text("文档模式一次只能发送一个文件");
                 }
-                DocumentSessionService.DocumentSnapshot snapshot = documentSessions.open(
-                        message.fromUserId(), uploaded.getFirst());
-                documentTextExtractor.extract(snapshot.extension(), uploaded.getFirst().bytes())
-                        .ifPresent(text -> recentDocumentContexts.remember(
-                                message.fromUserId(), snapshot.originalFileName(), text,
-                                RecentDocumentContextService.Kind.SOURCE));
-                return new ILinkReply.Text("已接收：" + snapshot.originalFileName() + "\n"
-                        + "直接告诉我你想做什么，例如“总结重点”“把第二段改短”或“根据内容写一份建议 Word”。\n"
-                        + DOCUMENT_HINT + simplifiedFormatNotice(snapshot.extension()));
+                AiFile file = uploaded.getFirst();
+                if (!content.prompt().isBlank()) {
+                    return toReply(fileInstructionService.process(
+                            message.fromUserId(), content.prompt(), file));
+                }
+                fileSessions.cache(message.fromUserId(), file);
+                return new ILinkReply.Text("已收到文件，请告诉我怎么处理");
             } catch (ILinkFileDownloader.FileProcessingException exception) {
                 log.warn("Could not prepare iLink file, user={}, reason={}",
                         anonymize(message.fromUserId()), exception.userMessage());
                 return new ILinkReply.Text(exception.userMessage());
-            } catch (DocumentEditException exception) {
-                return new ILinkReply.Text(exception.userMessage());
             }
-        }
-
-        // 文档模式只接管纯手打文字；语音转写、图片和视频仍走原来的多模态分支。
-        if (content.isPlainTextOnly() && documentSessions.hasActive(message.fromUserId())) {
-            return handleDocumentMode(message.fromUserId(), content.prompt());
         }
 
         // 固定命令只接受纯手打文字，避免语音转写为“帮助”时误触发本地命令。
@@ -146,18 +114,6 @@ public class ILinkReplyService {
             }
         }
 
-        /*
-         * 已退出文档模式时，只有“明确生成意图 + 明确文件格式”同时存在才触发文件生成。
-         * 这样“生成 PDF”会使用最近文档，而“生成一段介绍”仍是普通文本对话。
-         */
-        if (content.isPlainTextOnly() && isRecentDocumentGenerationRequest(content.prompt())) {
-            return recentDocumentContexts.referenceForGeneration(message.fromUserId(), content.prompt())
-                    .<ILinkReply>map(reference -> generateDocumentFromRecent(
-                            message.fromUserId(), reference, content.prompt()))
-                    .orElseGet(() -> new ILinkReply.Text(
-                            "没有找到最近文档内容，请先发送一个文件。\n"
-                                    + "以后退出文档模式后，可发送“生成 PDF：要求”或“生成 Word：要求”。"));
-        }
 
         // “生图：”是项目约定的强制入口，不依赖大模型先猜用户意图。
         if (content.isPlainTextOnly() && isImageGenerationRequest(content.prompt())) {
@@ -200,6 +156,16 @@ public class ILinkReplyService {
                     message.fromUserId(), content.prompt(), items));
         }
 
+        /*
+         * 复刻 TJY TextMessageHandler：所有纯文本都经过同一份隐藏 FILE_GEN 提示。
+         * 普通聊天返回文本；模型输出 FILE_GEN||JSON 时直接生成文件。
+         */
+        if (content.isPlainTextOnly()) {
+            AiFile sourceFile = fileSessions.consume(message.fromUserId()).orElse(null);
+            return toReply(fileInstructionService.process(
+                    message.fromUserId(), content.prompt(), sourceFile));
+        }
+
         List<AiImage> images;
         try {
             // 这里拿到的是已经从腾讯 CDN 下载并解密的原始图片字节。
@@ -211,151 +177,14 @@ public class ILinkReplyService {
 
         // 用户只发附件没有配文字时，补一个默认问题，保证 Responses API 至少有文字指令。
         String prompt = content.prompt().isBlank() ? DEFAULT_IMAGE_PROMPT : content.prompt();
-        if (!documentSessions.hasActive(message.fromUserId()) && images.isEmpty()) {
-            prompt = recentDocumentContexts.augmentIfRelevant(message.fromUserId(), prompt);
-        }
         String answer = aiChatService.answer(message.fromUserId(), prompt, images);
         return new ILinkReply.Text(answer);
     }
 
-    private ILinkReply handleDocumentMode(String userId, String prompt) {
-        String command = prompt.trim();
-        try {
-            if (isApplyLastAnalysisRequest(command)) {
-                return applyLastAnalysis(userId);
-            }
-            return switch (command) {
-                case "当前文件", "文件状态" -> documentSessions.current(userId)
-                        .<ILinkReply>map(snapshot -> new ILinkReply.Text(documentStatus(snapshot)))
-                        .orElseGet(() -> new ILinkReply.Text("当前没有正在处理的文件，请先发送一个文件"));
-                case "撤销" -> documentSessions.undo(userId)
-                        .<ILinkReply>map(snapshot -> documentReply(
-                                documentSessions.currentFile(userId),
-                                "已撤销到版本 v" + snapshot.currentVersion() + "，当前仍处于文档模式。"))
-                        .orElseGet(() -> new ILinkReply.Text("当前已经是原版，无法继续撤销。"));
-                case "使用原版", "回到原版" -> {
-                    DocumentSessionService.DocumentSnapshot snapshot = documentSessions.useOriginal(userId);
-                    yield documentReply(documentSessions.currentFile(userId),
-                            "已切换到原版 v" + snapshot.currentVersion() + "，下一条文字将基于原版修改。");
-                }
-                case "完成", "使用当前", "确认当前" -> {
-                    DocumentSessionService.VersionFile current = documentSessions.currentFile(userId);
-                    documentSessions.close(userId);
-                    yield new ILinkReply.DocumentFile(current.fileName(), current.bytes(),
-                            "已确认当前版本并退出文档模式。后续普通文字恢复为正常对话。\n"
-                                    + "如需继续修改，请重新发送文件。");
-                }
-                case "关闭文件", "退出文档模式" -> {
-                    documentSessions.close(userId);
-                    yield new ILinkReply.Text("已退出文档模式，已生成的文件和版本没有删除。后续普通文字恢复为正常对话。");
-                }
-                case "分析" -> documentSessions.consumePendingInstruction(userId)
-                        .<ILinkReply>map(question -> analyzeDocument(userId, question))
-                        .orElseGet(() -> new ILinkReply.Text("当前没有等待确认的内容，请直接告诉我你想分析什么。"));
-                case "修改" -> documentSessions.consumePendingInstruction(userId)
-                        .<ILinkReply>map(instruction -> editDocument(userId, instruction))
-                        .orElseGet(() -> new ILinkReply.Text("当前没有等待确认的内容，请直接告诉我你想怎么修改。"));
-                case "生成" -> documentSessions.consumePendingInstruction(userId)
-                        .<ILinkReply>map(instruction -> generateDocument(userId, instruction))
-                        .orElseGet(() -> new ILinkReply.Text("当前没有等待确认的内容，请直接告诉我想生成什么文件。"));
-                default -> {
-                    DocumentIntentRouter.Decision decision = documentIntentRouter.route(prompt);
-                    yield switch (decision.intent()) {
-                        case ANALYZE -> analyzeDocument(userId, decision.instruction());
-                        case EDIT -> editDocument(userId, decision.instruction());
-                        case GENERATE -> generateDocument(userId, decision.instruction());
-                        case AMBIGUOUS -> {
-                            documentSessions.savePendingInstruction(userId, decision.instruction());
-                            yield new ILinkReply.Text("这句话还不够明确：你想分析、修改，还是另生成一个文件？\n"
-                                    + "回复“分析”“修改”或“生成”即可；确认前文件不会改动。");
-                        }
-                    };
-                }
-            };
-        } catch (DocumentEditException exception) {
-            log.warn("Document mode failed, user={}, reason={}", anonymize(userId), exception.getMessage());
-            return new ILinkReply.Text(exception.userMessage() + "\n当前文件仍可继续处理。");
-        }
-    }
-
-    private ILinkReply applyLastAnalysis(String userId) {
-        return documentSessions.lastAnalysis(userId)
-                .<ILinkReply>map(analysis -> editDocument(userId,
-                        "请依据下面最近一次分析建议修改当前文件，只应用与文件有关且明确可执行的建议：\n" + analysis))
-                .orElseGet(() -> new ILinkReply.Text("当前还没有分析建议，请先直接告诉我你想分析什么。"));
-    }
-
-    private ILinkReply analyzeDocument(String userId, String question) {
-        String answer = documentAnalysisService.analyze(userId, question);
-        return new ILinkReply.Text(answer + "\n\n文件未修改；若认可这些建议，回复“应用建议”即可。");
-    }
-
-    private ILinkReply editDocument(String userId, String instruction) {
-        DocumentEditService.EditResult result = documentEditService.edit(userId, instruction);
-        documentTextExtractor.extract(result.snapshot().extension(), result.bytes())
-                .ifPresent(text -> recentDocumentContexts.remember(
-                        userId, result.fileName(), text, RecentDocumentContextService.Kind.MODIFIED));
-        String warning = result.warning().isBlank() ? "" : "\n注意：" + result.warning();
-        return new ILinkReply.DocumentFile(result.fileName(), result.bytes(),
-                "已修改并生成 v" + result.snapshot().currentVersion() + "。"
-                        + warning + "\n可继续直接说修改要求；不满意发“撤销”，满意发“完成”。");
-    }
-
-    private ILinkReply generateDocument(String userId, String instruction) {
-        DocumentGenerationService.GenerationResult result = documentGenerationService.generate(userId, instruction);
-        recentDocumentContexts.remember(userId, result.fileName(), result.extractedContent(),
-                RecentDocumentContextService.Kind.GENERATED);
-        String warning = result.warning().isBlank() ? "" : "\n注意：" + result.warning();
-        return new ILinkReply.DocumentFile(result.fileName(), result.bytes(),
-                "已参考当前文件生成独立的 "
-                        + result.extension().toUpperCase(java.util.Locale.ROOT) + " 文件。\n"
-                        + "原文件和当前版本 v" + result.sourceSnapshot().currentVersion() + " 没有修改。"
-                        + warning + "\n可继续直接说下一步要求。");
-    }
-
-    private ILinkReply generateDocumentFromRecent(
-            String userId,
-            RecentDocumentContextService.RecentDocument reference,
-            String instruction
-    ) {
-        try {
-            DocumentGenerationService.GenerationResult result =
-                    documentGenerationService.generateFromRecent(reference, instruction);
-            recentDocumentContexts.remember(
-                    userId, result.fileName(), result.extractedContent(),
-                    RecentDocumentContextService.Kind.GENERATED);
-            String warning = result.warning().isBlank() ? "" : "\n注意：" + result.warning();
-            return new ILinkReply.DocumentFile(result.fileName(), result.bytes(),
-                    "已根据最近文档上下文生成独立的 "
-                            + result.extension().toUpperCase(java.util.Locale.ROOT) + " 文件。"
-                            + warning + "\n当前仍是普通对话模式；可继续发送“生成 + 文件格式 + 要求”。");
-        } catch (DocumentEditException exception) {
-            log.warn("Recent document generation failed, reason={}", exception.getMessage());
-            return new ILinkReply.Text(exception.userMessage());
-        }
-    }
-
-    private ILinkReply.DocumentFile documentReply(
-            DocumentSessionService.VersionFile file,
-            String message
-    ) {
-        return new ILinkReply.DocumentFile(file.fileName(), file.bytes(), message + "\n" + DOCUMENT_HINT);
-    }
-
-    private static String documentStatus(DocumentSessionService.DocumentSnapshot snapshot) {
-        return "当前文件：" + snapshot.originalFileName() + "\n"
-                + "当前版本：v" + snapshot.currentVersion() + "\n"
-                + "已生成版本数：" + snapshot.versionCount() + "\n"
-                + DOCUMENT_HINT;
-    }
-
-    private static String simplifiedFormatNotice(String extension) {
-        return switch (extension) {
-            case "pdf" -> "\n\n注意：PDF 修改仍采用内容级重建，复杂排版和图片可能无法原样保留。";
-            case "doc" -> "\n\n注意：旧版 .doc 目前只能分析；如需修改，请先转换为 .docx。";
-            case "docx", "xlsx", "pptx" -> "\n\nOffice 修改会保留未涉及的结构；被修改的段落或文本框局部样式可能变化。";
-            default -> "";
-        };
+    private static ILinkReply toReply(FileInstructionService.Result result) {
+        return result.hasFile()
+                ? new ILinkReply.DocumentFile(result.fileName(), result.bytes(), "文件已生成")
+                : new ILinkReply.Text(result.text());
     }
 
     /**
@@ -399,10 +228,8 @@ public class ILinkReplyService {
                     + "9. 发送“设置音色：龙婉”实时切换音色\n"
                     + "10. 发送“当前音色”或“重置音色”\n"
                     + "11. 发送 60 秒以内的短视频进行画面与语音联合分析\n"
-                    + "12. 发送 TXT、MD、JSON、CSV、HTML、XML、Java、PDF、DOC、DOCX、XLSX 或 PPTX 文件进入文档模式\n"
-                    + "13. 上传文件后直接说“总结重点”“把第二段改短”“写一份建议 Word”即可；分析/修改/生成前缀也兼容\n"
-                    + "14. 退出后可问“刚才的文档讲了什么”，或发“生成 PDF/Word/PPT/Excel：要求”直接生成文件\n"
-                    + "15. 文档模式还可用“应用建议、当前文件、撤销、使用原版、完成、关闭文件”";
+                    + "12. 发送文件后直接用普通话说明要求，例如“帮我把这个变成 PDF”\n"
+                    + "13. 不上传文件也可直接说“写一份 Word 报告”或“生成 Excel 表格”";
             case "状态" -> "微信连接：" + status.connectionStatus() + "\n"
                     + "长轮询：" + (status.polling() ? "运行中" : "未运行") + "\n"
                     + "AI：" + (aiChatService.isEnabled() ? "已启用" : "未启用") + "\n"
@@ -410,7 +237,7 @@ public class ILinkReplyService {
                     + "当前音色：" + voiceSelectionService.current(userId).display();
             case "清空" -> {
                 aiChatService.clear(userId);
-                recentDocumentContexts.clear(userId);
+                fileSessions.clear(userId);
                 yield "已清空你的聊天记录";
             }
             default -> null;
@@ -456,34 +283,6 @@ public class ILinkReplyService {
 
     private static String extractVoiceOutputPrompt(String prompt) {
         return prompt.trim().replaceFirst("^语音[：:]+", "").trim();
-    }
-
-    private static boolean isRecentDocumentGenerationRequest(String prompt) {
-        String text = prompt == null ? "" : prompt.trim().toLowerCase(java.util.Locale.ROOT);
-        boolean explicitGeneration = text.matches(
-                "^(请|帮我|给我|替我|请帮我|请给我|麻烦)?(再|重新|另外|直接)?生成.*")
-                || text.matches("^文件生成[：:].*")
-                || text.matches("^(把|将|根据).+生成.*");
-        boolean explicitFormat = text.matches(
-                ".*(pdf|word|docx|ppt|pptx|演示文稿|幻灯片|excel|xlsx|电子表格|"
-                        + "txt|纯文本|markdown|md文件|md格式|json|csv|html|xml).*"
-        );
-        return explicitGeneration && explicitFormat;
-    }
-
-    private static boolean isApplyLastAnalysisRequest(String prompt) {
-        String text = prompt == null ? "" : prompt.strip();
-        if (List.of("应用建议", "按建议修改", "按这些建议修改", "按刚才的建议修改",
-                "按照建议修改", "采纳建议", "采用建议").contains(text)) {
-            return true;
-        }
-        boolean referencesRecentAnalysis = List.of(
-                "这些建议", "上述建议", "上面的建议", "刚才的建议", "你的建议",
-                "刚才的分析", "分析结果").stream().anyMatch(text::contains);
-        boolean asksToApply = List.of(
-                "应用", "采用", "采纳", "按", "按照", "修改", "改一下", "调整", "优化"
-        ).stream().anyMatch(text::contains);
-        return referencesRecentAnalysis && asksToApply;
     }
 
     private static ExtractedContent extract(List<MessageItem> items) {
