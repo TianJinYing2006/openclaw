@@ -45,20 +45,16 @@ public class VideoAnalysisService {
         this.aiChatService = aiChatService;
     }
 
+    /**
+     * 通过 iLink MessageItem 下载并分析视频（SDK 调用方使用）。
+     */
     public String analyze(String userId, String userPrompt, List<MessageItem> items) {
         if (!properties.isEnabled()) {
             return DISABLED_REPLY;
         }
         try {
             byte[] videoBytes = downloader.downloadVideo(items);
-            List<VideoFrame> frames = frameExtractor.extract(videoBytes);
-            if (frames.isEmpty()) {
-                throw new VideoProcessingException("没有提取到有效视频画面，请重新发送");
-            }
-            String transcript = transcribeAudio(userId, videoBytes);
-            String prompt = buildPrompt(userPrompt, frames, transcript);
-            List<AiImage> images = frames.stream().map(VideoFrame::image).toList();
-            return aiChatService.answer(userId, prompt, images);
+            return analyzeVideoBytes(userId, userPrompt, videoBytes);
         } catch (VideoProcessingException exception) {
             log.warn(
                     "Could not analyze iLink video, user={}, kind={}",
@@ -69,6 +65,39 @@ public class VideoAnalysisService {
         } catch (RuntimeException exception) {
             log.warn(
                     "Unexpected iLink video failure, user={}, type={}",
+                    anonymize(userId),
+                    exception.getClass().getSimpleName()
+            );
+            return "视频解析暂时没有响应，请稍后重试";
+        }
+    }
+
+    /**
+     * 直接分析视频字节流（Tool 调用方使用）。
+     */
+    public String analyzeVideoBytes(String userId, String userPrompt, byte[] videoBytes) {
+        if (!properties.isEnabled()) {
+            return DISABLED_REPLY;
+        }
+        try {
+            List<VideoFrame> frames = frameExtractor.extract(videoBytes);
+            if (frames.isEmpty()) {
+                throw new VideoProcessingException("没有提取到有效视频画面，请重新发送");
+            }
+            String transcript = transcribeAudio(userId, videoBytes);
+            String prompt = buildPrompt(userPrompt, frames, transcript);
+            List<AiImage> images = frames.stream().map(VideoFrame::image).toList();
+            return aiChatService.answer(userId, prompt, images);
+        } catch (VideoProcessingException exception) {
+            log.warn(
+                    "Could not analyze video bytes, user={}, kind={}",
+                    anonymize(userId),
+                    exception.getClass().getSimpleName()
+            );
+            return exception.userMessage();
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "Unexpected video analysis failure, user={}, type={}",
                     anonymize(userId),
                     exception.getClass().getSimpleName()
             );

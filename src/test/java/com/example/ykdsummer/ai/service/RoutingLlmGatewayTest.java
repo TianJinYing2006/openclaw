@@ -8,14 +8,21 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class RoutingLlmGatewayTest {
 
     @Test
-    void routesPlainTextToSpringAiCompletions() {
-        RecordingTextGateway text = new RecordingTextGateway();
-        RecordingResponsesGateway responses = new RecordingResponsesGateway();
-        RoutingLlmGateway gateway = new RoutingLlmGateway(text, responses);
+    void delegatesAllCallsToSpringAiCompletions() {
+        SpringAiChatCompletionsGateway inner = mock(SpringAiChatCompletionsGateway.class);
+        when(inner.generate(anyList(), eq("你好"), anyList(), anyList()))
+                .thenReturn(new LlmGateway.ModelReply("简洁回答", "completion-model"));
+
+        RoutingLlmGateway gateway = new RoutingLlmGateway(inner);
 
         LlmGateway.ModelReply reply = gateway.generate(
                 List.of(new ConversationMessage(ConversationMessage.Role.USER, "上一问")),
@@ -25,67 +32,35 @@ class RoutingLlmGatewayTest {
         );
 
         assertThat(reply.model()).isEqualTo("completion-model");
-        assertThat(text.calls).isEqualTo(1);
-        assertThat(text.lastPrompt).isEqualTo("你好");
-        assertThat(responses.calls).isZero();
+        assertThat(reply.text()).isEqualTo("简洁回答");
+        verify(inner).generate(anyList(), eq("你好"), anyList(), anyList());
     }
 
     @Test
-    void keepsImagesAndFilesOnResponses() {
-        RecordingTextGateway text = new RecordingTextGateway();
-        RecordingResponsesGateway responses = new RecordingResponsesGateway();
-        RoutingLlmGateway gateway = new RoutingLlmGateway(text, responses);
+    void delegatesReasoningEffortVariant() {
+        SpringAiChatCompletionsGateway inner = mock(SpringAiChatCompletionsGateway.class);
+        when(inner.generate(anyList(), eq("分析"), anyList(), anyList(), eq("low")))
+                .thenReturn(new LlmGateway.ModelReply("分析完成", "reasoning-model"));
 
-        gateway.generate(List.of(), "看图", List.of(new AiImage("image/png", new byte[]{1})), List.of());
-        gateway.generate(List.of(), "看文件", List.of(),
-                List.of(new AiFile("a.txt", "text/plain", new byte[]{2})));
+        RoutingLlmGateway gateway = new RoutingLlmGateway(inner);
+        LlmGateway.ModelReply reply = gateway.generate(
+                List.of(), "分析", List.of(), List.of(), "low");
 
-        assertThat(text.calls).isZero();
-        assertThat(responses.calls).isEqualTo(2);
+        assertThat(reply.text()).isEqualTo("分析完成");
+        verify(inner).generate(anyList(), eq("分析"), anyList(), anyList(), eq("low"));
     }
 
     @Test
-    void keepsExplicitReasoningTasksOnResponsesEvenWithoutBinaryMedia() {
-        RecordingTextGateway text = new RecordingTextGateway();
-        RecordingResponsesGateway responses = new RecordingResponsesGateway();
-        RoutingLlmGateway gateway = new RoutingLlmGateway(text, responses);
+    void delegatesModelOverrideVariant() {
+        SpringAiChatCompletionsGateway inner = mock(SpringAiChatCompletionsGateway.class);
+        when(inner.generate(anyList(), eq("hi"), anyList(), anyList(), eq("medium"), eq("gpt-4o")))
+                .thenReturn(new LlmGateway.ModelReply("ok", "gpt-4o"));
 
-        gateway.generate(List.of(), "分析已提取的文档文字", List.of(), List.of(), "low");
+        RoutingLlmGateway gateway = new RoutingLlmGateway(inner);
+        LlmGateway.ModelReply reply = gateway.generate(
+                List.of(), "hi", List.of(), List.of(), "medium", "gpt-4o");
 
-        assertThat(text.calls).isZero();
-        assertThat(responses.calls).isEqualTo(1);
-        assertThat(responses.lastReasoningEffort).isEqualTo("low");
-    }
-
-    private static final class RecordingTextGateway implements TextChatGateway {
-        private int calls;
-        private String lastPrompt;
-
-        @Override
-        public LlmGateway.ModelReply generate(List<ConversationMessage> history, String prompt) {
-            calls++;
-            lastPrompt = prompt;
-            return new LlmGateway.ModelReply("简洁回答", "completion-model");
-        }
-    }
-
-    private static final class RecordingResponsesGateway implements ResponsesGateway {
-        private int calls;
-        private String lastReasoningEffort;
-
-        @Override
-        public ModelReply generate(List<ConversationMessage> history, String prompt,
-                                   List<AiImage> images, List<AiFile> files) {
-            calls++;
-            return new ModelReply("多模态回答", "responses-model");
-        }
-
-        @Override
-        public ModelReply generate(List<ConversationMessage> history, String prompt,
-                                   List<AiImage> images, List<AiFile> files, String reasoningEffort) {
-            calls++;
-            lastReasoningEffort = reasoningEffort;
-            return new ModelReply("任务回答", "responses-model");
-        }
+        assertThat(reply.text()).isEqualTo("ok");
+        verify(inner).generate(anyList(), eq("hi"), anyList(), anyList(), eq("medium"), eq("gpt-4o"));
     }
 }

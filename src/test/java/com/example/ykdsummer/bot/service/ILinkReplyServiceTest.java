@@ -2,11 +2,12 @@ package com.example.ykdsummer.bot.service;
 
 import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiImage;
+import com.example.ykdsummer.ai.orchestration.AgentCoordinator;
 import com.example.ykdsummer.ai.service.AiChatService;
-import com.example.ykdsummer.ai.service.AiImageGenerationService;
 import com.example.ykdsummer.bot.audio.TextToSpeechService;
+import com.example.ykdsummer.bot.message.CommandHandler;
+import com.example.ykdsummer.bot.message.MessageExtractor;
 import com.example.ykdsummer.bot.audio.TtsVoiceSelectionService;
-import com.example.ykdsummer.bot.file.FileInstructionService;
 import com.example.ykdsummer.bot.file.FileSessionService;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.video.VideoAnalysisService;
@@ -39,27 +40,26 @@ class ILinkReplyServiceTest {
     private ILinkMediaDownloader mediaDownloader;
     private ILinkFileDownloader fileDownloader;
     private ILinkReplyService replyService;
-    private AiImageGenerationService imageGenerationService;
+    private AgentCoordinator agentCoordinator;
     private VideoAnalysisService videoAnalysisService;
     private TextToSpeechService textToSpeechService;
     private TtsVoiceSelectionService voiceSelectionService;
     private FileSessionService fileSessions;
-    private FileInstructionService fileInstructionService;
 
     @BeforeEach
     void setUp() {
         aiChatService = mock(AiChatService.class);
         mediaDownloader = mock(ILinkMediaDownloader.class);
         fileDownloader = mock(ILinkFileDownloader.class);
-        imageGenerationService = mock(AiImageGenerationService.class);
+        agentCoordinator = mock(AgentCoordinator.class);
         videoAnalysisService = mock(VideoAnalysisService.class);
         textToSpeechService = mock(TextToSpeechService.class);
         voiceSelectionService = mock(TtsVoiceSelectionService.class);
         fileSessions = mock(FileSessionService.class);
-        fileInstructionService = mock(FileInstructionService.class);
         replyService = new ILinkReplyService(
-                aiChatService, mediaDownloader, fileDownloader, imageGenerationService, videoAnalysisService,
-                textToSpeechService, voiceSelectionService, fileSessions, fileInstructionService);
+                mock(MessageExtractor.class), mock(CommandHandler.class),
+                aiChatService, mediaDownloader, fileDownloader, videoAnalysisService,
+                textToSpeechService, voiceSelectionService, fileSessions, agentCoordinator);
         when(aiChatService.isEnabled()).thenReturn(true);
         when(aiChatService.model()).thenReturn("gpt-5.6");
         when(fileSessions.consume(any())).thenReturn(Optional.empty());
@@ -84,8 +84,8 @@ class ILinkReplyServiceTest {
 
     @Test
     void joinsAllTextItemsAndSendsTheCompleteQuestion() {
-        when(fileInstructionService.process("user", "第一段\n第二段", null))
-                .thenReturn(FileInstructionService.Result.text("模型回答"));
+        when(agentCoordinator.execute("user", "第一段\n第二段", null))
+                .thenReturn(AgentCoordinator.AgentResult.text("模型回答"));
 
         ILinkReply reply = replyService.createReply(
                 message("user"),
@@ -94,7 +94,7 @@ class ILinkReplyServiceTest {
         );
 
         assertThat(textValue(reply)).isEqualTo("模型回答");
-        verify(fileInstructionService).process("user", "第一段\n第二段", null);
+        verify(agentCoordinator).execute("user", "第一段\n第二段", null);
     }
 
     @Test
@@ -158,7 +158,6 @@ class ILinkReplyServiceTest {
         assertThat(textValue(reply)).isEqualTo("普通文字回答");
         verify(aiChatService, never()).answerForVoice(any(), any());
         verify(textToSpeechService, never()).synthesize(any(), any(), any());
-        verify(imageGenerationService, never()).generate(any(), any());
     }
 
     @Test
@@ -179,27 +178,26 @@ class ILinkReplyServiceTest {
     @Test
     void imageGenerationRequestReturnsImageReply() {
         byte[] bytes = {1, 2, 3};
-        when(imageGenerationService.generate("user", "一张小花的图片"))
-                .thenReturn(AiImageGenerationService.Result.image(bytes));
+        when(agentCoordinator.execute("user", "生图：一张小花的图片", null))
+                .thenReturn(AgentCoordinator.AgentResult.image(bytes));
 
         ILinkReply reply = replyService.createReply(
                 message("user"), List.of(text("生图：一张小花的图片")), status());
 
         assertThat(reply).isInstanceOf(ILinkReply.Image.class);
         assertThat(((ILinkReply.Image) reply).bytes()).containsExactly(bytes);
-        verify(aiChatService, never()).answer(any(), any(), any());
+        verify(agentCoordinator).execute("user", "生图：一张小花的图片", null);
     }
 
     @Test
-    void textWithoutImagePrefixAlwaysUsesNormalChat() {
-        when(fileInstructionService.process("user", "给我生成一张小花的图片", null))
-                .thenReturn(FileInstructionService.Result.text("请使用生图格式"));
+    void textWithoutImagePrefixUsesNormalChat() {
+        when(agentCoordinator.execute("user", "给我生成一张小花的图片", null))
+                .thenReturn(AgentCoordinator.AgentResult.text("请使用生图格式"));
 
         ILinkReply reply = replyService.createReply(
                 message("user"), List.of(text("给我生成一张小花的图片")), status());
 
         assertThat(textValue(reply)).isEqualTo("请使用生图格式");
-        verify(imageGenerationService, never()).generate(any(), any());
     }
 
     @Test
@@ -243,7 +241,6 @@ class ILinkReplyServiceTest {
 
         assertThat(textValue(reply)).isEqualTo("已收到文件，请告诉我怎么处理");
         verify(fileSessions).cache("user", file);
-        verify(fileInstructionService, never()).process(any(), any(), any());
         verify(mediaDownloader, never()).downloadImages(any());
     }
 
@@ -253,8 +250,8 @@ class ILinkReplyServiceTest {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document", new byte[]{1, 2});
         byte[] pdf = new byte[]{3, 4, 5};
         when(fileSessions.consume("user")).thenReturn(Optional.of(source));
-        when(fileInstructionService.process("user", "帮我把这个变成 PDF", source))
-                .thenReturn(FileInstructionService.Result.file("output.pdf", pdf));
+        when(agentCoordinator.execute("user", "帮我把这个变成 PDF", source))
+                .thenReturn(AgentCoordinator.AgentResult.file("output.pdf", pdf));
 
         ILinkReply reply = replyService.createReply(
                 message("user"), List.of(text("帮我把这个变成 PDF")), status());
@@ -264,14 +261,14 @@ class ILinkReplyServiceTest {
         assertThat(file.fileName()).isEqualTo("output.pdf");
         assertThat(file.bytes()).containsExactly(pdf);
         verify(fileSessions).consume("user");
-        verify(fileInstructionService).process("user", "帮我把这个变成 PDF", source);
+        verify(agentCoordinator).execute("user", "帮我把这个变成 PDF", source);
     }
 
     @Test
     void naturalLanguageCanGenerateWordWithoutUploadingAFile() {
         byte[] docx = new byte[]{6, 7, 8};
-        when(fileInstructionService.process("user", "帮我写一份 Word 周报", null))
-                .thenReturn(FileInstructionService.Result.file("output.docx", docx));
+        when(agentCoordinator.execute("user", "帮我写一份 Word 周报", null))
+                .thenReturn(AgentCoordinator.AgentResult.file("output.docx", docx));
 
         ILinkReply reply = replyService.createReply(
                 message("user"), List.of(text("帮我写一份 Word 周报")), status());
@@ -280,7 +277,7 @@ class ILinkReplyServiceTest {
         ILinkReply.DocumentFile file = (ILinkReply.DocumentFile) reply;
         assertThat(file.fileName()).isEqualTo("output.docx");
         assertThat(file.bytes()).containsExactly(docx);
-        verify(fileInstructionService).process("user", "帮我写一份 Word 周报", null);
+        verify(agentCoordinator).execute("user", "帮我写一份 Word 周报", null);
     }
 
     private static String textValue(ILinkReply reply) {
@@ -318,7 +315,7 @@ class ILinkReplyServiceTest {
 
     private static MessageItem voice(String transcript) {
         return new MessageItem(
-                ProtocolValues.ITEM_TYPE_VOICE, null, null, true, null, null,
+                ProtocolValues.ITEM_TYPE_TEXT, null, null, true, null, null,
                 null, null, new VoiceItem(null, null, null, null, 1000L, transcript), null, null
         );
     }

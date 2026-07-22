@@ -9,51 +9,44 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * 在 Chat Completions 与 Responses 之间做唯一、集中、可测试的协议选择。
+ * 模型网关路由。所有 AI 请求统一由 {@link SpringAiChatCompletionsGateway} 处理。
  *
- * <ul>
- *   <li>普通纯文本四参数调用：Spring AI Chat Completions。</li>
- *   <li>带图片或文件：OpenAI Responses。</li>
- *   <li>显式 reasoning effort 的五参数任务：OpenAI Responses。</li>
- * </ul>
+ * <p>之前存在 Chat Completions 与 Responses 的双网关路由，现已统一收敛
+ * 到 Spring AI ChatClient。保留本类作为单一入口，方便后续扩展或切换。</p>
  */
 @Service
 @Primary
 public class RoutingLlmGateway implements LlmGateway {
 
-    private final TextChatGateway textChatGateway;
-    private final ResponsesGateway responsesGateway;
+    private final SpringAiChatCompletionsGateway chatCompletionsGateway;
 
-    public RoutingLlmGateway(TextChatGateway textChatGateway, ResponsesGateway responsesGateway) {
-        this.textChatGateway = textChatGateway;
-        this.responsesGateway = responsesGateway;
+    public RoutingLlmGateway(SpringAiChatCompletionsGateway chatCompletionsGateway) {
+        this.chatCompletionsGateway = chatCompletionsGateway;
     }
 
     @Override
     public ModelReply generate(
-            List<ConversationMessage> history,
-            String prompt,
-            List<AiImage> images,
-            List<AiFile> files
+            List<ConversationMessage> history, String prompt,
+            List<AiImage> images, List<AiFile> files
     ) {
-        if (isEmpty(images) && isEmpty(files)) {
-            return textChatGateway.generate(history, prompt);
-        }
-        return responsesGateway.generate(history, prompt, images, files);
+        return chatCompletionsGateway.generate(history, prompt, images, files);
     }
 
     @Override
     public ModelReply generate(
-            List<ConversationMessage> history,
-            String prompt,
-            List<AiImage> images,
-            List<AiFile> files,
+            List<ConversationMessage> history, String prompt,
+            List<AiImage> images, List<AiFile> files,
             String reasoningEffort
     ) {
-        return responsesGateway.generate(history, prompt, images, files, reasoningEffort);
+        return chatCompletionsGateway.generate(history, prompt, images, files, reasoningEffort);
     }
 
-    private static boolean isEmpty(List<?> values) {
-        return values == null || values.isEmpty();
+    @Override
+    public ModelReply generate(
+            List<ConversationMessage> history, String prompt,
+            List<AiImage> images, List<AiFile> files,
+            String reasoningEffort, String model
+    ) {
+        return chatCompletionsGateway.generate(history, prompt, images, files, reasoningEffort, model);
     }
 }
