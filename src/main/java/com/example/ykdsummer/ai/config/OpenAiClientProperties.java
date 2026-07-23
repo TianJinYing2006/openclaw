@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 public class OpenAiClientProperties {
 
     /** OpenAI 兼容服务地址。Java SDK 要求这里包含 /v1。 */
-    private String baseUrl = "https://moosecloud.cc/v1";
+    private String baseUrl = "https://api.xiaomimimo.com/v1";
 
     /** 只允许通过外部配置注入；仓库中永远不放真实值。 */
     private String apiKey = "not-configured";

@@ -16,6 +16,7 @@ import com.example.ykdsummer.ai.tool.ExternalToolSet;
 import com.example.ykdsummer.ai.tool.FileProductionTools;
 import com.example.ykdsummer.ai.tool.ConversationMemoryTools;
 import com.example.ykdsummer.ai.tool.AssetManagementTools;
+import com.example.ykdsummer.ai.tool.AmapTools;
 import com.example.ykdsummer.ai.tool.ImageTaskStatusTools;
 import com.example.ykdsummer.ai.tool.WebSearchTools;
 import org.slf4j.Logger;
@@ -69,6 +70,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private final QqUserTools qqUserTools;
     private final BilibiliUserTools bilibiliUserTools;
     private ExternalToolSet externalToolSet;
+    private AmapTools amapTools;
 
     public SpringAiChatCompletionsGateway(
             ChatModel chatModel,
@@ -137,6 +139,11 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     @Autowired(required = false)
     void setExternalToolSet(ExternalToolSet externalToolSet) {
         this.externalToolSet = externalToolSet;
+    }
+
+    @Autowired(required = false)
+    void setAmapTools(AmapTools amapTools) {
+        this.amapTools = amapTools;
     }
 
     /** 兼容文件生产 Tool 上线前的测试构造器；正式 Spring Bean 会额外注册该 Tool。 */
@@ -272,6 +279,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             }
             if (externalToolSet != null) {
                 request = request.tools(externalToolSet.toolBeans());
+            }
+            if (amapTools != null) {
+                request = request.tools(amapTools);
             }
             ChatResponse response = request
                     .call()

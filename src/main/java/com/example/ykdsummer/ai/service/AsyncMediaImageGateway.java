@@ -88,7 +88,7 @@ public class AsyncMediaImageGateway implements AsyncImageEditGateway {
             } catch (RuntimeException transientFailure) {
                 // 一次轮询失败不等于异步任务失败；统一截止时间前继续查询。
                 transientFailures++;
-                Thread.sleep(aiProperties.getImagePollInterval().toMillis());
+                Thread.sleep(3000);
                 continue;
             }
             boolean done = firstBoolean(status, "is_final", "isFinal", "completed", "done");
@@ -101,7 +101,7 @@ public class AsyncMediaImageGateway implements AsyncImageEditGateway {
                 }
                 return url.isBlank() ? EditResult.error("图片编辑服务没有返回结果图片") : download(url);
             }
-            Thread.sleep(aiProperties.getImagePollInterval().toMillis());
+            Thread.sleep(3000);
         }
         return EditResult.error(transientFailures > 0 ? "图片编辑状态查询超时，请稍后重试" : "图片编辑超时，请稍后重试");
     }

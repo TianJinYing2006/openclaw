@@ -15,6 +15,8 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
 
 /**
  * 本地图片资产仓库。
@@ -23,6 +25,8 @@ import java.util.concurrent.ConcurrentMap;
  * 修改、回退会在该资源 ID 下追加 {@code v2、v3...}。元数据和“当前图片”指针同时写入磁盘，
  * 所以应用重启后仍能继续用 ID 找回图片。生产环境只需把这个类替换为 OSS + 数据库实现。</p>
  */
+@Service
+@ConditionalOnProperty(prefix = "oss.image", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class LocalImageAssetStore {
     private static final String CURRENT_FILE = "current-image.properties";
 

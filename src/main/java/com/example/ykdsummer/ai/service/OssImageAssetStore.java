@@ -22,6 +22,7 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /**
@@ -32,6 +33,7 @@ import org.springframework.stereotype.Service;
  * 通过 {@link #readBytes(StoredImage)}，改图则通过 {@link #signedReadUrl(StoredImage)} 取得短时 URL。</p>
  */
 @Service
+@ConditionalOnProperty(prefix = "oss.image", name = "enabled", havingValue = "true")
 public class OssImageAssetStore extends LocalImageAssetStore {
     private static final String CURRENT_FILE = "current-image.properties";
 
