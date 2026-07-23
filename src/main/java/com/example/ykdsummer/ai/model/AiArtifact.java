@@ -10,6 +10,11 @@ public record AiArtifact(Type type, byte[] bytes, String fileName, String descri
         return new AiArtifact(Type.IMAGE, bytes, "image.png", description, assetId, version);
     }
 
+    /** 图片已经生成，但资产仓库不可用时，仍允许本轮把原始字节发送给用户。 */
+    public static AiArtifact transientImage(byte[] bytes, String description) {
+        return image(bytes, description, null, 0);
+    }
+
     public static AiArtifact audio(byte[] bytes, String fileName, String description) {
         return new AiArtifact(Type.AUDIO, bytes, fileName, description, null, 0);
     }

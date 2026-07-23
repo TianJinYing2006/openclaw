@@ -8,7 +8,10 @@ import com.example.ykdsummer.ai.tool.SpeechTools;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
 import com.example.ykdsummer.ai.tool.VoiceSettingsTools;
 import com.example.ykdsummer.ai.tool.DocumentTools;
+import com.example.ykdsummer.ai.tool.FileProductionTools;
 import com.example.ykdsummer.ai.tool.ConversationMemoryTools;
+import com.example.ykdsummer.ai.tool.AssetManagementTools;
+import com.example.ykdsummer.ai.tool.ImageTaskStatusTools;
 import com.example.ykdsummer.bot.document.DocumentTextExtractor;
 import com.example.ykdsummer.bot.document.DocumentRenderer;
 import com.example.ykdsummer.bot.file.LocalDocumentAssetStore;
@@ -33,11 +36,82 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SpringAiChatCompletionsGatewayContractTest {
+
+    @Test
+    void imageToolCallKeepsArtifactWhenOssPersistenceFails() throws IOException {
+        byte[] png = {9, 8, 7, 6};
+        AtomicInteger calls = new AtomicInteger();
+        List<String> requestBodies = new CopyOnWriteArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            if (calls.incrementAndGet() == 1) {
+                sendJson(exchange, """
+                        {
+                          "id":"chatcmpl_image_tool_request",
+                          "object":"chat.completion",
+                          "created":1,
+                          "model":"gpt-5.6-sol",
+                          "choices":[{"index":0,"message":{"role":"assistant","content":null,
+                            "tool_calls":[{"id":"call_generate_image","type":"function","function":
+                              {"name":"generate_image","arguments":"{\\\"prompt\\\":\\\"一只在草地上的小狗\\\"}"}}]},"finish_reason":"tool_calls"}],
+                          "usage":{"prompt_tokens":20,"completion_tokens":8,"total_tokens":28}
+                        }
+                        """);
+            } else {
+                sendJson(exchange, """
+                        {
+                          "id":"chatcmpl_image_tool_result",
+                          "object":"chat.completion",
+                          "created":2,
+                          "model":"gpt-5.6-sol",
+                          "choices":[{"index":0,"message":{"role":"assistant","content":"图片已经为你生成。"},"finish_reason":"stop"}],
+                          "usage":{"prompt_tokens":40,"completion_tokens":12,"total_tokens":52}
+                        }
+                        """);
+            }
+        });
+        server.start();
+
+        try {
+            AiImageGenerationService imageService = mock(AiImageGenerationService.class);
+            when(imageService.generate(eq("image-user"), anyString()))
+                    .thenReturn(AiImageGenerationService.Result.image(png));
+            LocalImageAssetStore failingStore = new LocalImageAssetStore() {
+                @Override
+                public StoredImage saveGenerated(String userId, String prompt, byte[] bytes, String remoteUrl) {
+                    throw new IllegalStateException("OSS unavailable");
+                }
+            };
+            ToolArtifactCollector collector = new ToolArtifactCollector();
+            ImageTools imageTools = new ImageTools(imageService, failingStore, collector);
+            SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
+                    createModel(server), new AiProperties(), new WeatherTools(mock(WeatherService.class)),
+                    imageTools, collector, AiTraceLogger.disabled());
+
+            LlmGateway.ModelReply reply = gateway.generate("image-user", List.of(), "给我生成一张小狗图片");
+
+            assertThat(reply.text()).isEqualTo("图片已经为你生成。");
+            assertThat(reply.artifacts()).singleElement().satisfies(artifact -> {
+                assertThat(artifact.type()).isEqualTo(com.example.ykdsummer.ai.model.AiArtifact.Type.IMAGE);
+                assertThat(artifact.bytes()).containsExactly(png);
+                assertThat(artifact.assetId()).isNull();
+                assertThat(artifact.version()).isZero();
+            });
+            assertThat(calls).hasValue(2);
+            assertThat(requestBodies.get(1)).contains("\"role\":\"tool\"", "图片资产保存失败", "本轮仍可查看");
+            verify(imageService).generate(eq("image-user"), anyString());
+        } finally {
+            server.stop(0);
+        }
+    }
 
     @Test
     void executesToolCallAndSendsToolResultBackToCompletions() throws IOException {
@@ -143,17 +217,22 @@ class SpringAiChatCompletionsGatewayContractTest {
                     new AiChatService(properties, (history, prompt, images, files) -> new LlmGateway.ModelReply("", "test")),
                     new FileSessionService(), new LocalImageAssetStore(), new LocalDocumentAssetStore(), collector
             );
+            ImageTaskStatusStore taskStore = new ImageTaskStatusStore();
+            ImageTools imageTools = new ImageTools(mock(AiImageGenerationService.class), mock(LocalImageAssetStore.class),
+                    collector, ImageInspectionService.unavailable(), taskStore, AiTraceLogger.disabled());
             SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
                     model,
                     properties,
                     new WeatherTools(mock(WeatherService.class)),
-                    new ImageTools(mock(AiImageGenerationService.class), mock(LocalImageAssetStore.class),
-                            collector),
+                    imageTools,
                     collector,
                     new SpeechTools(mock(TextToSpeechService.class), voices, collector),
                     new VoiceSettingsTools(voices, collector),
                     new DocumentTools(new LocalDocumentAssetStore(), new DocumentTextExtractor(), collector),
+                    new FileProductionTools(new LocalDocumentAssetStore(), collector),
                     memoryTools,
+                    new AssetManagementTools(new LocalImageAssetStore(), new LocalDocumentAssetStore(), collector),
+                    new ImageTaskStatusTools(taskStore, imageTools, collector),
                     AiTraceLogger.disabled()
             );
 
@@ -182,7 +261,10 @@ class SpringAiChatCompletionsGatewayContractTest {
                     .contains("set_voice", "get_current_voice", "list_voice_options", "reset_voice")
                     .contains("get_current_image", "inspect_image", "create_image_revision", "restore_image_version")
                     .contains("create_document", "get_current_document", "replace_document_content", "restore_document_version")
+                    .contains("produce_file")
                     .contains("clear_current_memory")
+                    .contains("list_recent_assets", "select_asset", "describe_asset", "resend_asset")
+                    .contains("get_running_tasks", "check_image_task", "retry_last_image_task")
                     .contains("城市名称")
                     .contains("\"role\":\"system\"")
                     .contains("像朋友聊天一样自然、直接、简洁地回答")

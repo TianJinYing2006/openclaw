@@ -25,7 +25,8 @@ public class FileInstructionService {
     static final String DOCUMENT_TOOL_INSTRUCTION = """
             ## 当前文档与工具规则
             用户可能在讨论、创建或修改文档。不要输出 FILE_GEN、JSON 标记或伪造文件链接。
-            需要新建文件时调用 create_document；需要修改、润色当前或指定文档时，先调用
+            需要新建常规 Word、Excel、PDF 或 TXT 文档时调用 create_document；用户明确指定文件名，
+            或需要 PPT、Markdown、HTML、CSV、JSON、XML 等独立附件时调用 produce_file；需要修改、润色当前或指定文档时，先调用
             get_current_document 读取 assetId、版本和正文，再调用 replace_document_content 并提供完整新正文。
             用户只要求“转成 PDF / Word / Excel / TXT”而不改变正文时，必须先查询后调用
             convert_document_format；未得到工具成功结果前，不得声称已经生成或发送文件。

@@ -153,6 +153,21 @@ class ILinkReplyServiceTest {
     }
 
     @Test
+    void agentImageResultBecomesAnILinkImageReply() {
+        byte[] png = {5, 4, 3};
+        when(fileInstructionService.process("user", "给我生成一张小狗图片", null))
+                .thenReturn(FileInstructionService.Result.image("图片已生成", png));
+
+        ILinkReply reply = replyService.createReply(
+                message("user"), List.of(text("给我生成一张小狗图片")), status());
+
+        assertThat(reply).isInstanceOf(ILinkReply.Image.class);
+        ILinkReply.Image image = (ILinkReply.Image) reply;
+        assertThat(image.bytes()).containsExactly(png);
+        assertThat(image.followUpText()).isEqualTo("图片已生成");
+    }
+
+    @Test
     void schedulerDoesNotGuessImageIntentBeforeTheAgentPlans() {
         assertThat(replyService.isImageGenerationMessage(List.of(text("生图：一只小猫")))).isFalse();
         assertThat(replyService.isImageGenerationMessage(List.of(text("你好")))).isFalse();

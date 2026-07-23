@@ -51,6 +51,20 @@ class FileInstructionServiceTest {
     }
 
     @Test
+    void transientImageArtifactBecomesAnImageReplyResult() {
+        byte[] png = {4, 3, 2, 1};
+        when(aiChatService.answerWithInternalPromptRich(eq("user"), eq("生成一张小狗图片"), any(), eq(List.of())))
+                .thenReturn(new AiChatService.AssistantAnswer("图片已经生成",
+                        List.of(AiArtifact.transientImage(png, "仅本轮发送"))));
+
+        FileInstructionService.Result result = service.process("user", "生成一张小狗图片", null);
+
+        assertThat(result.hasImage()).isTrue();
+        assertThat(result.imageBytes()).containsExactly(png);
+        assertThat(result.text()).isEqualTo("图片已经生成");
+    }
+
+    @Test
     void uploadedWordContentAndInstructionCanProduceAReadablePdf() throws Exception {
         AiFile source = new AiFile("source.docx", "application/octet-stream", new byte[]{1, 2, 3});
         when(textExtractor.extract(eq("docx"), any())).thenReturn(Optional.of("原文标题\n原文正文"));

@@ -50,6 +50,13 @@ public class OssImageAssetStore extends LocalImageAssetStore {
         this.client = client;
     }
 
+    /** 测试构造器：允许隔离本地回退目录，避免测试写入工作区。 */
+    OssImageAssetStore(OssImageProperties properties, OSS client, Path localRoot) {
+        super(localRoot);
+        this.properties = properties;
+        this.client = client;
+    }
+
     @Override
     public StoredImage save(String userId, String prompt, byte[] bytes, String remoteUrl) {
         return saveGenerated(userId, prompt, bytes, remoteUrl);
@@ -57,16 +64,19 @@ public class OssImageAssetStore extends LocalImageAssetStore {
 
     @Override
     public StoredImage saveGenerated(String userId, String prompt, byte[] bytes, String remoteUrl) {
+        if (useLocalFallback()) return super.saveGenerated(userId, prompt, bytes, remoteUrl);
         return saveNew(userId, "generated", prompt, bytes, remoteUrl, "image/png");
     }
 
     @Override
     public StoredImage saveIncoming(String userId, String prompt, byte[] bytes, String mediaType) {
+        if (useLocalFallback()) return super.saveIncoming(userId, prompt, bytes, mediaType);
         return saveNew(userId, "uploaded", prompt, bytes, null, mediaType);
     }
 
     @Override
     public StoredImage saveRevision(String userId, String assetId, String prompt, byte[] bytes, String remoteUrl) {
+        if (useLocalFallback()) return super.saveRevision(userId, assetId, prompt, bytes, remoteUrl);
         ImageMetadata metadata = metadata(userId, assetId)
                 .orElseThrow(() -> new IllegalArgumentException("找不到图片资源：" + assetId));
         return saveVersion(userId, metadata, prompt, bytes, remoteUrl, metadata.mediaType(), "generated-revision");
@@ -74,6 +84,7 @@ public class OssImageAssetStore extends LocalImageAssetStore {
 
     @Override
     public StoredImage restore(String userId, String assetId, int targetVersion) {
+        if (useLocalFallback()) return super.restore(userId, assetId, targetVersion);
         ImageMetadata metadata = metadata(userId, assetId)
                 .orElseThrow(() -> new IllegalArgumentException("找不到图片资源：" + assetId));
         VersionMetadata target = metadata.version(targetVersion)
@@ -86,6 +97,7 @@ public class OssImageAssetStore extends LocalImageAssetStore {
 
     @Override
     public Optional<StoredImage> current(String userId) {
+        if (useLocalFallback()) return super.current(userId);
         String userKey = safeUser(userId);
         StoredImage cached = currentCache.get(userKey);
         if (cached != null) return Optional.of(cached);
@@ -101,6 +113,7 @@ public class OssImageAssetStore extends LocalImageAssetStore {
 
     @Override
     public boolean clearCurrent(String userId) {
+        if (useLocalFallback()) return super.clearCurrent(userId);
         currentCache.remove(safeUser(userId));
         String key = currentKey(userId);
         if (!exists(key)) return false;
@@ -110,6 +123,7 @@ public class OssImageAssetStore extends LocalImageAssetStore {
 
     @Override
     public Optional<StoredImage> find(String userId, String assetId, int version) {
+        if (useLocalFallback()) return super.find(userId, assetId, version);
         if (!validAssetId(assetId) || version < 1) return Optional.empty();
         return metadata(userId, assetId).flatMap(metadata -> metadata.version(version)
                 .map(value -> value.toStored(assetId, metadata.mediaType())));
@@ -117,11 +131,13 @@ public class OssImageAssetStore extends LocalImageAssetStore {
 
     @Override
     public Optional<StoredImage> latest(String userId, String assetId) {
+        if (useLocalFallback()) return super.latest(userId, assetId);
         return metadata(userId, assetId).flatMap(ImageMetadata::latest);
     }
 
     @Override
     public Optional<StoredImage> annotate(String userId, String assetId, String visualSummary) {
+        if (useLocalFallback()) return super.annotate(userId, assetId, visualSummary);
         return metadata(userId, assetId).flatMap(metadata -> {
             int version = integer(metadata.properties(), "latestVersion", 0);
             Optional<VersionMetadata> target = metadata.version(version);
@@ -140,6 +156,7 @@ public class OssImageAssetStore extends LocalImageAssetStore {
 
     @Override
     public List<StoredImage> recent(String userId, int limit) {
+        if (useLocalFallback()) return super.recent(userId, limit);
         ObjectListing listing = client().listObjects(properties.getBucketName(), userPrefix(userId));
         return listing.getObjectSummaries().stream()
                 .map(OSSObjectSummary::getKey)
@@ -155,6 +172,7 @@ public class OssImageAssetStore extends LocalImageAssetStore {
 
     @Override
     public byte[] readBytes(StoredImage image) {
+        if (useLocalFallback()) return super.readBytes(image);
         String key = image.file().toString().replace('\\', '/');
         try (OSSObject object = client().getObject(properties.getBucketName(), key);
              InputStream input = object.getObjectContent()) {
@@ -167,6 +185,7 @@ public class OssImageAssetStore extends LocalImageAssetStore {
     /** 为异步图片网关签发只读、短时 URL；不把桶设为公开访问。 */
     @Override
     public String signedReadUrl(StoredImage image) {
+        if (useLocalFallback()) return super.signedReadUrl(image);
         String key = image.file().toString().replace('\\', '/');
         Date expiration = Date.from(Instant.now().plus(properties.getSignedUrlTtl()));
         return client().generatePresignedUrl(properties.getBucketName(), key, expiration).toExternalForm();
@@ -270,6 +289,10 @@ public class OssImageAssetStore extends LocalImageAssetStore {
             }
             return client;
         }
+    }
+
+    private boolean useLocalFallback() {
+        return !properties.isConfigured();
     }
 
     @PreDestroy

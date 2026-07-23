@@ -8,7 +8,10 @@ import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
 import com.example.ykdsummer.ai.tool.SpeechTools;
 import com.example.ykdsummer.ai.tool.VoiceSettingsTools;
 import com.example.ykdsummer.ai.tool.DocumentTools;
+import com.example.ykdsummer.ai.tool.FileProductionTools;
 import com.example.ykdsummer.ai.tool.ConversationMemoryTools;
+import com.example.ykdsummer.ai.tool.AssetManagementTools;
+import com.example.ykdsummer.ai.tool.ImageTaskStatusTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -49,7 +52,10 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private final SpeechTools speechTools;
     private final VoiceSettingsTools voiceSettingsTools;
     private final DocumentTools documentTools;
+    private final FileProductionTools fileProductionTools;
     private final ConversationMemoryTools conversationMemoryTools;
+    private final AssetManagementTools assetManagementTools;
+    private final ImageTaskStatusTools imageTaskStatusTools;
     private final AiTraceLogger trace;
 
     public SpringAiChatCompletionsGateway(
@@ -57,7 +63,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             AiProperties properties,
             WeatherTools weatherTools
     ) {
-        this(chatModel, properties, weatherTools, null, null, null, null, null, null, AiTraceLogger.disabled());
+        this(chatModel, properties, weatherTools, null, null, null, null, null, null, null, AiTraceLogger.disabled());
     }
 
     @Autowired
@@ -70,7 +76,10 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             SpeechTools speechTools,
             VoiceSettingsTools voiceSettingsTools,
             DocumentTools documentTools,
+            FileProductionTools fileProductionTools,
             ConversationMemoryTools conversationMemoryTools,
+            AssetManagementTools assetManagementTools,
+            ImageTaskStatusTools imageTaskStatusTools,
             AiTraceLogger trace
     ) {
         this.chatClient = ChatClient.create(chatModel);
@@ -81,8 +90,29 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         this.speechTools = speechTools;
         this.voiceSettingsTools = voiceSettingsTools;
         this.documentTools = documentTools;
+        this.fileProductionTools = fileProductionTools;
         this.conversationMemoryTools = conversationMemoryTools;
+        this.assetManagementTools = assetManagementTools;
+        this.imageTaskStatusTools = imageTaskStatusTools;
         this.trace = trace;
+    }
+
+    /** 兼容文件生产 Tool 上线前的测试构造器；正式 Spring Bean 会额外注册该 Tool。 */
+    public SpringAiChatCompletionsGateway(
+            ChatModel chatModel,
+            AiProperties properties,
+            WeatherTools weatherTools,
+            ImageTools imageTools,
+            ToolArtifactCollector artifacts,
+            SpeechTools speechTools,
+            VoiceSettingsTools voiceSettingsTools,
+            DocumentTools documentTools,
+            ConversationMemoryTools conversationMemoryTools,
+            AssetManagementTools assetManagementTools,
+            AiTraceLogger trace
+    ) {
+        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
+                documentTools, null, conversationMemoryTools, assetManagementTools, null, trace);
     }
 
     /** 供现有单元测试和手动构造使用；正式 Spring Bean 会使用带 SpeechTools 的构造器。 */
@@ -90,7 +120,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             ChatModel chatModel, AiProperties properties, WeatherTools weatherTools,
             ImageTools imageTools, ToolArtifactCollector artifacts, AiTraceLogger trace
     ) {
-        this(chatModel, properties, weatherTools, imageTools, artifacts, null, null, null, null, trace);
+        this(chatModel, properties, weatherTools, imageTools, artifacts, null, null, null, null, null, trace);
     }
 
     /** 兼容 Phase 37 的测试构造器；生产 Bean 会额外注入 DocumentTools。 */
@@ -99,7 +129,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             ImageTools imageTools, ToolArtifactCollector artifacts, SpeechTools speechTools,
             VoiceSettingsTools voiceSettingsTools, AiTraceLogger trace
     ) {
-        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools, null, null, trace);
+        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools, null, null, null, trace);
     }
 
     /** 兼容已有测试构造器；生产 Bean 会额外注册 ConversationMemoryTools。 */
@@ -109,7 +139,18 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             VoiceSettingsTools voiceSettingsTools, DocumentTools documentTools, AiTraceLogger trace
     ) {
         this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
-                documentTools, null, trace);
+                documentTools, null, null, trace);
+    }
+
+    /** 兼容 Phase 41 的测试构造器；生产 Bean 会额外注册 AssetManagementTools。 */
+    public SpringAiChatCompletionsGateway(
+            ChatModel chatModel, AiProperties properties, WeatherTools weatherTools,
+            ImageTools imageTools, ToolArtifactCollector artifacts, SpeechTools speechTools,
+            VoiceSettingsTools voiceSettingsTools, DocumentTools documentTools,
+            ConversationMemoryTools conversationMemoryTools, AiTraceLogger trace
+    ) {
+        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
+                documentTools, conversationMemoryTools, null, trace);
     }
 
     @Override
@@ -143,8 +184,17 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             if (documentTools != null) {
                 request = request.tools(documentTools);
             }
+            if (fileProductionTools != null) {
+                request = request.tools(fileProductionTools);
+            }
             if (conversationMemoryTools != null) {
                 request = request.tools(conversationMemoryTools);
+            }
+            if (assetManagementTools != null) {
+                request = request.tools(assetManagementTools);
+            }
+            if (imageTaskStatusTools != null) {
+                request = request.tools(imageTaskStatusTools);
             }
             ChatResponse response = request
                     .call()

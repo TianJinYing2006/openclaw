@@ -10,6 +10,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -60,10 +61,7 @@ public class AsyncMediaImageGateway implements AsyncImageEditGateway {
             if (immediate != null) {
                 return immediate;
             }
-            String taskId = firstText(created, "task_id", "id");
-            if (taskId.isBlank() && created.path("data").isArray() && !created.path("data").isEmpty()) {
-                taskId = firstText(created.path("data").get(0), "task_id", "id");
-            }
+            String taskId = taskId(created);
             if (taskId.isBlank()) {
                 return EditResult.error("图片编辑服务没有返回任务编号");
             }
@@ -93,13 +91,14 @@ public class AsyncMediaImageGateway implements AsyncImageEditGateway {
                 Thread.sleep(aiProperties.getImagePollInterval().toMillis());
                 continue;
             }
-            boolean done = status.path("is_final").asBoolean(false);
-            String state = status.path("state").asText("");
-            if (done || "success".equalsIgnoreCase(state) || "failed".equalsIgnoreCase(state)) {
-                if (!"success".equalsIgnoreCase(state)) {
-                    return EditResult.error("图片编辑失败：" + safeError(status.path("error").asText()));
+            boolean done = firstBoolean(status, "is_final", "isFinal", "completed", "done");
+            String state = firstText(status, "state", "status");
+            String url = firstText(status, "result_url", "resultUrl", "url");
+            if (done || terminalState(state)) {
+                if (!successfulState(state) && url.isBlank()) {
+                    return EditResult.error("图片编辑失败：" + safeError(firstText(status,
+                            "error_message", "errorMessage", "message", "error")));
                 }
-                String url = firstText(status, "result_url", "url");
                 return url.isBlank() ? EditResult.error("图片编辑服务没有返回结果图片") : download(url);
             }
             Thread.sleep(aiProperties.getImagePollInterval().toMillis());
@@ -108,14 +107,14 @@ public class AsyncMediaImageGateway implements AsyncImageEditGateway {
     }
 
     private EditResult immediateResult(JsonNode created) {
-        String url = firstText(created, "result_url", "url");
-        if (url.isBlank() && created.path("data").isArray() && !created.path("data").isEmpty()) {
-            JsonNode first = created.path("data").get(0);
-            url = firstText(first, "url", "result_url");
-            String b64 = first.path("b64_json").asText("");
-            if (!b64.isBlank()) {
+        String url = firstText(created, "result_url", "resultUrl", "url");
+        String b64 = firstText(created, "b64_json", "b64Json");
+        if (!b64.isBlank()) {
+            try {
                 byte[] bytes = Base64.getDecoder().decode(b64);
                 return valid(bytes) ? EditResult.success(bytes, null) : EditResult.error("图片编辑返回了无效图片");
+            } catch (IllegalArgumentException exception) {
+                return EditResult.error("图片编辑返回了无效图片");
             }
         }
         return url.isBlank() ? null : download(url);
@@ -161,12 +160,80 @@ public class AsyncMediaImageGateway implements AsyncImageEditGateway {
         }
     }
 
+    private static String taskId(JsonNode response) {
+        String taskId = firstText(response, "task_id", "taskId", "taskID");
+        return taskId.isBlank() ? firstText(response, "id") : taskId;
+    }
+
+    /** 兼容中转常见的 data/result 对象包装，同时避免把供应商响应格式写死在业务层。 */
     private static String firstText(JsonNode node, String... names) {
-        for (String name : names) {
-            String value = node.path(name).asText("");
-            if (!value.isBlank()) return value;
+        return firstText(node, Set.of(names));
+    }
+
+    private static String firstText(JsonNode node, Set<String> names) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        if (node.isObject()) {
+            for (String name : names) {
+                JsonNode value = node.get(name);
+                if (value != null && value.isValueNode() && !value.asText("").isBlank()) {
+                    return value.asText();
+                }
+            }
+            var fields = node.fields();
+            while (fields.hasNext()) {
+                String value = firstText(fields.next().getValue(), names);
+                if (!value.isBlank()) {
+                    return value;
+                }
+            }
+        } else if (node.isArray()) {
+            for (JsonNode item : node) {
+                String value = firstText(item, names);
+                if (!value.isBlank()) {
+                    return value;
+                }
+            }
         }
         return "";
+    }
+
+    private static boolean firstBoolean(JsonNode node, String... names) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return false;
+        }
+        if (node.isObject()) {
+            for (String name : names) {
+                JsonNode value = node.get(name);
+                if (value != null && value.asBoolean(false)) {
+                    return true;
+                }
+            }
+            var fields = node.fields();
+            while (fields.hasNext()) {
+                if (firstBoolean(fields.next().getValue(), names)) {
+                    return true;
+                }
+            }
+        } else if (node.isArray()) {
+            for (JsonNode item : node) {
+                if (firstBoolean(item, names)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean terminalState(String state) {
+        return successfulState(state) || "failed".equalsIgnoreCase(state) || "error".equalsIgnoreCase(state)
+                || "cancelled".equalsIgnoreCase(state) || "canceled".equalsIgnoreCase(state);
+    }
+
+    private static boolean successfulState(String state) {
+        return "success".equalsIgnoreCase(state) || "succeeded".equalsIgnoreCase(state)
+                || "completed".equalsIgnoreCase(state) || "done".equalsIgnoreCase(state);
     }
     private static boolean valid(byte[] bytes) { return bytes != null && bytes.length > 0 && bytes.length <= MAX_IMAGE_BYTES; }
     private static String safeError(String value) { return value == null || value.isBlank() ? "请稍后重试" : value.replace('\n', ' ').strip(); }

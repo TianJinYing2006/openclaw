@@ -33,7 +33,7 @@ public class LocalDocumentAssetStore {
         this(Path.of(".ai-assets", "documents").toAbsolutePath().normalize());
     }
 
-    LocalDocumentAssetStore(Path root) {
+    public LocalDocumentAssetStore(Path root) {
         this.root = root.toAbsolutePath().normalize();
     }
 
@@ -87,6 +87,18 @@ public class LocalDocumentAssetStore {
                     currentCache.put(key, value);
                     return value;
                 });
+    }
+
+    /** 将指定文档版本设置为当前会话对象，不复制文件、不新增版本。 */
+    public Optional<StoredDocument> selectCurrent(String userId, String assetId, int version) {
+        return find(userId, assetId, version).map(found -> {
+            try {
+                setCurrent(userId, found);
+            } catch (IOException exception) {
+                throw new IllegalStateException("无法设置当前文档资源", exception);
+            }
+            return found;
+        });
     }
 
     /**
@@ -146,6 +158,29 @@ public class LocalDocumentAssetStore {
                 .flatMap(Optional::stream)
                 .sorted(Comparator.comparingInt(StoredDocument::version))
                 .toList();
+    }
+
+    public List<StoredDocument> recent(String userId, int limit) {
+        Path userDirectory = userDirectory(userId);
+        if (!Files.isDirectory(userDirectory)) {
+            return List.of();
+        }
+        try (var entries = Files.list(userDirectory)) {
+            return entries.filter(Files::isDirectory)
+                    .map(path -> path.getFileName().toString())
+                    .filter(LocalDocumentAssetStore::validAssetId)
+                    .map(assetId -> {
+                        List<StoredDocument> versions = versions(userId, assetId);
+                        return versions.isEmpty() ? Optional.<StoredDocument>empty()
+                                : Optional.of(versions.getLast());
+                    })
+                    .flatMap(Optional::stream)
+                    .sorted(Comparator.comparing(StoredDocument::createdAt).reversed())
+                    .limit(Math.max(1, Math.min(limit, 20)))
+                    .toList();
+        } catch (IOException exception) {
+            return List.of();
+        }
     }
 
     public byte[] readBytes(StoredDocument document) {
@@ -224,14 +259,20 @@ public class LocalDocumentAssetStore {
         return root.resolve(safeUser(userId));
     }
 
-    private static String normalizeFormat(String format) {
+    /** 生产、上传、资产读取共用的文件格式规范化入口。 */
+    public static String normalizeFormat(String format) {
         String value = format == null ? "" : format.strip().toLowerCase();
         return switch (value) {
             case "word" -> "docx";
             case "excel" -> "xlsx";
             case "text" -> "txt";
-            case "docx", "xlsx", "pdf", "txt" -> value;
-            default -> throw new IllegalArgumentException("暂时只支持 Word、Excel、PDF 和 TXT 文件");
+            case "powerpoint", "ppt" -> "pptx";
+            case "markdown" -> "md";
+            case "htm" -> "html";
+            case "docx", "xlsx", "pptx", "pdf", "txt", "md", "html", "csv", "json", "xml" -> value;
+            default -> throw new IllegalArgumentException(
+                    "暂时支持 Word、Excel、PPT、PDF、TXT、Markdown、HTML、CSV、JSON 和 XML 文件"
+            );
         };
     }
 
@@ -263,7 +304,7 @@ public class LocalDocumentAssetStore {
 
     private static boolean isDocumentFormat(String value) {
         return switch (value == null ? "" : value.strip().toLowerCase()) {
-            case "docx", "xlsx", "pdf", "txt" -> true;
+            case "docx", "xlsx", "pptx", "pdf", "txt", "md", "html", "htm", "csv", "json", "xml" -> true;
             default -> false;
         };
     }

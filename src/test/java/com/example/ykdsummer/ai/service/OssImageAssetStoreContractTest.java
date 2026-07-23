@@ -13,6 +13,8 @@ import com.aliyun.oss.model.ObjectMetadata;
 import com.example.ykdsummer.ai.config.OssImageProperties;
 import java.io.InputStream;
 import java.net.URL;
+import java.nio.file.Files;
+import java.util.Base64;
 import org.junit.jupiter.api.Test;
 
 /** 验证生产仓库只调用 OSS 模拟对象，不写本机 .ai-assets/images。 */
@@ -39,5 +41,22 @@ class OssImageAssetStoreContractTest {
         verify(oss).putObject(eq("test-bucket"), contains("/v1.png"), any(InputStream.class), any(ObjectMetadata.class));
         verify(oss).putObject(eq("test-bucket"), contains("metadata.properties"), any(InputStream.class), any(ObjectMetadata.class));
         verify(oss).putObject(eq("test-bucket"), contains("current-image.properties"), any(InputStream.class), any(ObjectMetadata.class));
+    }
+
+    @Test
+    void fallsBackToLocalAssetsAndDataUrlWhenOssIsNotConfigured() throws Exception {
+        OssImageProperties properties = new OssImageProperties();
+        OssImageAssetStore store = new OssImageAssetStore(properties, null,
+                Files.createTempDirectory("oss-local-fallback"));
+        byte[] png = {9, 8, 7};
+
+        var image = store.saveGenerated("wechat-user", "一只小狗", png, null);
+        String reference = store.signedReadUrl(image);
+
+        assertThat(store.current("wechat-user")).contains(image);
+        assertThat(store.readBytes(image)).containsExactly(png);
+        assertThat(reference).startsWith("data:image/png;base64,");
+        assertThat(Base64.getDecoder().decode(reference.substring(reference.indexOf(',') + 1)))
+                .containsExactly(png);
     }
 }

@@ -116,6 +116,33 @@ class ILinkBotServiceDocumentReplyTest {
         }
     }
 
+    @Test
+    void notifiesWechatWhenGeneratedImageCannotBeUploaded() {
+        ILinkReplyService replyService = mock(ILinkReplyService.class);
+        ILinkRuntimeState runtimeState = mock(ILinkRuntimeState.class);
+        ILinkBotService service = new ILinkBotService(
+                new ILinkProperties(), mock(ILinkSessionStore.class), runtimeState, mock(ILinkDeliveryAudit.class), replyService,
+                mock(ILinkMessageRateLimiter.class), mock(ILinkMediaDownloader.class),
+                mock(ILinkFileDownloader.class), mock(ILinkVideoDownloader.class), new VideoProcessingProperties());
+        ILinkBot bot = mock(ILinkBot.class);
+        when(bot.isAutoPulling()).thenReturn(true);
+        ReflectionTestUtils.setField(service, "bot", bot);
+        WeixinMessage message = message();
+        byte[] bytes = {4, 5, 6};
+        when(replyService.createReply(message, List.of(), service.status()))
+                .thenReturn(new ILinkReply.Image(bytes, ""));
+        doThrow(new IllegalStateException("CDN upload failed"))
+                .when(bot).sendImage("user", "context", bytes);
+
+        try {
+            ReflectionTestUtils.invokeMethod(service, "processReply", message, List.of());
+            verify(bot).replyText(message, "图片已在机器人本地生成，但上传或发送到微信失败。请稍后重新执行原请求。");
+            verify(runtimeState).fallbackMessageSent();
+        } finally {
+            service.stop();
+        }
+    }
+
     private static WeixinMessage message() {
         return new WeixinMessage(
                 1L, 1L, "user", "bot", "client", System.currentTimeMillis(), null, null,

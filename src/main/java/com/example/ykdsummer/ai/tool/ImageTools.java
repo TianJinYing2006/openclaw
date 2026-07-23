@@ -3,6 +3,9 @@ package com.example.ykdsummer.ai.tool;
 import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.service.AiImageGenerationService;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
+import com.example.ykdsummer.ai.service.ImageTaskStatusStore;
+import com.example.ykdsummer.ai.service.ImageTaskStatusStore.ImageTask;
+import com.example.ykdsummer.ai.service.ImageTaskStatusStore.Operation;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
 import com.example.ykdsummer.ai.service.ImageInspectionService;
@@ -20,19 +23,29 @@ public class ImageTools {
     private final LocalImageAssetStore imageStore;
     private final ToolArtifactCollector artifacts;
     private final ImageInspectionService inspectionService;
+    private final ImageTaskStatusStore taskStore;
     private final AiTraceLogger trace;
 
     public ImageTools(AiImageGenerationService imageService,
                       LocalImageAssetStore imageStore,
                       ToolArtifactCollector artifacts) {
-        this(imageService, imageStore, artifacts, ImageInspectionService.unavailable(), AiTraceLogger.disabled());
+        this(imageService, imageStore, artifacts, ImageInspectionService.unavailable(),
+                new ImageTaskStatusStore(), AiTraceLogger.disabled());
     }
 
     public ImageTools(AiImageGenerationService imageService,
                       LocalImageAssetStore imageStore,
                       ToolArtifactCollector artifacts,
                       ImageInspectionService inspectionService) {
-        this(imageService, imageStore, artifacts, inspectionService, AiTraceLogger.disabled());
+        this(imageService, imageStore, artifacts, inspectionService, new ImageTaskStatusStore(), AiTraceLogger.disabled());
+    }
+
+    public ImageTools(AiImageGenerationService imageService,
+                      LocalImageAssetStore imageStore,
+                      ToolArtifactCollector artifacts,
+                      ImageInspectionService inspectionService,
+                      AiTraceLogger trace) {
+        this(imageService, imageStore, artifacts, inspectionService, new ImageTaskStatusStore(), trace);
     }
 
     @Autowired
@@ -40,11 +53,13 @@ public class ImageTools {
                       LocalImageAssetStore imageStore,
                       ToolArtifactCollector artifacts,
                       ImageInspectionService inspectionService,
+                      ImageTaskStatusStore taskStore,
                       AiTraceLogger trace) {
         this.imageService = imageService;
         this.imageStore = imageStore;
         this.artifacts = artifacts;
         this.inspectionService = inspectionService;
+        this.taskStore = taskStore;
         this.trace = trace;
     }
 
@@ -56,16 +71,39 @@ public class ImageTools {
     ) {
         String userId = artifacts.userId();
         trace.toolCall("generate_image", "promptLength=" + safeLength(prompt));
-        AiImageGenerationService.Result result = imageService.generate(userId, prompt);
-        if (!result.hasImage()) {
-            trace.toolResult("generate_image", "生成失败：" + result.errorMessage());
-            return "图片生成失败：" + result.errorMessage();
+        ImageTask task = taskStore.start(userId, Operation.GENERATE, prompt, "", 0);
+        AiImageGenerationService.Result result;
+        try {
+            result = imageService.generate(userId, prompt);
+        } catch (RuntimeException failure) {
+            taskStore.fail(userId, task.taskId(), "图片生成服务请求失败");
+            trace.toolFailure("generate_image", failure);
+            return withTask("图片生成失败：图片生成服务请求失败", task.taskId(), "失败");
         }
-        StoredImage stored = imageStore.saveGenerated(userId, prompt, result.imageBytes(), result.remoteUrl());
-        artifacts.add(AiArtifact.image(result.imageBytes(), "已生成图片", stored.assetId(), stored.version()));
+        if (!result.hasImage()) {
+            String resultMessage = "图片生成失败：" + result.errorMessage();
+            taskStore.fail(userId, task.taskId(), result.errorMessage());
+            trace.toolResult("generate_image", "生成失败：" + result.errorMessage());
+            return withTask(resultMessage, task.taskId(), "失败");
+        }
+        byte[] imageBytes = result.imageBytes();
+        StoredImage stored;
+        try {
+            stored = imageStore.saveGenerated(userId, prompt, imageBytes, result.remoteUrl());
+        } catch (RuntimeException failure) {
+            artifacts.add(AiArtifact.transientImage(imageBytes, "已生成图片（仅本轮发送）"));
+            taskStore.succeed(userId, task.taskId(), "", 0);
+            trace.toolFailure("generate_image_asset_save", failure);
+            String toolResult = "图片已生成并会作为图片消息发送给用户，但图片资产保存失败；"
+                    + "本轮仍可查看，后续无法按图片编号修改或恢复版本。";
+            trace.toolResult("generate_image", toolResult);
+            return withTask(toolResult, task.taskId(), "已成功");
+        }
+        artifacts.add(AiArtifact.image(imageBytes, "已生成图片", stored.assetId(), stored.version()));
+        taskStore.succeed(userId, task.taskId(), stored.assetId(), stored.version());
         String toolResult = describe("图片已生成并会作为图片消息发送给用户", stored);
         trace.toolResult("generate_image", toolResult);
-        return toolResult;
+        return withTask(toolResult, task.taskId(), "已成功");
     }
 
     @Tool(name = "get_current_image", description = "当用户提到刚才、上一张、当前图片，或者准备修改、比较、回退图片前调用。"
@@ -123,9 +161,16 @@ public class ImageTools {
             @ToolParam(required = true, description = "要修改的 image assetId，必须来自图片查询工具。") String assetId,
             @ToolParam(required = true, description = "新的完整画面描述，需包含保留什么、改变什么以及最终风格。") String prompt
     ) {
+        return createImageRevision(assetId, 0, prompt);
+    }
+
+    /** 重试失败改图时保留原始版本，避免重试意外改用后来产生的新版本。 */
+    private String createImageRevision(String assetId, int sourceVersion, String prompt) {
         String userId = artifacts.userId();
         trace.toolCall("create_image_revision", "asset=" + safe(assetId) + ", promptLength=" + safeLength(prompt));
-        Optional<StoredImage> base = imageStore.latest(userId, assetId);
+        Optional<StoredImage> base = sourceVersion > 0
+                ? imageStore.find(userId, assetId, sourceVersion)
+                : imageStore.latest(userId, assetId);
         if (base.isEmpty()) {
             String toolResult = "找不到图片资源：" + assetId + "。请先查询当前或最近图片。";
             trace.toolResult("create_image_revision", toolResult);
@@ -133,24 +178,57 @@ public class ImageTools {
         }
         String completePrompt = "保留原图中未被用户要求修改的主体、构图与细节。上一版保存描述：" + base.get().prompt()
                 + optionalTags(base.get()) + "。新的修改要求：" + prompt;
+        ImageTask task = taskStore.start(userId, Operation.REVISION, prompt, assetId, base.get().version());
         String referenceUrl;
         try {
             referenceUrl = imageStore.signedReadUrl(base.get());
         } catch (RuntimeException exception) {
+            taskStore.fail(userId, task.taskId(), "无法取得原图参考地址");
             trace.toolFailure("create_image_revision", exception);
-            return "图片新版本生成失败：无法取得原图参考地址";
+            return withTask("图片新版本生成失败：无法取得原图参考地址", task.taskId(), "失败");
         }
-        AiImageGenerationService.Result result = imageService.revise(userId, completePrompt, referenceUrl);
+        AiImageGenerationService.Result result;
+        try {
+            result = imageService.revise(userId, completePrompt, referenceUrl);
+        } catch (RuntimeException failure) {
+            taskStore.fail(userId, task.taskId(), "图片修改服务请求失败");
+            trace.toolFailure("create_image_revision", failure);
+            return withTask("图片新版本生成失败：图片修改服务请求失败", task.taskId(), "失败");
+        }
         if (!result.hasImage()) {
             String toolResult = "图片新版本生成失败：" + result.errorMessage();
+            taskStore.fail(userId, task.taskId(), result.errorMessage());
             trace.toolResult("create_image_revision", toolResult);
-            return toolResult;
+            return withTask(toolResult, task.taskId(), "失败");
         }
-        StoredImage stored = imageStore.saveRevision(userId, assetId, completePrompt, result.imageBytes(), result.remoteUrl());
-        artifacts.add(AiArtifact.image(result.imageBytes(), "图片新版本", stored.assetId(), stored.version()));
+        byte[] imageBytes = result.imageBytes();
+        StoredImage stored;
+        try {
+            stored = imageStore.saveRevision(userId, assetId, completePrompt, imageBytes, result.remoteUrl());
+        } catch (RuntimeException failure) {
+            artifacts.add(AiArtifact.transientImage(imageBytes, "图片修改结果（仅本轮发送）"));
+            taskStore.succeed(userId, task.taskId(), "", 0);
+            trace.toolFailure("create_image_revision_asset_save", failure);
+            String toolResult = "图片修改结果已生成并会发送给用户，但未能保存为新版本；"
+                    + "当前图片资产保持不变。";
+            trace.toolResult("create_image_revision", toolResult);
+            return withTask(toolResult, task.taskId(), "已成功");
+        }
+        artifacts.add(AiArtifact.image(imageBytes, "图片新版本", stored.assetId(), stored.version()));
+        taskStore.succeed(userId, task.taskId(), stored.assetId(), stored.version());
         String toolResult = describe("图片已生成新版本并会发送给用户", stored);
         trace.toolResult("create_image_revision", toolResult);
-        return toolResult;
+        return withTask(toolResult, task.taskId(), "已成功");
+    }
+
+    /** 被任务状态 Tool 调用；只允许重试已记录的失败任务。 */
+    public String retryFailedTask(ImageTask failedTask) {
+        if (failedTask == null || failedTask.status() != ImageTaskStatusStore.Status.FAILED) {
+            return "该图片任务不是可重试的失败任务。";
+        }
+        return failedTask.operation() == Operation.GENERATE
+                ? generateImage(failedTask.retryPrompt())
+                : createImageRevision(failedTask.sourceAssetId(), failedTask.sourceVersion(), failedTask.retryPrompt());
     }
 
     @Tool(name = "restore_image_version", description = "仅当用户明确要求回到某个历史图片版本、撤销最近一次图片修改时调用。"
@@ -188,5 +266,9 @@ public class ImageTools {
 
     private static int safeLength(String value) {
         return safe(value).length();
+    }
+
+    private static String withTask(String result, String taskId, String status) {
+        return result + "（任务编号 " + taskId + "，状态：" + status + "）";
     }
 }

@@ -7,6 +7,13 @@ import com.openai.errors.UnauthorizedException;
 import com.openai.models.images.Image;
 import com.openai.models.images.ImageGenerateParams;
 import com.openai.models.images.ImagesResponse;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.Base64;
 import java.util.List;
 import org.slf4j.Logger;
@@ -29,6 +36,7 @@ public class AiImageGenerationService {
 
     private static final Logger log = LoggerFactory.getLogger(AiImageGenerationService.class);
     private static final int MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+    private static final HttpClient IMAGE_DOWNLOAD_CLIENT = HttpClient.newBuilder().build();
 
     private final OpenAIClient client;
     private final AiProperties properties;
@@ -89,11 +97,11 @@ public class AiImageGenerationService {
                     .withOptions(options -> options.timeout(properties.getImageTimeout()).maxRetries(0))
                     .generate(params);
             List<Image> images = response.data().orElse(List.of());
-            if (images.isEmpty() || images.getFirst().b64Json().isEmpty()) {
+            if (images.isEmpty()) {
                 return Result.error(EMPTY_REPLY);
             }
-            byte[] bytes = Base64.getDecoder().decode(images.getFirst().b64Json().orElseThrow());
-            if (bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES) {
+            byte[] bytes = imageBytes(images.getFirst());
+            if (bytes == null || bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES) {
                 return Result.error(EMPTY_REPLY);
             }
             log.info("AI image completed, user={}, model={}, bytes={}", anonymize(userId), properties.getImageModel(), bytes.length);
@@ -105,6 +113,64 @@ public class AiImageGenerationService {
             log.warn("AI image request failed, user={}, category={}, type={}",
                     anonymize(userId), failureCategory(exception), exception.getClass().getSimpleName());
             return Result.error(UNAVAILABLE_REPLY);
+        }
+    }
+
+    /**
+     * OpenAI Images 支持 Base64 与临时 URL 两种返回形式。部分兼容平台即使收到
+     * {@code response_format=b64_json} 也只返回 URL，因此两种形式都要转成可发送给 iLink 的字节。
+     */
+    private byte[] imageBytes(Image image) {
+        if (image == null) {
+            return null;
+        }
+        if (image.b64Json().isPresent()) {
+            try {
+                return Base64.getDecoder().decode(image.b64Json().orElseThrow());
+            } catch (IllegalArgumentException exception) {
+                log.warn("Image provider returned invalid Base64 data");
+            }
+        }
+        return image.url().map(this::downloadImage).orElse(null);
+    }
+
+    private byte[] downloadImage(String value) {
+        try {
+            URI uri = URI.create(value);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) && !"http".equalsIgnoreCase(uri.getScheme())) {
+                throw new IllegalArgumentException("unsupported image URL scheme");
+            }
+            HttpRequest request = HttpRequest.newBuilder(uri)
+                    .header("Accept", "image/*")
+                    .timeout(properties.getImageTimeout())
+                    .GET()
+                    .build();
+            HttpResponse<InputStream> response = IMAGE_DOWNLOAD_CLIENT.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("image URL returned HTTP " + response.statusCode());
+            }
+            try (InputStream stream = response.body()) {
+                return readImageBytes(stream);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while downloading generated image", exception);
+        } catch (IOException | IllegalArgumentException exception) {
+            throw new IllegalStateException("could not download generated image", exception);
+        }
+    }
+
+    private static byte[] readImageBytes(InputStream stream) throws IOException {
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = stream.read(buffer)) != -1) {
+                if (output.size() + count > MAX_IMAGE_BYTES) {
+                    throw new IllegalStateException("generated image exceeds maximum size");
+                }
+                output.write(buffer, 0, count);
+            }
+            return output.toByteArray();
         }
     }
 

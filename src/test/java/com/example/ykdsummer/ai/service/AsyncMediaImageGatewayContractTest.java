@@ -26,11 +26,11 @@ class AsyncMediaImageGatewayContractTest {
         server.createContext("/v1/media/generate", exchange -> {
             request.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
-            json(exchange, "{\"task_id\":\"test-task\"}");
+            json(exchange, "{\"code\":0,\"data\":{\"taskId\":\"test-task\"}}");
         });
         server.createContext("/v1/media/status", exchange -> json(exchange,
-                "{\"task_id\":\"test-task\",\"state\":\"success\",\"is_final\":true,"
-                        + "\"result_url\":\"http://127.0.0.1:" + server.getAddress().getPort() + "/result.png\"}"));
+                "{\"code\":0,\"data\":{\"task_id\":\"test-task\",\"status\":\"completed\",\"isFinal\":true,"
+                        + "\"result\":{\"url\":\"http://127.0.0.1:" + server.getAddress().getPort() + "/result.png\"}}}"));
         server.createContext("/result.png", exchange -> bytes(exchange, new byte[]{1, 2, 3, 4}));
         server.start();
         try {

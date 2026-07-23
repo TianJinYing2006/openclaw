@@ -414,10 +414,12 @@ public class ILinkBotService {
      * 若文本也失败，审计日志仍保留原始附件失败原因，供下一次真机测试定位。
      */
     private void sendMediaFailureNotice(ILinkBot runningBot, WeixinMessage message, ILinkReply reply) {
-        if (runningBot == null || !(reply instanceof ILinkReply.DocumentFile || reply instanceof ILinkReply.AudioFile)) {
+        if (runningBot == null || !(reply instanceof ILinkReply.DocumentFile
+                || reply instanceof ILinkReply.AudioFile || reply instanceof ILinkReply.Image)) {
             return;
         }
-        String type = reply instanceof ILinkReply.DocumentFile ? "文件" : "音频文件";
+        String type = reply instanceof ILinkReply.DocumentFile ? "文件"
+                : reply instanceof ILinkReply.AudioFile ? "音频文件" : "图片";
         try {
             runningBot.replyText(message, type + "已在机器人本地生成，但上传或发送到微信失败。请稍后重新执行原请求。");
             runtimeState.fallbackMessageSent();

@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -32,7 +33,7 @@ public class LocalImageAssetStore {
         this(Path.of(".ai-assets", "images").toAbsolutePath().normalize());
     }
 
-    LocalImageAssetStore(Path root) {
+    public LocalImageAssetStore(Path root) {
         this.root = root.toAbsolutePath().normalize();
     }
 
@@ -86,6 +87,18 @@ public class LocalImageAssetStore {
         int version = integer(properties, "version", 0);
         return find(userId, assetId, version).map(found -> {
             currentCache.put(key, found);
+            return found;
+        });
+    }
+
+    /** 将指定图片版本设置为当前会话对象，不复制文件、不新增版本。 */
+    public Optional<StoredImage> selectCurrent(String userId, String assetId, int version) {
+        return find(userId, assetId, version).map(found -> {
+            try {
+                setCurrent(userId, found);
+            } catch (IOException exception) {
+                throw new IllegalStateException("无法设置当前图片资源", exception);
+            }
             return found;
         });
     }
@@ -173,9 +186,10 @@ public class LocalImageAssetStore {
         }
     }
 
-    /** 本地开发回退实现；生产环境会由 OssImageAssetStore 返回私有 OSS 短时地址。 */
+    /** 本地回退把原图内联成 data URL；图片编辑网关支持该格式，不需要访问本机文件路径。 */
     public String signedReadUrl(StoredImage image) {
-        return image.file().toUri().toString();
+        return "data:" + safeMediaType(image.mediaType()) + ";base64,"
+                + Base64.getEncoder().encodeToString(readBytes(image));
     }
 
     private StoredImage saveNew(String userId, String source, String prompt, byte[] bytes, String remoteUrl, String mediaType) {
