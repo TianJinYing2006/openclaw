@@ -123,9 +123,10 @@ public class AiChatService {
                 return reply.text();
             } catch (AiGatewayException exception) {
                 log.warn(
-                        "AI request failed, user={}, kind={}",
+                        "大模型请求失败，用户={}，错误类型={}",
                         anonymize(userId),
-                        exception.kind()
+                        exception.kind(),
+                        exception
                 );
                 return switch (exception.kind()) {
                     case AUTHENTICATION -> AUTH_ERROR_REPLY;
@@ -133,7 +134,8 @@ public class AiChatService {
                     case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
                 };
             } catch (RuntimeException exception) {
-                log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
+                log.warn("发生未预期的大模型异常，用户={}，异常类型={}",
+                        anonymize(userId), exception.getClass().getSimpleName(), exception);
                 return UNAVAILABLE_REPLY;
             }
         }

@@ -73,23 +73,37 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
             String reasoningEffort
     ) {
         try {
+            String safeReasoningEffort = safeEffort(reasoningEffort);
+            AiModelCallLogger.responsesRequest(
+                    log,
+                    properties.getModel(),
+                    safeReasoningEffort,
+                    instructions(),
+                    history,
+                    prompt,
+                    images,
+                    files
+            );
             // buildRequest 先构造 Java 请求对象；create 才真正发出 HTTP 请求并等待响应。
             Response response = client.responses().create(buildRequest(
-                    history, prompt, images, files, safeEffort(reasoningEffort)));
+                    history, prompt, images, files, safeReasoningEffort));
             String text = extractOutputText(response);
             if (text.isBlank()) {
                 throw new AiGatewayException(AiGatewayException.Kind.EMPTY_RESPONSE);
             }
             String actualModel = modelName(response.model());
-            log.info("AI response completed, model={}", actualModel);
+            AiModelCallLogger.response(log, "responses", actualModel, text);
             return new ModelReply(text, actualModel);
         } catch (UnauthorizedException | PermissionDeniedException exception) {
+            log.warn("Responses 请求失败，异常类型={}", exception.getClass().getSimpleName(), exception);
             throw new AiGatewayException(AiGatewayException.Kind.AUTHENTICATION, exception);
         } catch (OpenAIIoException | OpenAIRetryableException exception) {
+            log.warn("Responses 请求失败，异常类型={}", exception.getClass().getSimpleName(), exception);
             throw new AiGatewayException(AiGatewayException.Kind.TEMPORARY_UNAVAILABLE, exception);
         } catch (AiGatewayException exception) {
             throw exception;
         } catch (RuntimeException exception) {
+            log.warn("Responses 请求失败，异常类型={}", exception.getClass().getSimpleName(), exception);
             throw new AiGatewayException(AiGatewayException.Kind.TEMPORARY_UNAVAILABLE, exception);
         }
     }

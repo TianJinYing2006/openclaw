@@ -2,6 +2,7 @@ package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.ConversationMessage;
+import com.example.ykdsummer.ai.tool.AiTool;
 import com.example.ykdsummer.ai.tool.WeatherTools;
 import com.example.ykdsummer.weather.WeatherInfo;
 import com.example.ykdsummer.weather.WeatherService;
@@ -89,7 +90,7 @@ class SpringAiChatCompletionsGatewayContractTest {
                     "西南风", "2级", 95, "5 分钟前发布"
             ));
             SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
-                    model, properties, new WeatherTools(weatherService)
+                    model, properties, List.of(new WeatherTools(weatherService))
             );
 
             LlmGateway.ModelReply reply = gateway.generate(List.of(), "杭州现在天气怎么样？");
@@ -125,7 +126,7 @@ class SpringAiChatCompletionsGatewayContractTest {
             SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
                     model,
                     properties,
-                    new WeatherTools(mock(WeatherService.class))
+                    List.of(new WeatherTools(mock(WeatherService.class)))
             );
 
             LlmGateway.ModelReply reply = gateway.generate(

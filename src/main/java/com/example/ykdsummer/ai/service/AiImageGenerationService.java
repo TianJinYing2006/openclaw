@@ -51,6 +51,14 @@ public class AiImageGenerationService {
             return Result.error(DISABLED_REPLY);
         }
         try {
+            AiModelCallLogger.imageRequest(
+                    log,
+                    anonymize(userId),
+                    properties.getImageModel(),
+                    properties.getImageSize(),
+                    properties.getImageQuality(),
+                    prompt
+            );
             // 这里构造 Images API 请求：一次生成 1 张 1024x1024、中等质量的 PNG。
             ImageGenerateParams params = ImageGenerateParams.builder()
                     .model(properties.getImageModel())
@@ -74,13 +82,13 @@ public class AiImageGenerationService {
             if (bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES) {
                 return Result.error(EMPTY_REPLY);
             }
-            log.info("AI image completed, user={}, model={}, bytes={}", anonymize(userId), properties.getImageModel(), bytes.length);
+            AiModelCallLogger.imageResponse(log, anonymize(userId), properties.getImageModel(), bytes);
             return Result.image(bytes);
         } catch (UnauthorizedException | PermissionDeniedException exception) {
-            log.warn("AI image authentication failed, user={}", anonymize(userId));
+            log.warn("生图请求失败，用户={}，异常类型={}", anonymize(userId), exception.getClass().getSimpleName(), exception);
             return Result.error(AUTH_ERROR_REPLY);
         } catch (RuntimeException exception) {
-            log.warn("AI image request failed, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
+            log.warn("生图请求失败，用户={}，异常类型={}", anonymize(userId), exception.getClass().getSimpleName(), exception);
             return Result.error(UNAVAILABLE_REPLY);
         }
     }

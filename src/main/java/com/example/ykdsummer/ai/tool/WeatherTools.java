@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
  * Spring AI 暴露给模型的天气工具边界。业务查询仍由 WeatherService 完成。
  */
 @Component
-public class WeatherTools {
+public class WeatherTools implements AiTool {
 
     private final WeatherService weatherService;
 

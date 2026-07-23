@@ -2,7 +2,7 @@ package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.ConversationMessage;
-import com.example.ykdsummer.ai.tool.WeatherTools;
+import com.example.ykdsummer.ai.tool.AiTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -35,23 +35,30 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
 
     private final ChatClient chatClient;
     private final AiProperties properties;
-    private final WeatherTools weatherTools;
+    private final List<AiTool> tools;
 
     public SpringAiChatCompletionsGateway(
             ChatModel chatModel,
             AiProperties properties,
-            WeatherTools weatherTools
+            List<AiTool> tools
     ) {
         this.chatClient = ChatClient.create(chatModel);
         this.properties = properties;
-        this.weatherTools = weatherTools;
+        this.tools = tools;
     }
 
     @Override
     public LlmGateway.ModelReply generate(List<ConversationMessage> history, String prompt) {
         try {
+            AiModelCallLogger.textRequest(
+                    log,
+                    properties.getModel(),
+                    properties.getSystemPrompt(),
+                    history,
+                    prompt
+            );
             ChatResponse response = chatClient.prompt(buildPrompt(history, prompt))
-                    .tools(weatherTools)
+                    .tools(tools.toArray())
                     .call()
                     .chatResponse();
             String text = extractText(response);
@@ -62,11 +69,12 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                     || response.getMetadata().getModel().isBlank()
                     ? properties.getModel()
                     : response.getMetadata().getModel();
-            log.info("Spring AI chat completion completed, model={}", actualModel);
+            AiModelCallLogger.response(log, "chat_completions", actualModel, text);
             return new LlmGateway.ModelReply(text, actualModel);
         } catch (AiGatewayException exception) {
             throw exception;
         } catch (RuntimeException exception) {
+            log.warn("Chat Completions 请求失败，异常类型={}", exception.getClass().getSimpleName(), exception);
             AiGatewayException.Kind kind = isAuthenticationFailure(exception)
                     ? AiGatewayException.Kind.AUTHENTICATION
                     : AiGatewayException.Kind.TEMPORARY_UNAVAILABLE;

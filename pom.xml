@@ -99,6 +99,13 @@
             <artifactId>commons-csv</artifactId>
             <version>1.14.1</version>
         </dependency>
+
+        <!-- HTML parsing for web content fetching. -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.19.1</version>
+        </dependency>
     </dependencies>
 
     <build>
