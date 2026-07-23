@@ -12,6 +12,7 @@ import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
 import com.example.ykdsummer.ai.tool.SpeechTools;
 import com.example.ykdsummer.ai.tool.VoiceSettingsTools;
 import com.example.ykdsummer.ai.tool.DocumentTools;
+import com.example.ykdsummer.ai.tool.ExternalToolSet;
 import com.example.ykdsummer.ai.tool.FileProductionTools;
 import com.example.ykdsummer.ai.tool.ConversationMemoryTools;
 import com.example.ykdsummer.ai.tool.AssetManagementTools;
@@ -67,6 +68,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private final SteamUserTools steamUserTools;
     private final QqUserTools qqUserTools;
     private final BilibiliUserTools bilibiliUserTools;
+    private ExternalToolSet externalToolSet;
 
     public SpringAiChatCompletionsGateway(
             ChatModel chatModel,
@@ -81,6 +83,14 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         this(chatModel, properties, weatherTools, null, null, null, null, null, null, null,
                 null, null, webSearchTools, epicFreeGamesTools, steamUserTools, qqUserTools,
                 bilibiliUserTools, AiTraceLogger.disabled());
+    }
+
+    /** 最小测试构造器：只注册天气 Tool。 */
+    public SpringAiChatCompletionsGateway(
+            ChatModel chatModel, AiProperties properties, WeatherTools weatherTools
+    ) {
+        this(chatModel, properties, weatherTools, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, AiTraceLogger.disabled());
     }
 
     @Autowired
@@ -124,6 +134,11 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         this.bilibiliUserTools = bilibiliUserTools;
     }
 
+    @Autowired(required = false)
+    void setExternalToolSet(ExternalToolSet externalToolSet) {
+        this.externalToolSet = externalToolSet;
+    }
+
     /** 兼容文件生产 Tool 上线前的测试构造器；正式 Spring Bean 会额外注册该 Tool。 */
     public SpringAiChatCompletionsGateway(
             ChatModel chatModel,
@@ -143,13 +158,27 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                 null, null, null, null, null, trace);
     }
 
+    /** 兼容图片任务状态 Tool 上线后的测试构造器；平台查询 Tool 在该构造器中不注册。 */
+    public SpringAiChatCompletionsGateway(
+            ChatModel chatModel, AiProperties properties, WeatherTools weatherTools,
+            ImageTools imageTools, ToolArtifactCollector artifacts, SpeechTools speechTools,
+            VoiceSettingsTools voiceSettingsTools, DocumentTools documentTools,
+            FileProductionTools fileProductionTools, ConversationMemoryTools conversationMemoryTools,
+            AssetManagementTools assetManagementTools, ImageTaskStatusTools imageTaskStatusTools,
+            AiTraceLogger trace
+    ) {
+        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
+                documentTools, fileProductionTools, conversationMemoryTools, assetManagementTools, imageTaskStatusTools,
+                null, null, null, null, null, trace);
+    }
+
     /** 供现有单元测试和手动构造使用；正式 Spring Bean 会使用带 SpeechTools 的构造器。 */
     public SpringAiChatCompletionsGateway(
             ChatModel chatModel, AiProperties properties, WeatherTools weatherTools,
             ImageTools imageTools, ToolArtifactCollector artifacts, AiTraceLogger trace
     ) {
         this(chatModel, properties, weatherTools, imageTools, artifacts, null, null, null, null, null,
-                null, null, null, null, null, trace);
+                null, null, null, null, null, null, null, trace);
     }
 
     /** 兼容 Phase 37 的测试构造器；生产 Bean 会额外注入 DocumentTools。 */
@@ -159,7 +188,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             VoiceSettingsTools voiceSettingsTools, AiTraceLogger trace
     ) {
         this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
-                null, null, null, null, null, null, null, null, null, trace);
+                null, null, null, null, null, null, null, null, null, null, trace);
     }
 
     /** 兼容已有测试构造器；生产 Bean 会额外注册 ConversationMemoryTools。 */
@@ -169,7 +198,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             VoiceSettingsTools voiceSettingsTools, DocumentTools documentTools, AiTraceLogger trace
     ) {
         this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
-                documentTools, null, null, null, null, null, null, null, null, trace);
+                documentTools, null, null, null, null, null, null, null, null, null, trace);
     }
 
     /** 兼容 Phase 41 的测试构造器；生产 Bean 会额外注册 AssetManagementTools。 */
@@ -180,7 +209,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             ConversationMemoryTools conversationMemoryTools, AiTraceLogger trace
     ) {
         this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
-                documentTools, null, conversationMemoryTools, null, null, null, null, null, null, trace);
+                documentTools, null, conversationMemoryTools, null, null, null, null, null, null, null, trace);
     }
 
     @Override
@@ -240,6 +269,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             }
             if (bilibiliUserTools != null) {
                 request = request.tools(bilibiliUserTools);
+            }
+            if (externalToolSet != null) {
+                request = request.tools(externalToolSet.toolBeans());
             }
             ChatResponse response = request
                     .call()

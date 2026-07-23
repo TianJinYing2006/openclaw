@@ -1,17 +1,17 @@
 package com.example.ykdsummer.bot.document;
 
+import org.springframework.stereotype.Component;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.commons.csv.CSVRecord;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.pdmodel.font.PDFont;
-import org.apache.pdfbox.pdmodel.font.PDType0Font;
+import org.dromara.pdf.pdfbox.core.base.Document;
+import org.dromara.pdf.pdfbox.core.base.Page;
+import org.dromara.pdf.pdfbox.core.component.Textarea;
+import org.dromara.pdf.pdfbox.handler.PdfHandler;
 import org.apache.poi.sl.usermodel.TextParagraph;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
@@ -39,14 +39,13 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 /** 生成文本型文件；对 Office 文件还可在原文件字节上执行受限操作，以保留未修改结构。 */
+@Component
 public class DocumentRenderer {
 
     private static final int MAX_TEXT_CHARS = 1_000_000;
@@ -438,80 +437,22 @@ public class DocumentRenderer {
     }
 
     private static byte[] renderPdf(String content) throws IOException {
-        Path fontPath = locateChineseFont();
-        try (PDDocument document = new PDDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            PDFont font = PDType0Font.load(document, fontPath.toFile());
-            float fontSize = 11f;
-            float margin = 54f;
-            float leading = 17f;
-            float maxWidth = PDRectangle.A4.getWidth() - margin * 2;
-            List<String> lines = wrapPdfLines(content, font, fontSize, maxWidth);
-            PDPage page = null;
-            PDPageContentStream stream = null;
-            float y = 0;
-            try {
-                for (String line : lines) {
-                    if (page == null || y < margin) {
-                        if (stream != null) {
-                            stream.endText();
-                            stream.close();
-                        }
-                        page = new PDPage(PDRectangle.A4);
-                        document.addPage(page);
-                        stream = new PDPageContentStream(document, page);
-                        stream.beginText();
-                        stream.setFont(font, fontSize);
-                        stream.newLineAtOffset(margin, PDRectangle.A4.getHeight() - margin);
-                        y = PDRectangle.A4.getHeight() - margin;
-                    }
-                    stream.showText(line.isEmpty() ? " " : line);
-                    stream.newLineAtOffset(0, -leading);
-                    y -= leading;
-                }
-            } finally {
-                if (stream != null) {
-                    stream.endText();
-                    stream.close();
-                }
-            }
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Document document = PdfHandler.getDocumentHandler().create();
+        try {
+            // x-easypdf 内置鸿蒙字体，天然支持中文
+            document.setFontName("SimHei");
+            Page page = new Page(document);
+            Textarea textarea = new Textarea(page);
+            textarea.setText(content);
+            // x-easypdf 自动处理换行和分页
+            textarea.render();
+            document.appendPage(page);
             document.save(output);
             return output.toByteArray();
+        } finally {
+            document.close();
         }
-    }
-
-    private static List<String> wrapPdfLines(String content, PDFont font, float fontSize, float maxWidth) throws IOException {
-        List<String> result = new ArrayList<>();
-        for (String sourceLine : content.split("\\R", -1)) {
-            if (sourceLine.isEmpty()) {
-                result.add("");
-                continue;
-            }
-            StringBuilder line = new StringBuilder();
-            for (int offset = 0; offset < sourceLine.length();) {
-                int codePoint = sourceLine.codePointAt(offset);
-                String character = new String(Character.toChars(codePoint));
-                String candidate = line + character;
-                if (!line.isEmpty() && font.getStringWidth(candidate) / 1000f * fontSize > maxWidth) {
-                    result.add(line.toString());
-                    line.setLength(0);
-                }
-                line.append(character);
-                offset += Character.charCount(codePoint);
-            }
-            result.add(line.toString());
-        }
-        return result;
-    }
-
-    private static Path locateChineseFont() {
-        List<Path> candidates = List.of(
-                Path.of("C:/Windows/Fonts/simhei.ttf"),
-                Path.of("C:/Windows/Fonts/Deng.ttf"),
-                Path.of("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
-                Path.of("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
-        );
-        return candidates.stream().filter(Files::isRegularFile).findFirst().orElseThrow(() ->
-                new DocumentEditException("No PDF font available", "本机没有找到可用 PDF 字体，暂时无法生成 PDF"));
     }
 
     private static String neutralizeFormula(String value) {

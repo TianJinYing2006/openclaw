@@ -36,13 +36,10 @@ import java.util.stream.Collectors;
 /**
  * 使用官方 OpenAI Java SDK 调用第三方服务提供的 Responses API。
  *
- * <p>本项目调用的是“OpenAI 兼容协议”，HTTP 目标由 {@code openai.base-url} 决定，
- * 当前逻辑地址是 {@code POST https://moosecloud.cc/v1/responses}。官方 Java SDK 在本地把
- * Java Builder 对象序列化成 JSON，并在请求头携带 API Key；本类不手写 JSON。</p>
- *
- * <p>本类只负责“模型请求/响应格式”。微信消息接收与回复、用户记忆和固定命令分别属于
- * ILinkBotService、AiChatService 和 ILinkReplyService。</p>
+ * <p>已废弃：所有请求已统一由 {@link SpringAiChatCompletionsGateway} 处理。
+ * 本类保留仅用于参考，Spring 不会再注入它。</p>
  */
+@Deprecated
 @Service
 public class OpenAiResponsesGateway implements ResponsesGateway {
 
