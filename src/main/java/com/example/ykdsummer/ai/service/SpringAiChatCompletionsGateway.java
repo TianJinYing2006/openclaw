@@ -9,6 +9,7 @@ import com.example.ykdsummer.ai.tool.SpeechTools;
 import com.example.ykdsummer.ai.tool.VoiceSettingsTools;
 import com.example.ykdsummer.ai.tool.DocumentTools;
 import com.example.ykdsummer.ai.tool.ConversationMemoryTools;
+import com.example.ykdsummer.ai.tool.AmapTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -50,6 +51,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private final VoiceSettingsTools voiceSettingsTools;
     private final DocumentTools documentTools;
     private final ConversationMemoryTools conversationMemoryTools;
+    private final AmapTools amapTools;
     private final AiTraceLogger trace;
 
     public SpringAiChatCompletionsGateway(
@@ -57,7 +59,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             AiProperties properties,
             WeatherTools weatherTools
     ) {
-        this(chatModel, properties, weatherTools, null, null, null, null, null, null, AiTraceLogger.disabled());
+        this(chatModel, properties, weatherTools, null, null, null, null, null, null, AiTraceLogger.disabled(), null);
     }
 
     @Autowired
@@ -71,7 +73,8 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             VoiceSettingsTools voiceSettingsTools,
             DocumentTools documentTools,
             ConversationMemoryTools conversationMemoryTools,
-            AiTraceLogger trace
+            AiTraceLogger trace,
+            AmapTools amapTools
     ) {
         this.chatClient = ChatClient.create(chatModel);
         this.properties = properties;
@@ -83,6 +86,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         this.documentTools = documentTools;
         this.conversationMemoryTools = conversationMemoryTools;
         this.trace = trace;
+        this.amapTools = amapTools;
     }
 
     /** 供现有单元测试和手动构造使用；正式 Spring Bean 会使用带 SpeechTools 的构造器。 */
@@ -90,7 +94,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             ChatModel chatModel, AiProperties properties, WeatherTools weatherTools,
             ImageTools imageTools, ToolArtifactCollector artifacts, AiTraceLogger trace
     ) {
-        this(chatModel, properties, weatherTools, imageTools, artifacts, null, null, null, null, trace);
+        this(chatModel, properties, weatherTools, imageTools, artifacts, null, null, null, null, trace, null);
     }
 
     /** 兼容 Phase 37 的测试构造器；生产 Bean 会额外注入 DocumentTools。 */
@@ -99,7 +103,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             ImageTools imageTools, ToolArtifactCollector artifacts, SpeechTools speechTools,
             VoiceSettingsTools voiceSettingsTools, AiTraceLogger trace
     ) {
-        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools, null, null, trace);
+        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools, null, null, trace, null);
     }
 
     /** 兼容已有测试构造器；生产 Bean 会额外注册 ConversationMemoryTools。 */
@@ -109,7 +113,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             VoiceSettingsTools voiceSettingsTools, DocumentTools documentTools, AiTraceLogger trace
     ) {
         this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
-                documentTools, null, trace);
+                documentTools, null, trace, null);
     }
 
     @Override
@@ -145,6 +149,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             }
             if (conversationMemoryTools != null) {
                 request = request.tools(conversationMemoryTools);
+            }
+            if (amapTools != null) {
+                request = request.tools(amapTools);
             }
             ChatResponse response = request
                     .call()

@@ -2,6 +2,7 @@ package com.example.ykdsummer;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.PropertySource;
 
 /**
  * 整个 Spring Boot 项目的启动入口。
@@ -13,6 +14,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * 因此不需要另外再开一个 PowerShell 专门启动 iLink。</p>
  */
 @SpringBootApplication
+@PropertySource("classpath:secret.properties")
 public class YkdSummerApplication {
 
     /**

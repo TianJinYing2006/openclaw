@@ -22,7 +22,8 @@ pnpm-debug.log*
 .env.*
 !.env.example
 application-local.properties
-.ilink/
+secret.properties
+ilink/
 .documents/
 .ai-assets/
 

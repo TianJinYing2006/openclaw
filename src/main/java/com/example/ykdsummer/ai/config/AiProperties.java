@@ -23,7 +23,11 @@ public class AiProperties {
             + "一次先讲清楚最重要的事，能一句话说清就不要拆成多条；不要复述问题，不要用“作为 AI”开场，"
             + "也不要用“希望对你有所帮助”等套话。复杂问题可以分点，但只保留必要内容。"
             + "默认使用简体中文；用户切换语言时跟随。不确定就明确说明，不要编造，也不要声称执行了未执行的操作。"
-            + "当用户明确要求生成一张新图、查询实时天气或用语音回复时，按工具说明自主调用合适工具；不要要求用户记忆命令前缀。"
+            + "当用户明确要求生成一张新图、查询实时天气、导航路线或用语音回复时，按工具说明自主调用合适工具；不要要求用户记忆命令前缀。"
+            + "用户询问路线、导航、怎么走、如何到达时，先调用 geoEncode 获取起点和终点坐标，再调用 routePlan 规划路线。"
+            + "routePlan 会返回驾车、公交、步行等多种方式的距离、耗时和导航链接。请综合这些信息给出推荐建议，优先推荐地铁/公交等便捷方式。"
+            + "回答格式：先给出推荐方式的详细指引，再列出其他方式作为参考。"
+            + "重要规则（必须遵守）：回答末尾必须包含工具返回的导航链接原文，直接复制工具输出的链接地址，不要省略、不要改写、不要只说建议打开地图。链接格式：[点击打开高德导航](完整链接地址)"
             + "用户谈到上传过、刚才、上一张或某个版本的图片时，先查询图片工具返回的资源 ID、版本、保存描述和视觉摘要；"
             + "若有多张候选图片或指代不清，先列出最近图片，不能猜测目标。需要生成新版本或回退时必须使用对应图片工具，"
             + "不要假装已修改；涉及图片真实画面细节时先调用 inspect_image。"
@@ -36,7 +40,7 @@ public class AiProperties {
     private boolean enabled = true;
 
     /** 第三方服务实际接受的模型名称。使用字符串可兼容服务商的模型别名。 */
-    private String model = "gpt-5.6-sol";
+    private String model = "mimo-v2.5";
 
     /** 普通微信聊天的统一 system prompt，可用 AI_SYSTEM_PROMPT 覆盖。 */
     private String systemPrompt = DEFAULT_SYSTEM_PROMPT;
@@ -62,15 +66,13 @@ public class AiProperties {
     /** 是否允许文字生成图片。 */
     private boolean imageEnabled = true;
 
-    /** 图片生成模型名称。当前活动客户端走 OpenAI Images 兼容的 gpt-image-2。 */
-    private String imageModel = "gpt-image-2";
+    /** 图片生成模型名称。 */
+    private String imageModel = "wanx2.1-t2i-turbo";
 
-    /** 图片尺寸、质量和单次请求超时。 */
-    private String imageSize = "1024x1024";
-    private String imageQuality = "high";
+    /** 图片尺寸、质量和单次请求超时；当前默认超时是 15 分钟。 */
+    private String imageSize = "1K";
+    private String imageQuality = "medium";
     private Duration imageTimeout = Duration.ofMinutes(15);
-    /** 异步图生图任务的状态查询间隔；网络偶发失败不会立刻判定任务失败。 */
-    private Duration imagePollInterval = Duration.ofSeconds(3);
 
     public boolean isEnabled() {
         return enabled;
@@ -156,9 +158,4 @@ public class AiProperties {
     public void setImageQuality(String imageQuality) { this.imageQuality = imageQuality; }
     public Duration getImageTimeout() { return imageTimeout; }
     public void setImageTimeout(Duration imageTimeout) { this.imageTimeout = imageTimeout; }
-    public Duration getImagePollInterval() { return imagePollInterval; }
-    public void setImagePollInterval(Duration imagePollInterval) {
-        this.imagePollInterval = imagePollInterval == null || imagePollInterval.isNegative() || imagePollInterval.isZero()
-                ? Duration.ofSeconds(3) : imagePollInterval;
-    }
 }
