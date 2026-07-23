@@ -33,6 +33,7 @@ public class AiImageGenerationService {
     public static final String AUTH_ERROR_REPLY = "图片服务认证失败，请联系管理员";
     public static final String UNAVAILABLE_REPLY = "图片生成暂时没有响应，请稍后重试";
     public static final String EMPTY_REPLY = "图片服务没有返回有效图片";
+    public static final String BALANCE_REPLY = "图片服务余额不足，请联系管理员充值";
 
     private static final Logger log = LoggerFactory.getLogger(AiImageGenerationService.class);
     private static final int MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -188,7 +189,7 @@ public class AiImageGenerationService {
     }
 
     /**
-     * 成功时 imageBytes 有值，失败时 errorMessage 有值。数组复制用于避免调用方意外改坏图片。
+     * 成功时 imageBytes 有值，失败时 errorMessage 有值。
      */
     public record Result(byte[] imageBytes, String errorMessage, String remoteUrl) {
         public static Result image(byte[] bytes) { return image(bytes, null); }
