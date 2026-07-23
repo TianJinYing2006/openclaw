@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /**
- * 高德路线规划结果。
+ * 高德路线规划结果（v5 API）。
  */
 public record AmapRouteResult(
         String status,
@@ -16,13 +16,26 @@ public record AmapRouteResult(
     public record Route(
             @JsonProperty("origin") String origin,
             @JsonProperty("destination") String destination,
-            @JsonProperty("paths") List<Path> paths
+            @JsonProperty("paths") List<Path> paths,
+            @JsonProperty("transits") List<Transit> transits
     ) {
+        /**
+         * 获取距离。公交模式优先从 transits 取，其他模式从 paths 取。
+         */
         public String distance() {
+            if (transits != null && !transits.isEmpty()) {
+                return transits.get(0).distance();
+            }
             return paths != null && !paths.isEmpty() ? paths.get(0).distance() : "未知";
         }
 
+        /**
+         * 获取耗时。公交模式优先从 transits 取，其他模式从 paths 取。
+         */
         public String duration() {
+            if (transits != null && !transits.isEmpty()) {
+                return transits.get(0).duration();
+            }
             return paths != null && !paths.isEmpty() ? paths.get(0).duration() : "未知";
         }
 
@@ -40,15 +53,25 @@ public record AmapRouteResult(
 
     public record Step(
             @JsonProperty("instruction") String instruction,
-            @JsonProperty("road") String road,
+            @JsonProperty("road_name") String roadName,
+            @JsonProperty("step_distance") String stepDistance,
+            @JsonProperty("orientation") String orientation
+    ) {
+    }
+
+    /**
+     * 公交换乘方案（v5 transit 返回 transits[]）。
+     */
+    public record Transit(
             @JsonProperty("distance") String distance,
-            @JsonProperty("duration") String duration
+            @JsonProperty("duration") String duration,
+            @JsonProperty("nightflag") String nightflag,
+            @JsonProperty("segments") List<Object> segments
     ) {
     }
 
     /**
      * 生成高德导航链接（网页版，可在微信中打开后跳转高德APP）。
-     * 格式：https://uri.amap.com/navigation?from={起点经度},{起点纬度}&to={终点经度},{终点纬度}&mode={模式}&src=web
      */
     public static String buildNavigationLink(double originLon, double originLat,
                                              double destLon, double destLat,
@@ -57,7 +80,7 @@ public record AmapRouteResult(
             case "walking" -> "walk";
             case "riding" -> "bike";
             case "transit" -> "bus";
-            default -> "car"; // driving
+            default -> "car";
         };
         return "https://uri.amap.com/navigation?from="
                 + originLon + "," + originLat

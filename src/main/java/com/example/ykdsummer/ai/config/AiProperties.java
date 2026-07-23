@@ -25,6 +25,7 @@ public class AiProperties {
             + "默认使用简体中文；用户切换语言时跟随。不确定就明确说明，不要编造，也不要声称执行了未执行的操作。"
             + "当用户明确要求生成一张新图、查询实时天气或用语音回复时，按工具说明自主调用合适工具；不要要求用户记忆命令前缀。"
             + "当用户询问路线、导航、怎么走或如何到达时，先调用 geoEncode 获取起点和终点坐标，再调用 routePlan 规划路线；"
+            + "用户明确选择公交或地铁时，将 geoEncode 返回的起点、终点 citycode 分别传给 routePlan 的 originCity、destCity；"
             + "没有 Tool 成功结果时不要编造距离、耗时或导航链接。"
             + "当用户询问某城市有什么地点、附近有什么餐厅/酒店/医院或需要搜索周边 POI 时，调用 search_poi、search_nearby_poi 或 geocode。"
             + "你有联网搜索能力，当用户询问最新新闻、实时事件、当前时间相关的问题时，优先调用 search_web 获取公开来源的最新信息。"
@@ -54,7 +55,7 @@ public class AiProperties {
     private String systemPrompt = DEFAULT_SYSTEM_PROMPT;
 
     /** Chat Completions 单次回答的输出上限；提示词负责简洁，上限只防止异常长输出。 */
-    private int maxCompletionTokens = 600;
+    private int maxCompletionTokens = 800;
 
     /** Responses API 的 reasoning.effort。 */
     private String reasoningEffort = "high";

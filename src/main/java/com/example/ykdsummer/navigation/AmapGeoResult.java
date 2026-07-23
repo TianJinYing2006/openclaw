@@ -17,6 +17,8 @@ public record AmapGeoResult(
             String country,
             String province,
             String city,
+            String citycode,
+            String adcode,
             String district,
             @JsonProperty("location") String location
     ) {

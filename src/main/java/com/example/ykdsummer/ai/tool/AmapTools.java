@@ -9,7 +9,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 /**
- * 高德地图导航工具。提供地理编码和路线规划能力。
+ * 高德地图导航工具。提供地理编码和路线规划能力（v5 API）。
  *
  * <p>使用流程：先调用 geoEncode 获取坐标，再调用 routePlan 获取路线方案。</p>
  */
@@ -54,6 +54,7 @@ public class AmapTools {
                     + "返回驾车、公交、步行等多种交通方式的路线方案，包含距离、耗时和导航链接。"
                     + "默认返回驾车路线，用户指定其他方式时切换对应模式。"
                     + "整理回答时务必展示导航链接，用户点击可直接唤起高德地图导航。"
+                    + "公交规划时请提供起点和终点的 citycode（来自 geoEncode 返回的 citycode 字段）。"
     )
     public String routePlan(
             @ToolParam(
@@ -75,44 +76,70 @@ public class AmapTools {
                     required = true,
                     description = "终点名称，用于生成导航链接，如'西湖'、'北京天安门'"
             )
-            String destName
+            String destName,
+            @ToolParam(
+                    required = false,
+                    description = "起点城市编码，公交规划时必须提供（来自 geoEncode 返回的 citycode 字段），如'0571'、'010'"
+            )
+            String originCity,
+            @ToolParam(
+                    required = false,
+                    description = "终点城市编码，公交规划时必须提供（来自 geoEncode 返回的 citycode 字段），如'010'、'021'"
+            )
+            String destCity
     ) {
         if (!amapService.isConfigured()) {
             return "高德地图未配置 API Key，无法规划路线。";
         }
-        String effectiveMode = (mode == null || mode.isBlank()) ? "driving" : mode.trim().toLowerCase();
         StringBuilder sb = new StringBuilder();
         sb.append("从起点到").append(destName).append("的路线规划：\n\n");
 
         // 查询驾车路线
-        AmapRouteResult drivingResult = amapService.routePlan(origin, destination, "driving", destName);
-        if (drivingResult.route() != null) {
-            sb.append("🚗 驾车：\n");
-            sb.append("距离：").append(formatDistance(drivingResult.route().distance())).append("\n");
-            sb.append("耗时：").append(formatDuration(drivingResult.route().duration())).append("\n");
-            sb.append("导航链接：").append(drivingResult.navigationLink()).append("\n\n");
+        AmapRouteResult drivingResult = amapService.routePlan(origin, destination, "driving", destName, originCity, destCity);
+        if (hasRoute(drivingResult)) {
+            sb.append("🚗 驾车：").append(formatDistance(drivingResult.route().distance())).append("，")
+                    .append(formatDuration(drivingResult.route().duration())).append("\n");
+            appendNavigationLink(sb, "驾车导航", drivingResult.navigationLink());
         }
 
         // 查询公交路线
-        AmapRouteResult transitResult = amapService.routePlan(origin, destination, "transit", destName);
-        if (transitResult.route() != null) {
-            sb.append("🚇 公交/地铁：\n");
-            sb.append("距离：").append(formatDistance(transitResult.route().distance())).append("\n");
-            sb.append("耗时：").append(formatDuration(transitResult.route().duration())).append("\n");
-            sb.append("导航链接：").append(transitResult.navigationLink()).append("\n\n");
+        if (hasCityCodes(originCity, destCity)) {
+            AmapRouteResult transitResult = amapService.routePlan(
+                    origin, destination, "transit", destName, originCity, destCity);
+            if (hasRoute(transitResult) && transitResult.route().transits() != null
+                    && !transitResult.route().transits().isEmpty()) {
+                sb.append("🚇 公交：").append(formatDistance(transitResult.route().distance())).append("，")
+                        .append(formatDuration(transitResult.route().duration())).append("\n");
+                appendNavigationLink(sb, "公交导航", transitResult.navigationLink());
+            }
+        } else {
+            sb.append("🚇 公交：需要起点和终点的 citycode 才能规划。\n");
         }
 
         // 查询步行路线
-        AmapRouteResult walkingResult = amapService.routePlan(origin, destination, "walking", destName);
-        if (walkingResult.route() != null) {
-            sb.append("🚶 步行：\n");
-            sb.append("距离：").append(formatDistance(walkingResult.route().distance())).append("\n");
-            sb.append("耗时：").append(formatDuration(walkingResult.route().duration())).append("\n");
-            sb.append("导航链接：").append(walkingResult.navigationLink()).append("\n\n");
+        AmapRouteResult walkingResult = amapService.routePlan(origin, destination, "walking", destName, originCity, destCity);
+        if (hasRoute(walkingResult)) {
+            sb.append("🚶 步行：").append(formatDistance(walkingResult.route().distance())).append("，")
+                    .append(formatDuration(walkingResult.route().duration())).append("\n");
+            appendNavigationLink(sb, "步行导航", walkingResult.navigationLink());
         }
 
-        sb.append("点击链接可直接唤起高德地图导航");
         return sb.toString();
+    }
+
+    private static boolean hasRoute(AmapRouteResult result) {
+        return result != null && result.route() != null && result.route().distance() != null
+                && !"未知".equals(result.route().distance());
+    }
+
+    private static boolean hasCityCodes(String originCity, String destCity) {
+        return originCity != null && !originCity.isBlank() && destCity != null && !destCity.isBlank();
+    }
+
+    private static void appendNavigationLink(StringBuilder output, String label, String navigationLink) {
+        if (navigationLink != null && !navigationLink.isBlank()) {
+            output.append('[').append(label).append("](").append(navigationLink).append(")\n");
+        }
     }
 
     private String formatDistance(String distance) {
