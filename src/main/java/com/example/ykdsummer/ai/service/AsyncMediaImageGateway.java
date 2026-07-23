@@ -5,6 +5,7 @@ import com.example.ykdsummer.ai.config.ImageOpenAiClientProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -88,7 +89,7 @@ public class AsyncMediaImageGateway implements AsyncImageEditGateway {
             } catch (RuntimeException transientFailure) {
                 // 一次轮询失败不等于异步任务失败；统一截止时间前继续查询。
                 transientFailures++;
-                Thread.sleep(3000);
+                waitForNextPoll(deadline);
                 continue;
             }
             boolean done = firstBoolean(status, "is_final", "isFinal", "completed", "done");
@@ -101,9 +102,18 @@ public class AsyncMediaImageGateway implements AsyncImageEditGateway {
                 }
                 return url.isBlank() ? EditResult.error("图片编辑服务没有返回结果图片") : download(url);
             }
-            Thread.sleep(3000);
+            waitForNextPoll(deadline);
         }
         return EditResult.error(transientFailures > 0 ? "图片编辑状态查询超时，请稍后重试" : "图片编辑超时，请稍后重试");
+    }
+
+    private void waitForNextPoll(Instant deadline) throws InterruptedException {
+        long remainingMillis = Duration.between(Instant.now(), deadline).toMillis();
+        if (remainingMillis <= 0) {
+            return;
+        }
+        long configuredMillis = Math.max(1L, aiProperties.getImagePollInterval().toMillis());
+        Thread.sleep(Math.min(configuredMillis, remainingMillis));
     }
 
     private EditResult immediateResult(JsonNode created) {

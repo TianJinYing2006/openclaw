@@ -18,6 +18,7 @@ import com.example.ykdsummer.ai.tool.ConversationMemoryTools;
 import com.example.ykdsummer.ai.tool.AssetManagementTools;
 import com.example.ykdsummer.ai.tool.AmapTools;
 import com.example.ykdsummer.ai.tool.ImageTaskStatusTools;
+import com.example.ykdsummer.ai.tool.InformationToolSet;
 import com.example.ykdsummer.ai.tool.LocationSearchTools;
 import com.example.ykdsummer.ai.tool.WebSearchTools;
 import org.slf4j.Logger;
@@ -71,6 +72,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private final QqUserTools qqUserTools;
     private final BilibiliUserTools bilibiliUserTools;
     private ExternalToolSet externalToolSet;
+    private InformationToolSet informationToolSet;
     private AmapTools amapTools;
     private LocationSearchTools locationSearchTools;
 
@@ -141,6 +143,11 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     @Autowired(required = false)
     void setExternalToolSet(ExternalToolSet externalToolSet) {
         this.externalToolSet = externalToolSet;
+    }
+
+    @Autowired(required = false)
+    void setInformationToolSet(InformationToolSet informationToolSet) {
+        this.informationToolSet = informationToolSet;
     }
 
     @Autowired(required = false)
@@ -286,6 +293,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             }
             if (externalToolSet != null) {
                 request = request.tools(externalToolSet.toolBeans());
+            }
+            if (informationToolSet != null) {
+                request = request.tools(informationToolSet.toolBeans());
             }
             if (amapTools != null) {
                 request = request.tools(amapTools);
