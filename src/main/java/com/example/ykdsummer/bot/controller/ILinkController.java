@@ -2,6 +2,8 @@ package com.example.ykdsummer.bot.controller;
 
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.service.ILinkBotService;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -45,15 +47,41 @@ public class ILinkController {
      *
      * <p>SDK 产生二维码以后，地址会暂存在运行状态中，本接口使用 302 跳转到该地址。
      * 已经登录时二维码会被清除，此时返回 404 是正常现象，并不代表程序故障。</p>
+     *
+     * <p>添加时间戳参数和 Cache-Control 头防止浏览器缓存，确保每次刷新都获取最新二维码。</p>
      */
     @GetMapping("/qrcode")
     public ResponseEntity<?> qrcode() {
         String qrCodeUrl = botService.status().qrCodeUrl();
         if (qrCodeUrl == null || qrCodeUrl.isBlank()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .header(HttpHeaders.CACHE_CONTROL, CacheControl.noCache().getHeaderValue())
                     .body(Map.of("message", "当前没有待扫描二维码，请先启用 iLink 或查看连接状态"));
         }
-        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(qrCodeUrl)).build();
+        String separator = qrCodeUrl.contains("?") ? "&" : "?";
+        String cacheBustedUrl = qrCodeUrl + separator + "_t=" + System.currentTimeMillis();
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .header(HttpHeaders.EXPIRES, "0")
+                .location(URI.create(cacheBustedUrl))
+                .build();
+    }
+
+    /**
+     * 以 JSON 格式返回当前二维码 URL，便于程序化轮询或脚本获取。
+     */
+    @GetMapping("/qrcode/url")
+    public ResponseEntity<?> qrcodeUrl() {
+        String qrCodeUrl = botService.status().qrCodeUrl();
+        if (qrCodeUrl == null || qrCodeUrl.isBlank()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .header(HttpHeaders.CACHE_CONTROL, CacheControl.noCache().getHeaderValue())
+                    .body(Map.of("message", "当前没有待扫描二维码，请先启用 iLink 或查看连接状态"));
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, CacheControl.noCache().getHeaderValue())
+                .body(Map.of("qrcodeUrl", qrCodeUrl));
     }
 
     /**
