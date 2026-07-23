@@ -2,7 +2,12 @@ package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.ConversationMessage;
+import com.example.ykdsummer.ai.tool.BilibiliUserTools;
+import com.example.ykdsummer.ai.tool.EpicFreeGamesTools;
+import com.example.ykdsummer.ai.tool.QqUserTools;
+import com.example.ykdsummer.ai.tool.SteamUserTools;
 import com.example.ykdsummer.ai.tool.WeatherTools;
+import com.example.ykdsummer.ai.tool.WebSearchTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -36,22 +41,37 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private final ChatClient chatClient;
     private final AiProperties properties;
     private final WeatherTools weatherTools;
+    private final WebSearchTools webSearchTools;
+    private final EpicFreeGamesTools epicFreeGamesTools;
+    private final SteamUserTools steamUserTools;
+    private final QqUserTools qqUserTools;
+    private final BilibiliUserTools bilibiliUserTools;
 
     public SpringAiChatCompletionsGateway(
             ChatModel chatModel,
             AiProperties properties,
-            WeatherTools weatherTools
+            WeatherTools weatherTools,
+            WebSearchTools webSearchTools,
+            EpicFreeGamesTools epicFreeGamesTools,
+            SteamUserTools steamUserTools,
+            QqUserTools qqUserTools,
+            BilibiliUserTools bilibiliUserTools
     ) {
         this.chatClient = ChatClient.create(chatModel);
         this.properties = properties;
         this.weatherTools = weatherTools;
+        this.webSearchTools = webSearchTools;
+        this.epicFreeGamesTools = epicFreeGamesTools;
+        this.steamUserTools = steamUserTools;
+        this.qqUserTools = qqUserTools;
+        this.bilibiliUserTools = bilibiliUserTools;
     }
 
     @Override
     public LlmGateway.ModelReply generate(List<ConversationMessage> history, String prompt) {
         try {
             ChatResponse response = chatClient.prompt(buildPrompt(history, prompt))
-                    .tools(weatherTools)
+                    .tools(weatherTools, webSearchTools, epicFreeGamesTools, steamUserTools, qqUserTools, bilibiliUserTools)
                     .call()
                     .chatResponse();
             String text = extractText(response);

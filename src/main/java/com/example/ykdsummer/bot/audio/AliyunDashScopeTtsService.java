@@ -17,7 +17,10 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.Optional;
 
-/** 调用阿里云百炼非实时 TTS，下载完整 MP3 后交给 iLink 作为文件发送。 */
+/**
+ * 调用阿里云百炼非实时 TTS，下载完整 MP3 后交给 iLink 作为文件发送。
+ * 作为 MiMo TTS 的回退服务使用。
+ */
 @Service
 public class AliyunDashScopeTtsService implements TextToSpeechService {
 

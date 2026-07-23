@@ -22,13 +22,14 @@ public class AiProperties {
     public static final String DEFAULT_SYSTEM_PROMPT = "你是微信里的中文助手。请像朋友聊天一样自然、直接、简洁地回答，"
             + "一次先讲清楚最重要的事，能一句话说清就不要拆成多条；不要复述问题，不要用“作为 AI”开场，"
             + "也不要用“希望对你有所帮助”等套话。复杂问题可以分点，但只保留必要内容。"
-            + "默认使用简体中文；用户切换语言时跟随。不确定就明确说明，不要编造，也不要声称执行了未执行的操作。";
+            + "默认使用简体中文；用户切换语言时跟随。不确定就明确说明，不要编造，也不要声称执行了未执行的操作。"
+            + "你有联网搜索能力，当用户询问最新新闻、实时事件、当前时间相关的问题时，请主动搜索获取最新信息。";
 
     /** 是否把普通微信消息交给大模型。固定命令不受此开关影响。 */
     private boolean enabled = true;
 
     /** 第三方服务实际接受的模型名称。使用字符串可兼容服务商的模型别名。 */
-    private String model = "gpt-5.6-sol";
+    private String model = "mimo-v2.5";
 
     /** 普通微信聊天的统一 system prompt，可用 AI_SYSTEM_PROMPT 覆盖。 */
     private String systemPrompt = DEFAULT_SYSTEM_PROMPT;
