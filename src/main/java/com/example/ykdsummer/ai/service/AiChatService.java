@@ -38,6 +38,11 @@ public class AiChatService {
     private final LlmGateway gateway;
     /** key 是 iLink fromUserId，value 是该微信用户自己的最近对话。 */
     private final Cache<String, UserConversation> conversations;
+    /**
+     * 内容去重缓存：key = "userId::模型最终 prompt"，value = 上次的回答文本。
+     * 60 秒内相同用户发送相同内容，直接返回缓存结果，防止 SDK 重复投递导致两次回复。
+     */
+    private final Cache<String, String> recentResponses;
 
     public AiChatService(AiProperties properties, LlmGateway gateway) {
         this.properties = properties;
@@ -45,6 +50,10 @@ public class AiChatService {
         this.conversations = Caffeine.newBuilder()
                 .maximumSize(properties.getMaxMemoryUsers())
                 .expireAfterAccess(safeMemoryTimeout(properties.getMemoryIdleTimeout()))
+                .build();
+        this.recentResponses = Caffeine.newBuilder()
+                .maximumSize(1000)
+                .expireAfterWrite(Duration.ofSeconds(60))
                 .build();
     }
 
@@ -96,6 +105,10 @@ public class AiChatService {
         if (!properties.isEnabled()) {
             return DISABLED_REPLY;
         }
+
+        // 构造去重 key，在同步块内检查，避免并发时两条线程同时通过外部检查
+        String dedupKey = userId + "::" + modelPrompt;
+
         // Caffeine 按访问时间自动过期，并对总用户数设置上限，避免长期运行后 Map 无限增长。
         UserConversation conversation = conversations.get(userId, ignored -> new UserConversation());
         /*
@@ -104,6 +117,12 @@ public class AiChatService {
          * 不同用户锁的是不同对象，仍然可以并行。
          */
         synchronized (conversation) {
+            // 内容去重：60 秒内同一用户发送相同的模型 prompt，直接返回缓存
+            String cached = recentResponses.getIfPresent(dedupKey);
+            if (cached != null) {
+                log.info("Dedup hit for user={}, returning cached response", anonymize(userId));
+                return cached;
+            }
             try {
                 /*
                  * Completion 与 Responses 请求都设置为 store=false，服务端不替我们保存上下文。
@@ -120,6 +139,8 @@ public class AiChatService {
                         new ConversationMessage(ConversationMessage.Role.ASSISTANT, reply.text()),
                         properties.getMaxMemoryMessages()
                 );
+                // 缓存去重 key，确保后续内容去重能命中
+                recentResponses.put(dedupKey, reply.text());
                 return reply.text();
             } catch (AiGatewayException exception) {
                 log.warn(

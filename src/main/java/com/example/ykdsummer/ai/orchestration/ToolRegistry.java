@@ -56,11 +56,17 @@ public class ToolRegistry implements ApplicationListener<ContextRefreshedEvent> 
 
     /** 获取所有工具 Bean（用于 Spring AI .tools() 注册）。 */
     public Object[] allToolBeans() {
-        if (tools == null) return new Object[0];
-        return tools.values().stream()
+        if (tools == null) {
+            log.warn("allToolBeans() called but tools not initialized yet");
+            return new Object[0];
+        }
+        Object[] beans = tools.values().stream()
                 .map(ToolEntry::bean)
                 .distinct()
                 .toArray();
+        log.debug("allToolBeans() returning {} beans for {} tool entries",
+                beans.length, tools.size());
+        return beans;
     }
 
     private void collectTools(ApplicationContext context) {

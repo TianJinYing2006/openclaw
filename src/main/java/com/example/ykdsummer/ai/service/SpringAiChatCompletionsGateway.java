@@ -12,12 +12,12 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.content.Media;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -28,6 +28,8 @@ import org.springframework.web.client.RestClientResponseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 使用 Spring AI 1.1.8 调用 OpenAI Chat Completions 兼容接口的单一路由网关。
@@ -50,7 +52,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway, LlmGatew
     public SpringAiChatCompletionsGateway(
             ChatModel chatModel,
             AiProperties properties,
-            @Lazy ToolRegistry toolRegistry
+            ToolRegistry toolRegistry
     ) {
         this.chatClient = ChatClient.create(chatModel);
         this.properties = properties;
@@ -100,6 +102,10 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway, LlmGatew
 
     private LlmGateway.ModelReply doGenerate(List<Message> messages, String model, String reasoningEffort) {
         try {
+            Object[] toolBeans = toolRegistry.allToolBeans();
+            log.debug("doGenerate: model={}, tools={}, messages={}", model,
+                    toolBeans.length, messages.size());
+
             OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
                     .model(model)
                     .maxCompletionTokens(properties.getMaxCompletionTokens())
@@ -107,9 +113,11 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway, LlmGatew
             if (reasoningEffort != null && !reasoningEffort.isBlank()) {
                 optionsBuilder.reasoningEffort(reasoningEffort);
             }
+            // 明确设置 tool_choice，鼓励模型使用工具
+            optionsBuilder.toolChoice("auto");
 
             ChatResponse response = chatClient.prompt(new Prompt(messages, optionsBuilder.build()))
-                    .tools(toolRegistry.allToolBeans())
+                    .tools(toolBeans)
                     .call()
                     .chatResponse();
 
@@ -179,11 +187,22 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway, LlmGatew
     }
 
     private static String extractText(ChatResponse response) {
-        if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+        if (response == null || response.getResults() == null || response.getResults().isEmpty()) {
             return "";
         }
-        String text = response.getResult().getOutput().getText();
-        return text == null ? "" : text.strip();
+        // Spring AI 工具调用可能产生多轮回复（AI 推理文本 + 工具调用后的最终文本），
+        // 合并所有结果文本为一段，避免同一轮对话出现两段独立回复
+        String combined = response.getResults().stream()
+                .filter(Objects::nonNull)
+                .map(Generation::getOutput)
+                .filter(Objects::nonNull)
+                .filter(output -> output instanceof AssistantMessage)
+                .map(output -> ((AssistantMessage) output).getText())
+                .filter(Objects::nonNull)
+                .map(String::strip)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n\n"));
+        return combined.isBlank() ? "" : combined;
     }
 
     private static boolean isAuthenticationFailure(Throwable failure) {

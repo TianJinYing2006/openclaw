@@ -55,7 +55,7 @@ public class DocumentTools {
         }
     }
 
-    @Tool(name = "generate_document", description = "根据文本内容生成指定格式的文档文件，返回文件路径。支持 pdf、docx、xlsx、pptx、md、txt、csv、json、xml、html")
+    @Tool(name = "generate_document", description = "生成文档文件（pdf/docx/xlsx/pptx/md/txt/csv/json/xml/html）。仅当用户明确要求创建或生成文档文件时调用，不要主动为用户创建文档，不要将文档作为搜索替代方案。")
     public String generateDocument(
             @ToolParam(description = "文档内容文本") String content,
             @ToolParam(description = "目标格式：pdf、docx、xlsx、pptx、md、txt、csv、json、xml、html") String format

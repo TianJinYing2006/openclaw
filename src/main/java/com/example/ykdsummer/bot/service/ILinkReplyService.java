@@ -217,9 +217,12 @@ public class ILinkReplyService {
             return new ILinkReply.Image(result.bytes());
         }
         if (result.hasFile()) {
-            String followUp = result.text() != null && !result.text().isBlank()
-                    ? result.text() : "文件已生成";
-            return new ILinkReply.DocumentFile(result.fileName(), result.bytes(), followUp);
+            // 有文字回复时只发文字（一段回复），不发送文件，避免两段回复
+            if (result.text() != null && !result.text().isBlank()) {
+                return new ILinkReply.Text(result.text());
+            }
+            // 只有文件没有文字时，发文件，跟进文字为空（processReply 不会额外发文字）
+            return new ILinkReply.DocumentFile(result.fileName(), result.bytes(), "");
         }
         return new ILinkReply.Text(result.text());
     }
