@@ -3,6 +3,7 @@ package com.example.ykdsummer.navigation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -20,6 +21,7 @@ public class AmapService {
     private final RestClient restClient;
     private final String apiKey;
 
+    @Autowired
     public AmapService(
             RestClient.Builder restClientBuilder,
             @Value("${amap.api-key:not-configured}") String apiKey
