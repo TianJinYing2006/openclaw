@@ -25,6 +25,7 @@ import com.openai.models.responses.ResponseOutputMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -48,10 +49,17 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
     private static final Logger log = LoggerFactory.getLogger(OpenAiResponsesGateway.class);
     private final OpenAIClient client;
     private final AiProperties properties;
+    private final AiTraceLogger trace;
 
     public OpenAiResponsesGateway(OpenAIClient client, AiProperties properties) {
+        this(client, properties, AiTraceLogger.disabled());
+    }
+
+    @Autowired
+    public OpenAiResponsesGateway(OpenAIClient client, AiProperties properties, AiTraceLogger trace) {
         this.client = client;
         this.properties = properties;
+        this.trace = trace;
     }
 
     @Override
@@ -61,7 +69,19 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
             List<AiImage> images,
             List<AiFile> files
     ) {
-        return generate(history, prompt, images, files, properties.getReasoningEffort());
+        return generateInternal(history, prompt, images, files, properties.getReasoningEffort(), null);
+    }
+
+    @Override
+    public ModelReply generate(
+            String userId,
+            List<ConversationMessage> history,
+            String prompt,
+            List<AiImage> images,
+            List<AiFile> files,
+            AiRequestBudget budget
+    ) {
+        return generateInternal(history, prompt, images, files, properties.getReasoningEffort(), budget);
     }
 
     @Override
@@ -72,17 +92,29 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
             List<AiFile> files,
             String reasoningEffort
     ) {
+        return generateInternal(history, prompt, images, files, reasoningEffort, null);
+    }
+
+    private ModelReply generateInternal(
+            List<ConversationMessage> history,
+            String prompt,
+            List<AiImage> images,
+            List<AiFile> files,
+            String reasoningEffort,
+            AiRequestBudget budget
+    ) {
         try {
             // buildRequest 先构造 Java 请求对象；create 才真正发出 HTTP 请求并等待响应。
             Response response = client.responses().create(buildRequest(
-                    history, prompt, images, files, safeEffort(reasoningEffort)));
+                    history, prompt, images, files, safeEffort(reasoningEffort), outputLimit(budget)));
             String text = extractOutputText(response);
             if (text.isBlank()) {
                 throw new AiGatewayException(AiGatewayException.Kind.EMPTY_RESPONSE);
             }
             String actualModel = modelName(response.model());
             log.info("AI response completed, model={}", actualModel);
-            return new ModelReply(text, actualModel);
+            trace.modelReply("Responses", actualModel, text);
+            return new ModelReply(text, actualModel, List.of(), extractUsage(response), "responses");
         } catch (UnauthorizedException | PermissionDeniedException exception) {
             throw new AiGatewayException(AiGatewayException.Kind.AUTHENTICATION, exception);
         } catch (OpenAIIoException | OpenAIRetryableException exception) {
@@ -99,7 +131,8 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
             String prompt,
             List<AiImage> images,
             List<AiFile> files,
-            String reasoningEffort
+            String reasoningEffort,
+            int maxOutputTokens
     ) {
         List<ResponseInputItem> input = new ArrayList<>();
         /*
@@ -171,6 +204,7 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
                 .instructions(instructions())
                 .inputOfResponse(input)
                 .reasoning(reasoning)
+                .maxOutputTokens(maxOutputTokens)
                 // 禁止模型服务端保存这次 Response；多轮历史完全由 AiChatService 管理。
                 .store(false)
                 .build();
@@ -184,6 +218,20 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
 
     private String safeEffort(String requested) {
         return requested == null || requested.isBlank() ? properties.getReasoningEffort() : requested.strip();
+    }
+
+    private int outputLimit(AiRequestBudget budget) {
+        return budget == null ? properties.getMaxCompletionTokens() : budget.maxOutputTokens();
+    }
+
+    private static AiModelUsage extractUsage(Response response) {
+        if (response == null) {
+            return AiModelUsage.unknown();
+        }
+        return response.usage()
+                .map(usage -> AiModelUsage.reported(
+                        usage.inputTokens(), usage.outputTokens(), usage.totalTokens()))
+                .orElseGet(AiModelUsage::unknown);
     }
 
     private static ResponseInputItem textMessage(EasyInputMessage.Role role, String text) {

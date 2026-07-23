@@ -42,6 +42,7 @@ class OpenAiResponsesGatewayContractTest {
             OpenAiResponsesGateway gateway = new OpenAiResponsesGateway(client, properties);
 
             LlmGateway.ModelReply reply = gateway.generate(
+                    "responses-user",
                     List.of(
                             new ConversationMessage(ConversationMessage.Role.USER, "前一个问题"),
                             new ConversationMessage(ConversationMessage.Role.ASSISTANT, "前一个回答")
@@ -55,16 +56,19 @@ class OpenAiResponsesGatewayContractTest {
                             new AiFile("sample.xml", "text/xml", "xml-marker".getBytes(StandardCharsets.UTF_8)),
                             new AiFile("Demo.java", "text/x-java", "java-marker".getBytes(StandardCharsets.UTF_8))
                     ),
-                    "low"
+                    new AiRequestBudget(AiRequestBudget.TaskClass.COMPLEX_OR_MULTIMODAL, 777, 500, 1_277)
             );
 
             assertThat(reply.text()).isEqualTo("第一段\n第二段");
             assertThat(reply.model()).isEqualTo("gpt-5.6-sol");
+            assertThat(reply.protocol()).isEqualTo("responses");
+            assertThat(reply.usage()).isEqualTo(AiModelUsage.reported(12, 3, 15));
             assertThat(requestPath.get()).isEqualTo("/v1/responses");
             assertThat(requestBody.get())
                     .contains("\"model\":\"gpt-5.6\"")
                     .contains("\"store\":false")
-                    .contains("\"effort\":\"low\"")
+                    .contains("\"max_output_tokens\":777")
+                    .contains("\"effort\":\"high\"")
                     .contains("前一个问题", "前一个回答", "看看图片")
                     .contains("data:image/png;base64,AQID")
                     .contains("data:image/jpeg;base64,BAUG")
@@ -94,6 +98,7 @@ class OpenAiResponsesGatewayContractTest {
                   "object":"response",
                   "created_at":1,
                   "model":"gpt-5.6-sol",
+                  "usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15},
                   "output":[
                     {"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[
                       {"type":"output_text","text":"第一段","annotations":[]},

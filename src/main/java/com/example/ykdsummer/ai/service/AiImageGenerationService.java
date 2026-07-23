@@ -7,20 +7,18 @@ import com.openai.errors.UnauthorizedException;
 import com.openai.models.images.Image;
 import com.openai.models.images.ImageGenerateParams;
 import com.openai.models.images.ImagesResponse;
+import java.util.Base64;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import java.util.Base64;
-import java.util.List;
-
 /**
- * 调用 OpenAI 兼容的 {@code /v1/images/generations} 接口，把“生图：描述”变成图片字节。
+ * 调用 OpenAI Images 兼容接口，把图片描述变成图片字节。
  *
- * <p>它和 {@link OpenAiResponsesGateway} 是两个独立 API 分支：Responses 负责文字回答和
- * 看图，Images API 负责从文字生成新图。返回结果不是网页链接，而是 Base64 编码的 PNG，
- * 本类解码后交给 iLink SDK 上传到腾讯 CDN。</p>
+ * <p>这个接口与文字的 Responses/Chat Completions 完全独立：它调用
+ * {@code /v1/images/generations}，收到 Base64 图片后再交给 iLink SDK 上传到腾讯 CDN。</p>
  */
 @Service
 public class AiImageGenerationService {
@@ -31,27 +29,53 @@ public class AiImageGenerationService {
 
     private static final Logger log = LoggerFactory.getLogger(AiImageGenerationService.class);
     private static final int MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
     private final OpenAIClient client;
     private final AiProperties properties;
+    private final AsyncImageEditGateway imageEditGateway;
 
     public AiImageGenerationService(
             @Qualifier("imageOpenAIClient") OpenAIClient client,
             AiProperties properties
     ) {
+        this(client, properties, (prompt, referenceImageUrl) -> AsyncImageEditGateway.EditResult.error("图片编辑服务未配置"));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AiImageGenerationService(
+            @Qualifier("imageOpenAIClient") OpenAIClient client,
+            AiProperties properties,
+            AsyncImageEditGateway imageEditGateway
+    ) {
         this.client = client;
         this.properties = properties;
+        this.imageEditGateway = imageEditGateway;
+    }
+
+    /** 基于已保存原图创建新版本；参考图通过短时 OSS URL 进入异步媒体协议。 */
+    public Result revise(String userId, String prompt, String referenceImageUrl) {
+        if (!properties.isEnabled() || !properties.isImageEnabled()) {
+            return Result.error(DISABLED_REPLY);
+        }
+        AsyncImageEditGateway.EditResult result = imageEditGateway.edit(prompt, referenceImageUrl);
+        if (!result.hasImage()) {
+            log.warn("AI image revision failed, user={}", anonymize(userId));
+            return Result.error(result.errorMessage());
+        }
+        log.info("AI image revision completed, user={}, model={}, bytes={}", anonymize(userId),
+                properties.getImageModel(), result.imageBytes().length);
+        return Result.image(result.imageBytes(), result.remoteUrl());
     }
 
     /**
      * @param userId 仅用于脱敏日志，不会放进生图提示词
-     * @param prompt 已去掉“生图：”前缀后的画面描述
+     * @param prompt 由用户或 Agent 组织好的画面描述
      */
     public Result generate(String userId, String prompt) {
         if (!properties.isEnabled() || !properties.isImageEnabled()) {
             return Result.error(DISABLED_REPLY);
         }
         try {
-            // 这里构造 Images API 请求：一次生成 1 张 1024x1024、中等质量的 PNG。
             ImageGenerateParams params = ImageGenerateParams.builder()
                     .model(properties.getImageModel())
                     .prompt(prompt)
@@ -62,14 +86,12 @@ public class AiImageGenerationService {
                     .responseFormat(ImageGenerateParams.ResponseFormat.B64_JSON)
                     .build();
             ImagesResponse response = client.images()
-                    // 当前默认最多等待 15 分钟且不重试，避免一次重试让实际等待时间翻倍。
                     .withOptions(options -> options.timeout(properties.getImageTimeout()).maxRetries(0))
                     .generate(params);
             List<Image> images = response.data().orElse(List.of());
             if (images.isEmpty() || images.getFirst().b64Json().isEmpty()) {
                 return Result.error(EMPTY_REPLY);
             }
-            // b64_json 是传输格式；解码后才是 ILinkBot.sendImage 需要的原始 PNG 字节。
             byte[] bytes = Base64.getDecoder().decode(images.getFirst().b64Json().orElseThrow());
             if (bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES) {
                 return Result.error(EMPTY_REPLY);
@@ -80,9 +102,19 @@ public class AiImageGenerationService {
             log.warn("AI image authentication failed, user={}", anonymize(userId));
             return Result.error(AUTH_ERROR_REPLY);
         } catch (RuntimeException exception) {
-            log.warn("AI image request failed, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
+            log.warn("AI image request failed, user={}, category={}, type={}",
+                    anonymize(userId), failureCategory(exception), exception.getClass().getSimpleName());
             return Result.error(UNAVAILABLE_REPLY);
         }
+    }
+
+    private static String failureCategory(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            String name = current.getClass().getSimpleName().toLowerCase();
+            if (name.contains("timeout")) return "TIMEOUT";
+            if (name.contains("ratelimit") || name.contains("too many")) return "RATE_LIMIT";
+        }
+        return "UPSTREAM_OR_NETWORK";
     }
 
     private static String anonymize(String userId) {
@@ -92,9 +124,10 @@ public class AiImageGenerationService {
     /**
      * 成功时 imageBytes 有值，失败时 errorMessage 有值。数组复制用于避免调用方意外改坏图片。
      */
-    public record Result(byte[] imageBytes, String errorMessage) {
-        public static Result image(byte[] bytes) { return new Result(bytes.clone(), null); }
-        public static Result error(String message) { return new Result(null, message); }
+    public record Result(byte[] imageBytes, String errorMessage, String remoteUrl) {
+        public static Result image(byte[] bytes) { return image(bytes, null); }
+        public static Result image(byte[] bytes, String remoteUrl) { return new Result(bytes.clone(), null, remoteUrl); }
+        public static Result error(String message) { return new Result(null, message, null); }
         public boolean hasImage() { return imageBytes != null; }
         @Override public byte[] imageBytes() { return imageBytes == null ? null : imageBytes.clone(); }
     }

@@ -24,6 +24,7 @@ pnpm-debug.log*
 application-local.properties
 .ilink/
 .documents/
+.ai-assets/
 
 # Operating-system files
 .DS_Store

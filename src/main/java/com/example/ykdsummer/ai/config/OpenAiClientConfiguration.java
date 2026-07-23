@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 创建全应用共享的 OpenAI HTTP 客户端，并开启会话过期清理任务。
- * {@link Bean} 方法的返回对象会由 Spring 保存，Responses 网关和图片服务按名称注入各自客户端。
+ * {@link Bean} 方法的返回对象会由 Spring 保存，供 Responses 网关使用。
  */
 @Configuration
 @EnableScheduling
@@ -36,27 +36,24 @@ public class OpenAiClientConfiguration {
     }
 
     /**
-     * 图片生成使用独立客户端。它仍调用 OpenAI 兼容的 Images API，但可以拥有不同的
-     * 服务地址和密钥，不会改变文字 Responses API 的连接配置。
+     * 图片与文字使用不同的 OpenAI 兼容网关。该 Bean 只会在 ImageTools 真正调用生图时访问网络，
+     * 不会影响 Responses、Chat Completions 或 iLink 长轮询。
      */
     @Bean("imageOpenAIClient")
     public OpenAIClient imageOpenAIClient(
-            ImageOpenAiClientProperties imageClientProperties,
+            ImageOpenAiClientProperties imageProperties,
             AiProperties aiProperties
     ) {
         return OpenAIOkHttpClient.builder()
-                .baseUrl(normalizeBaseUrl(imageClientProperties.getBaseUrl(), "https://api.lk888.ai/v1"))
-                .apiKey(imageClientProperties.getApiKey())
+                .baseUrl(normalizeBaseUrl(imageProperties.getBaseUrl()))
+                .apiKey(imageProperties.getApiKey())
                 .timeout(aiProperties.getImageTimeout())
                 .maxRetries(0)
                 .build();
     }
 
     private static String normalizeBaseUrl(String value) {
-        return normalizeBaseUrl(value, "https://moosecloud.cc/v1");
-    }
-
-    private static String normalizeBaseUrl(String value, String defaultValue) {
+        String defaultValue = "https://moosecloud.cc/v1";
         // 允许环境变量省略 /v1，最终统一成 OpenAI Java SDK 所需的基础地址。
         if (value == null || value.isBlank()) {
             return defaultValue;

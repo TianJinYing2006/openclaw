@@ -4,10 +4,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * 图片生成服务的独立连接参数。
+ * 图片生成服务的独立 OpenAI Images API 连接参数。
  *
- * <p>文字模型继续使用 {@code openai.*}，图片生成只使用 {@code openai.image.*}。
- * 这样更换图片供应商时不会影响普通文字对话。</p>
+ * <p>文字模型使用 {@code openai.*} 与 Spring AI；本类只负责 {@code openai.image.*}。
+ * 两套地址和密钥彼此独立，所以替换图片供应商不会影响微信文字问答。</p>
  */
 @Component
 @ConfigurationProperties(prefix = "openai.image")
@@ -16,7 +16,7 @@ public class ImageOpenAiClientProperties {
     /** OpenAI Images API 兼容地址，必须包含 /v1。 */
     private String baseUrl = "https://api.lk888.ai/v1";
 
-    /** 只能由外部环境变量提供，仓库中不保存真实密钥。 */
+    /** 只能通过环境变量注入，不能提交到 Git。 */
     private String apiKey = "not-configured";
 
     public String getBaseUrl() {

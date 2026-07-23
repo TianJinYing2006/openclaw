@@ -39,7 +39,7 @@ public class TtsVoiceSelectionService {
         this.properties = properties;
     }
 
-    /** 选择成功后立即影响该用户后续的“语音：”请求。 */
+    /** 选择成功后立即影响该用户后续由模型触发的 TTS 请求。 */
     public Optional<VoiceOption> select(String userId, String requestedVoice) {
         Optional<VoiceOption> selected = find(requestedVoice);
         selected.ifPresent(option -> userVoices.put(userId, option.voiceId()));
@@ -78,9 +78,9 @@ public class TtsVoiceSelectionService {
             message.append('\n');
         }
         return message
-                .append("\n切换：设置音色：龙婉\n")
-                .append("查看：当前音色\n")
-                .append("恢复：重置音色")
+                .append("\n例如：换成龙婉\n")
+                .append("查看：现在用的什么音色？\n")
+                .append("恢复：恢复默认音色")
                 .toString();
     }
 

@@ -22,7 +22,15 @@ public class AiProperties {
     public static final String DEFAULT_SYSTEM_PROMPT = "你是微信里的中文助手。请像朋友聊天一样自然、直接、简洁地回答，"
             + "一次先讲清楚最重要的事，能一句话说清就不要拆成多条；不要复述问题，不要用“作为 AI”开场，"
             + "也不要用“希望对你有所帮助”等套话。复杂问题可以分点，但只保留必要内容。"
-            + "默认使用简体中文；用户切换语言时跟随。不确定就明确说明，不要编造，也不要声称执行了未执行的操作。";
+            + "默认使用简体中文；用户切换语言时跟随。不确定就明确说明，不要编造，也不要声称执行了未执行的操作。"
+            + "当用户明确要求生成一张新图、查询实时天气或用语音回复时，按工具说明自主调用合适工具；不要要求用户记忆命令前缀。"
+            + "用户谈到上传过、刚才、上一张或某个版本的图片时，先查询图片工具返回的资源 ID、版本、保存描述和视觉摘要；"
+            + "若有多张候选图片或指代不清，先列出最近图片，不能猜测目标。需要生成新版本或回退时必须使用对应图片工具，"
+            + "不要假装已修改；涉及图片真实画面细节时先调用 inspect_image。"
+            + "用户谈到文档的创建、修改、转换或回退时，先查询当前文档再使用文档工具；不得伪造文件、版本或下载链接。"
+            + "当用户明确要求清除、忘记或重置当前对话记忆/临时会话缓存时，调用 clear_current_memory；"
+            + "不要因为用户换话题、普通总结或一般性隐私表态自行清除。"
+            + "如果用户同时指定音色和要求语音，必须先调用 set_voice（或 reset_voice）并获得成功结果，再调用 synthesize_speech；不要把这两个调用并行发起。";
 
     /** 是否把普通微信消息交给大模型。固定命令不受此开关影响。 */
     private boolean enabled = true;
@@ -54,13 +62,15 @@ public class AiProperties {
     /** 是否允许文字生成图片。 */
     private boolean imageEnabled = true;
 
-    /** 图片生成模型名称。 */
+    /** 图片生成模型名称。当前活动客户端走 OpenAI Images 兼容的 gpt-image-2。 */
     private String imageModel = "gpt-image-2";
 
-    /** 图片尺寸、质量和单次请求超时；当前默认超时是 15 分钟。 */
+    /** 图片尺寸、质量和单次请求超时。 */
     private String imageSize = "1024x1024";
-    private String imageQuality = "medium";
+    private String imageQuality = "high";
     private Duration imageTimeout = Duration.ofMinutes(15);
+    /** 异步图生图任务的状态查询间隔；网络偶发失败不会立刻判定任务失败。 */
+    private Duration imagePollInterval = Duration.ofSeconds(3);
 
     public boolean isEnabled() {
         return enabled;
@@ -146,4 +156,9 @@ public class AiProperties {
     public void setImageQuality(String imageQuality) { this.imageQuality = imageQuality; }
     public Duration getImageTimeout() { return imageTimeout; }
     public void setImageTimeout(Duration imageTimeout) { this.imageTimeout = imageTimeout; }
+    public Duration getImagePollInterval() { return imagePollInterval; }
+    public void setImagePollInterval(Duration imagePollInterval) {
+        this.imagePollInterval = imagePollInterval == null || imagePollInterval.isNegative() || imagePollInterval.isZero()
+                ? Duration.ofSeconds(3) : imagePollInterval;
+    }
 }

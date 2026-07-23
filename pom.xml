@@ -77,6 +77,13 @@
             <version>3.1.1500</version>
         </dependency>
 
+        <!-- 图片原件、版本索引与短时参考图 URL 的生产存储。凭证只从本机环境变量读取。 -->
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+            <version>3.17.4</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

@@ -13,4 +13,15 @@ import java.util.List;
 public interface TextChatGateway {
 
     LlmGateway.ModelReply generate(List<ConversationMessage> history, String prompt);
+
+    default LlmGateway.ModelReply generate(String userId, List<ConversationMessage> history, String prompt) {
+        return generate(history, prompt);
+    }
+
+    /** 让 Chat Completions 也能接收与 Responses 相同的请求预算。 */
+    default LlmGateway.ModelReply generate(
+            String userId, List<ConversationMessage> history, String prompt, AiRequestBudget budget
+    ) {
+        return generate(userId, history, prompt);
+    }
 }

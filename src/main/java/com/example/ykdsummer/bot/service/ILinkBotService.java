@@ -4,6 +4,7 @@ import com.example.ykdsummer.bot.config.ILinkProperties;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
 import com.example.ykdsummer.bot.message.ILinkMessageType;
 import com.example.ykdsummer.bot.message.RecentMessageIds;
+import com.example.ykdsummer.bot.runtime.ILinkDeliveryAudit;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.session.ILinkSessionStore;
 import com.example.ykdsummer.bot.video.ILinkVideoDownloader;
@@ -63,6 +64,7 @@ public class ILinkBotService {
     private final ILinkProperties settings;
     private final ILinkSessionStore sessionStore;
     private final ILinkRuntimeState runtimeState;
+    private final ILinkDeliveryAudit deliveryAudit;
     private final ILinkReplyService replyService;
     private final ILinkMessageRateLimiter rateLimiter;
     private final ILinkMediaDownloader mediaDownloader;
@@ -78,8 +80,8 @@ public class ILinkBotService {
     private final ExecutorService[] textReplyExecutors;
 
     /**
-     * “生图：”任务使用的独立线程池，最多同时处理两张生成任务。
-     * 普通文字和用户发来图片让模型理解的任务都不会进入这里。
+     * 保留给后续 Agent 工具执行层的独立重任务池。当前不再由“生图：”前缀选路；
+     * 是否调用生图由模型在文字队列中规划，随后可再演进为异步工具执行。
      */
     private final ExecutorService imageReplyExecutor;
 
@@ -98,6 +100,7 @@ public class ILinkBotService {
             ILinkProperties settings,
             ILinkSessionStore sessionStore,
             ILinkRuntimeState runtimeState,
+            ILinkDeliveryAudit deliveryAudit,
             ILinkReplyService replyService,
             ILinkMessageRateLimiter rateLimiter,
             ILinkMediaDownloader mediaDownloader,
@@ -109,6 +112,7 @@ public class ILinkBotService {
         this.settings = settings;
         this.sessionStore = sessionStore;
         this.runtimeState = runtimeState;
+        this.deliveryAudit = deliveryAudit;
         this.replyService = replyService;
         this.rateLimiter = rateLimiter;
         this.mediaDownloader = mediaDownloader;
@@ -309,8 +313,8 @@ public class ILinkBotService {
         try {
             List<MessageItem> safeItems = List.copyOf(items);
             /*
-             * 只有“生图：描述”进入图片线程池。普通文字、语音转写、用户上传图片或文件的理解请求，
-             * 都按用户 ID 分配到文字队列，以便多轮上下文保持顺序。
+             * 用户意图不再由前缀选路。普通文字、语音转写和模型工具规划都按用户 ID
+             * 分配到同一文字队列，以便多轮上下文保持顺序。
              */
             boolean videoMessage = replyService.isVideoMessage(safeItems);
             ExecutorService executor = videoMessage
@@ -348,8 +352,10 @@ public class ILinkBotService {
 
     /** 在独立工作线程中调用大模型并发送回复，不阻塞 iLink 长轮询。 */
     private void processReply(WeixinMessage message, List<MessageItem> items) {
+        ILinkReply reply = null;
+        ILinkBot runningBot = null;
         try {
-            ILinkReply reply = replyService.createReply(message, items, status());
+            reply = replyService.createReply(message, items, status());
             if (reply == null) {
                 return;
             }
@@ -357,7 +363,7 @@ public class ILinkBotService {
              * replyText 是 SDK 封装的方法。SDK 会从入站 message 中取得回复目标和
              * contextToken，再发出 sendmessage；本项目只决定回复的文本内容。
              */
-            ILinkBot runningBot = requireRunningBot();
+            runningBot = requireRunningBot();
             if (reply instanceof ILinkReply.Text textReply) {
                 if (textReply.value() == null || textReply.value().isBlank()) {
                     return;
@@ -368,10 +374,13 @@ public class ILinkBotService {
                  * 本项目交给 SDK 的是原始 PNG 字节。SDK 内部还会生成 AES key、加密图片、
                  * 请求腾讯 CDN 上传地址、上传密文、组装 ImageItem，最后调用 sendmessage。
                  * 因此微信收到的是可直接显示的图片，而不是需要用户点击的外部链接。
-                 */
+                */
                 runningBot.sendImage(message.fromUserId(), message.contextToken(), imageReply.bytes());
+                if (imageReply.followUpText() != null && !imageReply.followUpText().isBlank()) {
+                    runningBot.replyText(message, imageReply.followUpText());
+                }
             } else if (reply instanceof ILinkReply.AudioFile audioReply) {
-                // TTS 已在上一层完成：这里只发送 MP3 文件，不额外发送文字答案。
+                // TTS 已在上一层完成：只发送 MP3 文件，不额外发送文字答案。
                 runningBot.sendFile(message.fromUserId(), message.contextToken(), audioReply.fileName(), audioReply.bytes());
             } else if (reply instanceof ILinkReply.DocumentFile documentReply) {
                 // 文档结果先发文件，再发状态说明，手机端可以紧接着继续输入修改要求或命令。
@@ -381,6 +390,7 @@ public class ILinkBotService {
                     runningBot.replyText(message, documentReply.followUpText());
                 }
             }
+            deliveryAudit.gatewayAccepted(String.valueOf(message.messageId()), message.fromUserId(), replyType(reply), attachmentBytes(reply));
             runtimeState.messageSent();
             log.info("Replied to iLink message {}", message.messageId());
         } catch (RuntimeException exception) {
@@ -389,12 +399,47 @@ public class ILinkBotService {
              * 持续重放。这里记录错误和 messageId，让消息游标仍可继续向前。
              */
             runtimeState.messageDeliveryFailed(safeErrorMessage(exception));
+            deliveryAudit.failed(String.valueOf(message.messageId()), message.fromUserId(), replyType(reply), attachmentBytes(reply), exception);
             log.warn(
                     "Could not reply to iLink message {}; continue so the message cursor can advance",
                     message.messageId(),
                     exception
             );
+            sendMediaFailureNotice(runningBot, message, reply);
         }
+    }
+
+    /**
+     * 附件发送失败后尝试只发一条文字解释。它不重试原附件，避免重复上传或重复扣费；
+     * 若文本也失败，审计日志仍保留原始附件失败原因，供下一次真机测试定位。
+     */
+    private void sendMediaFailureNotice(ILinkBot runningBot, WeixinMessage message, ILinkReply reply) {
+        if (runningBot == null || !(reply instanceof ILinkReply.DocumentFile || reply instanceof ILinkReply.AudioFile)) {
+            return;
+        }
+        String type = reply instanceof ILinkReply.DocumentFile ? "文件" : "音频文件";
+        try {
+            runningBot.replyText(message, type + "已在机器人本地生成，但上传或发送到微信失败。请稍后重新执行原请求。");
+            runtimeState.fallbackMessageSent();
+            deliveryAudit.fallbackAccepted(String.valueOf(message.messageId()), message.fromUserId(), replyType(reply));
+        } catch (RuntimeException fallbackException) {
+            log.warn("Could not send iLink media failure notice for message {}", message.messageId(), fallbackException);
+        }
+    }
+
+    private static String replyType(ILinkReply reply) {
+        if (reply instanceof ILinkReply.DocumentFile) return "document";
+        if (reply instanceof ILinkReply.AudioFile) return "audio";
+        if (reply instanceof ILinkReply.Image) return "image";
+        if (reply instanceof ILinkReply.Text) return "text";
+        return "unknown";
+    }
+
+    private static int attachmentBytes(ILinkReply reply) {
+        if (reply instanceof ILinkReply.DocumentFile document) return document.bytes().length;
+        if (reply instanceof ILinkReply.AudioFile audio) return audio.bytes().length;
+        if (reply instanceof ILinkReply.Image image) return image.bytes().length;
+        return 0;
     }
 
     private ExecutorService textExecutorFor(String userId) {

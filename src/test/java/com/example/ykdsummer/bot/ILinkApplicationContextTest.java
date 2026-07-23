@@ -13,12 +13,10 @@ import com.openai.client.OpenAIClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 
 @SpringBootTest(properties = "ilink.enabled=false", webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class ILinkApplicationContextTest {
@@ -30,7 +28,7 @@ class ILinkApplicationContextTest {
     private ILinkProperties properties;
 
     @Autowired
-    private ImageOpenAiClientProperties imageClientProperties;
+    private ImageOpenAiClientProperties imageProperties;
 
     @Autowired
     private VideoProcessingProperties videoProperties;
@@ -40,14 +38,6 @@ class ILinkApplicationContextTest {
 
     @Autowired
     private ILinkRateLimitProperties rateLimitProperties;
-
-    @Autowired
-    @Qualifier("openAIClient")
-    private OpenAIClient textClient;
-
-    @Autowired
-    @Qualifier("imageOpenAIClient")
-    private OpenAIClient imageClient;
 
     @Autowired
     private ChatModel springAiChatModel;
@@ -72,9 +62,9 @@ class ILinkApplicationContextTest {
     }
 
     @Test
-    void keepsTextAndImageAiClientsSeparate() {
-        assertEquals("https://api.lk888.ai/v1", imageClientProperties.getBaseUrl());
-        assertNotSame(textClient, imageClient);
+    void bindsIndependentOpenAiImagesConfigurationWithoutSharingTheTextProtocolClient() {
+        assertEquals("https://api.lk888.ai/v1", imageProperties.getBaseUrl());
+        assertEquals("gpt-image-2", aiProperties.getImageModel());
     }
 
     @Test
@@ -95,7 +85,8 @@ class ILinkApplicationContextTest {
         assertEquals("OpenAiChatModel", springAiChatModel.getClass().getSimpleName());
         assertEquals(RoutingLlmGateway.class, llmGateway.getClass());
         assertEquals(600, aiProperties.getMaxCompletionTokens());
-        assertEquals(AiProperties.DEFAULT_SYSTEM_PROMPT, aiProperties.getSystemPrompt());
+        // 运行环境可以通过 AI_SYSTEM_PROMPT 覆盖默认提示词，因此不能假设值与源码常量完全相同。
+        assertFalse(aiProperties.getSystemPrompt().isBlank());
         assertEquals(100, properties.getTextQueueCapacity());
         assertEquals(10, properties.getImageQueueCapacity());
         assertEquals(20, rateLimitProperties.limitFor("text"));

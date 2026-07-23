@@ -1,6 +1,7 @@
 package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.model.AiImage;
+import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 
@@ -21,13 +22,42 @@ public interface LlmGateway {
      */
     ModelReply generate(List<ConversationMessage> history, String prompt, List<AiImage> images, List<AiFile> files);
 
+    /** 带调用者身份的重载，纯文本 Agent 工具可据此隔离本地图片版本。 */
+    default ModelReply generate(String userId, List<ConversationMessage> history, String prompt,
+                                List<AiImage> images, List<AiFile> files) {
+        return generate(history, prompt, images, files);
+    }
+
+    /**
+     * 带本轮预算的调用。旧实现和测试 fake gateway 可继续只实现四参数方法；正式路由器会把
+     * 预算传给对应协议网关，分别映射为 Chat Completions 的 max_completion_tokens 与
+     * Responses 的 max_output_tokens。
+     */
+    default ModelReply generate(String userId, List<ConversationMessage> history, String prompt,
+                                List<AiImage> images, List<AiFile> files, AiRequestBudget budget) {
+        return generate(userId, history, prompt, images, files);
+    }
+
     /** 特殊任务可覆盖本次 reasoning effort；测试假实现默认仍复用四参数方法。 */
     default ModelReply generate(List<ConversationMessage> history, String prompt,
                                 List<AiImage> images, List<AiFile> files, String reasoningEffort) {
         return generate(history, prompt, images, files);
     }
 
-    /** text 是最终回答；model 是第三方响应报告的实际模型名，当前主要用于日志核验。 */
-    record ModelReply(String text, String model) {
+    /** text 是最终回答；model 是第三方响应报告的实际模型名；usage 仅记录标准响应字段。 */
+    record ModelReply(String text, String model, List<AiArtifact> artifacts, AiModelUsage usage, String protocol) {
+        public ModelReply(String text, String model) {
+            this(text, model, List.of(), AiModelUsage.unknown(), "unknown");
+        }
+
+        public ModelReply(String text, String model, List<AiArtifact> artifacts) {
+            this(text, model, artifacts, AiModelUsage.unknown(), "unknown");
+        }
+
+        public ModelReply {
+            artifacts = artifacts == null ? List.of() : List.copyOf(artifacts);
+            usage = usage == null ? AiModelUsage.unknown() : usage;
+            protocol = protocol == null || protocol.isBlank() ? "unknown" : protocol.strip();
+        }
     }
 }

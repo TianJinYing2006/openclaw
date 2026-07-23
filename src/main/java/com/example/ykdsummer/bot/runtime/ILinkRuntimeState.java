@@ -65,6 +65,14 @@ public class ILinkRuntimeState {
         lastError = null;
     }
 
+    /**
+     * 原附件发送失败后，纯文字降级提示可能仍然成功送达。计数应增加，但不能清除原附件错误，
+     * 否则状态接口会错误地显示“全部正常”。
+     */
+    public void fallbackMessageSent() {
+        sentMessages.incrementAndGet();
+    }
+
     /** 记录单条消息发送失败，但连接本身仍可能正常，所以不把状态改成 ERROR。 */
     public void messageDeliveryFailed(String message) {
         lastError = message;

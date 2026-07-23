@@ -4,10 +4,12 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.AiFile;
+import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -36,12 +38,35 @@ public class AiChatService {
 
     private final AiProperties properties;
     private final LlmGateway gateway;
+    private final AiTraceLogger trace;
+    private final AiUsageMeter usageMeter;
+    private final TokenBudgetPolicy budgetPolicy;
     /** key 是 iLink fromUserId，value 是该微信用户自己的最近对话。 */
     private final Cache<String, UserConversation> conversations;
 
     public AiChatService(AiProperties properties, LlmGateway gateway) {
+        this(properties, gateway, AiTraceLogger.disabled(), AiUsageMeter.disabled(),
+                new TokenBudgetPolicy(new com.example.ykdsummer.ai.config.AiUsageProperties()));
+    }
+
+    public AiChatService(AiProperties properties, LlmGateway gateway, AiTraceLogger trace) {
+        this(properties, gateway, trace, AiUsageMeter.disabled(),
+                new TokenBudgetPolicy(new com.example.ykdsummer.ai.config.AiUsageProperties()));
+    }
+
+    @Autowired
+    public AiChatService(
+            AiProperties properties,
+            LlmGateway gateway,
+            AiTraceLogger trace,
+            AiUsageMeter usageMeter,
+            TokenBudgetPolicy budgetPolicy
+    ) {
         this.properties = properties;
         this.gateway = gateway;
+        this.trace = trace;
+        this.usageMeter = usageMeter;
+        this.budgetPolicy = budgetPolicy;
         this.conversations = Caffeine.newBuilder()
                 .maximumSize(properties.getMaxMemoryUsers())
                 .expireAfterAccess(safeMemoryTimeout(properties.getMemoryIdleTimeout()))
@@ -61,7 +86,12 @@ public class AiChatService {
 
     /** 文件和图片都只用于当前轮次，不把二进制内容放入聊天记忆。 */
     public String answer(String userId, String prompt, List<AiImage> images, List<AiFile> files) {
-        return answer(userId, prompt, prompt, images, files);
+        return answerRich(userId, prompt, images, files).text();
+    }
+
+    /** 供微信回复层使用：除文字外还能带回本轮 Agent 工具生成的图片。 */
+    public AssistantAnswer answerRich(String userId, String prompt, List<AiImage> images, List<AiFile> files) {
+        return answerInternal(userId, prompt, prompt, images, files);
     }
 
     /**
@@ -70,7 +100,7 @@ public class AiChatService {
      */
     public String answerForVoice(String userId, String prompt) {
         String modelPrompt = prompt + "\n\n请用自然、适合语音播报的简洁中文回答，最多 120 个汉字。";
-        return answer(userId, prompt, modelPrompt, List.of(), List.of());
+        return answerInternal(userId, prompt, modelPrompt, List.of(), List.of()).text();
     }
 
     /**
@@ -83,10 +113,16 @@ public class AiChatService {
             String modelPrompt,
             List<AiFile> files
     ) {
-        return answer(userId, userPrompt, modelPrompt, List.of(), files == null ? List.of() : files);
+        return answerInternal(userId, userPrompt, modelPrompt, List.of(), files == null ? List.of() : files).text();
     }
 
-    private String answer(
+    public AssistantAnswer answerWithInternalPromptRich(
+            String userId, String userPrompt, String modelPrompt, List<AiFile> files
+    ) {
+        return answerInternal(userId, userPrompt, modelPrompt, List.of(), files == null ? List.of() : files);
+    }
+
+    private AssistantAnswer answerInternal(
             String userId,
             String memoryPrompt,
             String modelPrompt,
@@ -94,7 +130,7 @@ public class AiChatService {
             List<AiFile> files
     ) {
         if (!properties.isEnabled()) {
-            return DISABLED_REPLY;
+            return AssistantAnswer.text(DISABLED_REPLY);
         }
         // Caffeine 按访问时间自动过期，并对总用户数设置上限，避免长期运行后 Map 无限增长。
         UserConversation conversation = conversations.get(userId, ignored -> new UserConversation());
@@ -109,8 +145,28 @@ public class AiChatService {
                  * Completion 与 Responses 请求都设置为 store=false，服务端不替我们保存上下文。
                  * 所以每次调用都复制最近历史，并连同本轮 prompt/images 重新发给模型。
                  */
-                LlmGateway.ModelReply reply = gateway.generate(
-                        conversation.copyMessages(), modelPrompt, images, files);
+                List<ConversationMessage> history = conversation.copyMessages();
+                trace.request(userId, memoryPrompt, modelPrompt, history.size(), images, files);
+                AiRequestBudget budget = budgetPolicy.plan(history, modelPrompt, images, files);
+                AiUsageMeter.Reservation reservation = usageMeter.reserve(userId, budget);
+                if (!reservation.allowed()) {
+                    log.info("AI request rejected by budget, user={}, reason={}, taskClass={}",
+                            anonymize(userId), reservation.rejectReason(), budget.taskClass());
+                    return AssistantAnswer.text(reservation.rejectReason() == AiUsageMeter.RejectReason.INPUT_TOO_LARGE
+                            ? AiUsageMeter.INPUT_TOO_LARGE_REPLY
+                            : AiUsageMeter.DAILY_LIMIT_REPLY);
+                }
+                LlmGateway.ModelReply reply;
+                boolean settled = false;
+                try {
+                    reply = gateway.generate(userId, history, modelPrompt, images, files, budget);
+                    usageMeter.complete(reservation, reply.protocol(), reply.model(), reply.usage());
+                    settled = true;
+                } finally {
+                    if (!settled) {
+                        usageMeter.release(reservation);
+                    }
+                }
                 // 只有模型成功返回后才把这一问一答写入历史，失败提示不会污染下一轮上下文。
                 conversation.remember(
                         new ConversationMessage(ConversationMessage.Role.USER, memoryText(memoryPrompt, images, files)),
@@ -120,21 +176,21 @@ public class AiChatService {
                         new ConversationMessage(ConversationMessage.Role.ASSISTANT, reply.text()),
                         properties.getMaxMemoryMessages()
                 );
-                return reply.text();
+                return new AssistantAnswer(reply.text(), reply.artifacts());
             } catch (AiGatewayException exception) {
                 log.warn(
                         "AI request failed, user={}, kind={}",
                         anonymize(userId),
                         exception.kind()
                 );
-                return switch (exception.kind()) {
+                return AssistantAnswer.text(switch (exception.kind()) {
                     case AUTHENTICATION -> AUTH_ERROR_REPLY;
                     case EMPTY_RESPONSE -> EMPTY_REPLY;
                     case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
-                };
+                });
             } catch (RuntimeException exception) {
                 log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
-                return UNAVAILABLE_REPLY;
+                return AssistantAnswer.text(UNAVAILABLE_REPLY);
             }
         }
     }
@@ -207,5 +263,16 @@ public class AiChatService {
             }
         }
 
+    }
+
+    public record AssistantAnswer(String text, List<AiArtifact> artifacts) {
+        public AssistantAnswer {
+            text = text == null ? "" : text;
+            artifacts = artifacts == null ? List.of() : List.copyOf(artifacts);
+        }
+
+        public static AssistantAnswer text(String value) {
+            return new AssistantAnswer(value, List.of());
+        }
     }
 }

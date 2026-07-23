@@ -121,9 +121,10 @@ java -jar .\target\ykd-summer-0.0.1-SNAPSHOT.jar --server.port=8081
 
 ### 语音合成（TTS）
 
-机器人只在用户手打 `语音：问题` 时进入语音输出分支：先调用大模型生成简短回答，
-再调用阿里云百炼 TTS，最后只发送一个 `answer.mp3` 文件。微信发来的语音转写
-仍按普通问题处理，不会误触发这个命令。
+不需要再写 `语音：` 前缀。用户可以直接说“请用语音回答”“朗读一下这段内容”或
+“换成女声后解释 iLink”。纯文本会先进入 Spring AI；模型根据 `synthesize_speech`、
+`set_voice` 等工具的说明决定是否调用。TTS 成功后，机器人只发送 `answer.mp3` 文件。
+微信发来的语音转写本身仍按普通问题处理。
 
 启动前需要配置：
 
@@ -135,15 +136,15 @@ $env:ALIYUN_TTS_MODEL = "cosyvoice-v3-flash"
 $env:ALIYUN_TTS_VOICE = "longanyang"
 ```
 
-`ALIYUN_TTS_VOICE` 只设置默认音色。机器人运行后可以直接在微信中按用户实时切换，
-不需要修改环境变量或重启 Spring Boot：
+`ALIYUN_TTS_VOICE` 只设置默认音色。机器人运行后可以直接在微信中自然表达需求，
+模型会通过音色设置工具按用户实时切换，不需要修改环境变量或重启 Spring Boot：
 
 ```text
-音色列表
-设置音色：龙婉
-当前音色
-语音：介绍一下 Spring AI
-重置音色
+有哪些音色？
+换成龙婉
+现在用的什么音色？
+请用语音介绍一下 Spring AI
+恢复默认音色
 ```
 
 也支持“换音色：龙婉”“切换音色：龙婉”和“更换音色：龙婉”。当前从
@@ -154,28 +155,26 @@ $env:ALIYUN_TTS_VOICE = "longanyang"
 默认音色为 `longanyang`。`cosyvoice-v3-flash` 已使用当前百炼工作空间完成真实接口验证，
 成功返回 MP3 文件。
 
-## 9. 文件处理与生成
+## 9. 文件处理、版本与生成
 
-当前复刻 TJY 的一次性文件会话，不再使用 wangentong 的文档模式、版本和撤销状态机：
+用户无需输入任何隐藏前缀。上传文件后可以直接说“总结重点”“把第二段改得正式一些”“转成 PDF”或
+“回到第 1 版”。文件会先登记为当前用户独立的 `doc_* v1` 本地资产；模型从工具说明中自行判断要分析、创建、修改、转换还是回退。
 
-1. 先发送一个文件，机器人回复“已收到文件，请告诉我怎么处理”；
-2. 5 分钟内直接发送普通话要求，例如“总结重点”“修改第二段”“帮我把这个变成 PDF”；
-3. Java 把文件正文和要求一起交给模型。普通分析返回文字；模型返回内部 `FILE_GEN||JSON` 时，Java 生成并发送文件；
-4. 文件只供下一条文字使用，处理后立即清除。要再次基于原文件处理，需要重新上传。
+1. 收到文件时，iLink SDK 下载并解密；如果这条消息没有要求，文件会短暂等待下一条普通话指令（5 分钟）。
+2. 真正处理时，Java 保存不可覆盖的文档资产；能提取正文时把 `assetId`、版本和正文交给 Spring AI 工具编排。
+3. 模型调用 `get_current_document` 查询，再按需要调用 `create_document`、`replace_document_content` 或 `restore_document_version`。
+4. 创建、修改和回退都会新建版本而不是覆盖旧版本；回退 v1 的结果也会成为新的 vN。实际文件随后由 iLink 发送给微信。
 
-用户不需要输入 `FILE_GEN`、`分析：`、`修改：` 或 `生成：` 等前缀，也没有“当前文件、撤销、使用原版、完成、关闭文件”等命令。
-不上传文件也可以直接说“写一份 Word 周报”“生成一份 PDF 报告”“创建 Excel 表格”。当前输出格式支持
-DOCX、XLSX、PDF 和 TXT。
-
-Java 会优先提取 TXT、PDF、DOCX、XLSX、PPTX 等文件的正文。无法本地提取时才把原始文件交给
-Responses 文件输入。生成和修改属于内容级重建，不保证无损保留原 Word/Excel/PDF 的复杂样式、图片、公式或版式。
-文件缓存仅存在当前 Java 进程内，5 分钟过期，发送 `清空` 或重启应用也会清除。
+不上传文件也能直接说“写一份 Word 周报”“生成一份 PDF 报告”“创建 Excel 表格”。目前输出支持 DOCX、XLSX、PDF 和 TXT。
+生成和修改属于内容级重新渲染，不保证无损保留原 Word/Excel/PDF 的复杂样式、图片、公式或版式。
+聊天记忆和 5 分钟待处理会话会随进程重启清除；已登记的文档版本保存在 `.ai-assets/documents/`，不会因重启丢失。
 
 ## 10. AI 协议路由
 
 - 普通纯文本：使用 Spring AI 1.1.8 调用 `/v1/chat/completions`，并携带 system、历史 USER/ASSISTANT 和当前问题；这条路线用于后续 Agent/Tool。
-- 图片、文件、视频帧：继续使用已经验证的 Responses 协议，保留 `input_image`、`input_file` 和 reasoning 能力。
-- 文件正文可本地提取时：隐藏的 `FILE_GEN` 指令走 Spring AI Chat Completions；无法提取而必须附带二进制文件时回退 Responses。
+- 图片：先登记为 `img_*`，再进入 Spring AI 工具编排；模型需要真实画面时由 `inspect_image` 使用 Responses 的 `input_image` 读取对应本地原图。
+- 无法本地提取的文件、视频帧：继续使用已经验证的 Responses 协议，保留 `input_image`、`input_file` 和 reasoning 能力。
+- 文件正文可本地提取时：走 Spring AI Chat Completions，并由模型调用 `DocumentTools`；无法提取而必须附带二进制文件时回退 Responses 做理解。
 - 两条模型请求都设置 `store=false`；短期上下文仍由 Java 按用户隔离保存在内存中，重启后清空。
 
 Spring AI 默认使用 `SPRING_AI_BASE_URL=https://moosecloud.cc` 和 `/v1/chat/completions`，密钥默认复用 `AI_API_KEY`；如需与 Responses 分开，可设置 `SPRING_AI_API_KEY`、`SPRING_AI_BASE_URL` 和 `SPRING_AI_MODEL`。
@@ -184,10 +183,11 @@ Spring AI 默认使用 `SPRING_AI_BASE_URL=https://moosecloud.cc` 和 `/v1/chat/
 
 - 文本：支持固定命令和 Spring AI Chat Completions 多轮对话，默认采用自然、直接、简洁的微信口吻
 - 语音输入：有腾讯转写文字时进入大模型；没有转写时提示改发文字
-- 语音输出：`语音：问题` 只返回 MP3 文件；支持按用户实时切换音色；不是微信原生语音气泡
+- 语音输出：模型在用户明确要求语音时调用 TTS；只发送 MP3 文件；支持按用户实时切换音色；不是微信原生语音气泡
 - 图片：支持 CDN 下载解密并交给视觉模型理解
 - 视频：支持 60 秒、20 MiB 以内的短视频固定抽取 10 帧，并用腾讯云 ASR 转写人声后联合理解
-- 文件输入：一次只接收 1 个，最大 20 MiB；缓存 5 分钟并供下一条普通话指令使用
-- 文件输出：支持 DOCX、XLSX、PDF、TXT；内容由模型生成后交给 Java 渲染，二进制不进入聊天历史
+- 文件输入：一次只接收 1 个，最大 20 MiB；临时等待下一条指令为 5 分钟，真正处理后登记为可追踪的 `doc_*` 版本资产
+- 文件输出：支持 DOCX、XLSX、PDF、TXT；内容由模型工具生成后交给 Java 渲染，二进制不进入聊天历史
+- 图片资产：上传或生成图片都会登记 `img_*`；模型可查询当前/最近图片、视觉识别已保存图片、创建新版本或恢复历史版本
 - 幂等：当前为内存窗口；生产环境建议改成 Redis
 - Java SDK：社区实现，生产使用前需要继续审计并跟踪腾讯官方插件协议变化

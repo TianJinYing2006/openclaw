@@ -26,6 +26,6 @@ class TtsVoiceSelectionServiceTest {
         TtsVoiceSelectionService service = new TtsVoiceSelectionService(new AliyunTtsProperties());
 
         assertThat(service.listMessage("user"))
-                .contains("龙安洋 - 阳光大男孩（当前）", "设置音色：龙婉", "重置音色");
+                .contains("龙安洋 - 阳光大男孩（当前）", "换成龙婉", "恢复默认音色");
     }
 }

@@ -2,6 +2,8 @@ package com.example.ykdsummer.ai.tool;
 
 import com.example.ykdsummer.weather.WeatherInfo;
 import com.example.ykdsummer.weather.WeatherService;
+import com.example.ykdsummer.ai.service.AiTraceLogger;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -13,9 +15,16 @@ import org.springframework.stereotype.Component;
 public class WeatherTools {
 
     private final WeatherService weatherService;
+    private final AiTraceLogger trace;
 
     public WeatherTools(WeatherService weatherService) {
+        this(weatherService, AiTraceLogger.disabled());
+    }
+
+    @Autowired
+    public WeatherTools(WeatherService weatherService, AiTraceLogger trace) {
         this.weatherService = weatherService;
+        this.trace = trace;
     }
 
     @Tool(
@@ -30,6 +39,14 @@ public class WeatherTools {
             )
             String city
     ) {
-        return weatherService.getCurrentWeather(city);
+        trace.toolCall("get_current_weather", "city=" + city);
+        try {
+            WeatherInfo result = weatherService.getCurrentWeather(city);
+            trace.toolResult("get_current_weather", result);
+            return result;
+        } catch (RuntimeException failure) {
+            trace.toolFailure("get_current_weather", failure);
+            throw failure;
+        }
     }
 }

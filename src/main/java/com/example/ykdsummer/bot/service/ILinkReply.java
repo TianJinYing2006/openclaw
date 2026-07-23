@@ -11,8 +11,9 @@ public sealed interface ILinkReply permits ILinkReply.Text, ILinkReply.Image, IL
     /**
      * 最终交给 iLink SDK 上传的原始图片字节。构造和读取都复制数组，防止外部代码修改内容。
      */
-    record Image(byte[] bytes) implements ILinkReply {
+    record Image(byte[] bytes, String followUpText) implements ILinkReply {
         public Image { bytes = bytes.clone(); }
+        public Image(byte[] bytes) { this(bytes, ""); }
         @Override public byte[] bytes() { return bytes.clone(); }
     }
 

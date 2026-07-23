@@ -3,8 +3,7 @@ package com.example.ykdsummer.bot.service;
 import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.service.AiChatService;
-import com.example.ykdsummer.ai.service.AiImageGenerationService;
-import com.example.ykdsummer.bot.audio.TextToSpeechService;
+import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.bot.audio.TtsVoiceSelectionService;
 import com.example.ykdsummer.bot.file.FileInstructionService;
 import com.example.ykdsummer.bot.file.FileSessionService;
@@ -39,30 +38,34 @@ class ILinkReplyServiceTest {
     private ILinkMediaDownloader mediaDownloader;
     private ILinkFileDownloader fileDownloader;
     private ILinkReplyService replyService;
-    private AiImageGenerationService imageGenerationService;
     private VideoAnalysisService videoAnalysisService;
-    private TextToSpeechService textToSpeechService;
     private TtsVoiceSelectionService voiceSelectionService;
     private FileSessionService fileSessions;
     private FileInstructionService fileInstructionService;
+    private LocalImageAssetStore imageAssets;
 
     @BeforeEach
     void setUp() {
         aiChatService = mock(AiChatService.class);
         mediaDownloader = mock(ILinkMediaDownloader.class);
         fileDownloader = mock(ILinkFileDownloader.class);
-        imageGenerationService = mock(AiImageGenerationService.class);
         videoAnalysisService = mock(VideoAnalysisService.class);
-        textToSpeechService = mock(TextToSpeechService.class);
         voiceSelectionService = mock(TtsVoiceSelectionService.class);
         fileSessions = mock(FileSessionService.class);
         fileInstructionService = mock(FileInstructionService.class);
+        imageAssets = mock(LocalImageAssetStore.class);
         replyService = new ILinkReplyService(
-                aiChatService, mediaDownloader, fileDownloader, imageGenerationService, videoAnalysisService,
-                textToSpeechService, voiceSelectionService, fileSessions, fileInstructionService);
+                aiChatService, mediaDownloader, fileDownloader, videoAnalysisService,
+                voiceSelectionService, fileSessions, fileInstructionService, imageAssets);
         when(aiChatService.isEnabled()).thenReturn(true);
         when(aiChatService.model()).thenReturn("gpt-5.6");
         when(fileSessions.consume(any())).thenReturn(Optional.empty());
+        when(imageAssets.saveIncoming(any(), any(), any(), any())).thenReturn(
+                new LocalImageAssetStore.StoredImage(
+                        "img_testimage1", 1, java.nio.file.Path.of("mock-image.png"), "", "",
+                        Instant.EPOCH, "image/png", "uploaded", ""
+                )
+        );
         when(voiceSelectionService.current(any())).thenReturn(
                 voice("龙安洋", "longanyang", "阳光大男孩"));
     }
@@ -74,10 +77,12 @@ class ILinkReplyServiceTest {
         assertThat(textValue(replyService.createReply(message("user-a"), List.of(text("状态")), status())))
                 .contains("微信连接：CONNECTED", "模型：gpt-5.6");
         assertThat(textValue(replyService.createReply(message("user-a"), List.of(text("清空")), status())))
-                .isEqualTo("已清空你的聊天记录");
+                .contains("已清空你的聊天记录", "临时会话缓存", "未删除");
 
         verify(aiChatService).clear("user-a");
         verify(fileSessions).clear("user-a");
+        verify(imageAssets).clearCurrent("user-a");
+        verify(fileInstructionService).clearCurrentDocumentPointer("user-a");
         verify(aiChatService, never()).answer(any(), any(), any());
         verify(mediaDownloader, never()).downloadImages(any());
     }
@@ -109,46 +114,6 @@ class ILinkReplyServiceTest {
     }
 
     @Test
-    void typedVoicePrefixGeneratesAnMp3FileReply() {
-        byte[] mp3 = {0x49, 0x44, 0x33, 1, 2, 3};
-        when(aiChatService.answerForVoice("user", "介绍一下 iLink")).thenReturn("这是语音回答");
-        when(voiceSelectionService.current("user")).thenReturn(voice("龙婉", "longwan_v3", "细腻柔声女"));
-        when(textToSpeechService.synthesize("这是语音回答", "cosyvoice-v3-flash", "longwan_v3"))
-                .thenReturn(Optional.of(new TextToSpeechService.SynthesizedAudio("answer.mp3", mp3)));
-
-        ILinkReply reply = replyService.createReply(
-                message("user"), List.of(text("语音：介绍一下 iLink")), status());
-
-        assertThat(reply).isInstanceOf(ILinkReply.AudioFile.class);
-        ILinkReply.AudioFile audio = (ILinkReply.AudioFile) reply;
-        assertThat(audio.fileName()).isEqualTo("answer.mp3");
-        assertThat(audio.bytes()).containsExactly(mp3);
-        verify(aiChatService).answerForVoice("user", "介绍一下 iLink");
-        verify(textToSpeechService).synthesize("这是语音回答", "cosyvoice-v3-flash", "longwan_v3");
-    }
-
-    @Test
-    void voiceCommandsListSelectShowAndResetWithoutCallingTheModel() {
-        TtsVoiceSelectionService.VoiceOption selected = voice("龙婉", "longwan_v3", "细腻柔声女");
-        when(voiceSelectionService.listMessage("user")).thenReturn("可用音色：龙安洋、龙安欢、龙婉、龙老铁");
-        when(voiceSelectionService.select("user", "龙婉")).thenReturn(Optional.of(selected));
-        when(voiceSelectionService.current("user")).thenReturn(selected);
-        when(voiceSelectionService.reset("user")).thenReturn(voice("龙安洋", "longanyang", "阳光大男孩"));
-
-        assertThat(textValue(replyService.createReply(message("user"), List.of(text("音色列表")), status())))
-                .contains("龙安洋", "龙安欢", "龙婉", "龙老铁");
-        assertThat(textValue(replyService.createReply(message("user"), List.of(text("设置音色：龙婉")), status())))
-                .contains("已切换音色：龙婉", "立即生效");
-        assertThat(textValue(replyService.createReply(message("user"), List.of(text("当前音色")), status())))
-                .contains("当前音色：龙婉");
-        assertThat(textValue(replyService.createReply(message("user"), List.of(text("重置音色")), status())))
-                .contains("已恢复默认音色：龙安洋");
-
-        verify(aiChatService, never()).answer(any(), any(), any());
-        verify(aiChatService, never()).answerForVoice(any(), any());
-    }
-
-    @Test
     void incomingVoiceTranscriptNeverTriggersVoiceOrImageCommand() {
         when(aiChatService.answer("user", "语音：介绍一下 iLink", List.of())).thenReturn("普通文字回答");
 
@@ -156,9 +121,7 @@ class ILinkReplyServiceTest {
                 message("user"), List.of(voice("语音：介绍一下 iLink")), status());
 
         assertThat(textValue(reply)).isEqualTo("普通文字回答");
-        verify(aiChatService, never()).answerForVoice(any(), any());
-        verify(textToSpeechService, never()).synthesize(any(), any(), any());
-        verify(imageGenerationService, never()).generate(any(), any());
+        verify(fileInstructionService, never()).process(any(), any(), any());
     }
 
     @Test
@@ -166,9 +129,11 @@ class ILinkReplyServiceTest {
         AiImage image = new AiImage("image/png", new byte[]{1, 2, 3});
         MessageItem imageItem = imageItem();
         when(mediaDownloader.downloadImages(any())).thenReturn(List.of(image));
-        when(aiChatService.answer("user", ILinkReplyService.DEFAULT_IMAGE_PROMPT, List.of(image)))
-                .thenReturn("图片说明");
-        when(aiChatService.answer("user", "帮助", List.of(image))).thenReturn("图片问题回答");
+        when(aiChatService.answerWithInternalPromptRich(eq("user"), eq(ILinkReplyService.DEFAULT_IMAGE_PROMPT),
+                any(), eq(List.of())))
+                .thenReturn(AiChatService.AssistantAnswer.text("图片说明"));
+        when(aiChatService.answerWithInternalPromptRich(eq("user"), eq("帮助"), any(), eq(List.of())))
+                .thenReturn(AiChatService.AssistantAnswer.text("图片问题回答"));
 
         assertThat(textValue(replyService.createReply(message("user"), List.of(imageItem), status())))
                 .isEqualTo("图片说明");
@@ -177,34 +142,19 @@ class ILinkReplyServiceTest {
     }
 
     @Test
-    void imageGenerationRequestReturnsImageReply() {
-        byte[] bytes = {1, 2, 3};
-        when(imageGenerationService.generate("user", "一张小花的图片"))
-                .thenReturn(AiImageGenerationService.Result.image(bytes));
-
-        ILinkReply reply = replyService.createReply(
-                message("user"), List.of(text("生图：一张小花的图片")), status());
-
-        assertThat(reply).isInstanceOf(ILinkReply.Image.class);
-        assertThat(((ILinkReply.Image) reply).bytes()).containsExactly(bytes);
-        verify(aiChatService, never()).answer(any(), any(), any());
-    }
-
-    @Test
-    void textWithoutImagePrefixAlwaysUsesNormalChat() {
+    void naturalLanguageImageRequestAlwaysUsesTheAgentPath() {
         when(fileInstructionService.process("user", "给我生成一张小花的图片", null))
-                .thenReturn(FileInstructionService.Result.text("请使用生图格式"));
+                .thenReturn(FileInstructionService.Result.text("Agent 会决定是否调用生图工具"));
 
         ILinkReply reply = replyService.createReply(
                 message("user"), List.of(text("给我生成一张小花的图片")), status());
 
-        assertThat(textValue(reply)).isEqualTo("请使用生图格式");
-        verify(imageGenerationService, never()).generate(any(), any());
+        assertThat(textValue(reply)).isEqualTo("Agent 会决定是否调用生图工具");
     }
 
     @Test
-    void schedulerCanSeparateImageGenerationFromOrderedText() {
-        assertThat(replyService.isImageGenerationMessage(List.of(text("生图：一只小猫")))).isTrue();
+    void schedulerDoesNotGuessImageIntentBeforeTheAgentPlans() {
+        assertThat(replyService.isImageGenerationMessage(List.of(text("生图：一只小猫")))).isFalse();
         assertThat(replyService.isImageGenerationMessage(List.of(text("你好")))).isFalse();
         assertThat(replyService.isImageGenerationMessage(List.of(text("给我生成图片")))).isFalse();
     }

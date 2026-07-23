@@ -2,6 +2,7 @@ package com.example.ykdsummer.bot.service;
 
 import com.example.ykdsummer.bot.config.ILinkProperties;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
+import com.example.ykdsummer.bot.runtime.ILinkDeliveryAudit;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.session.ILinkSessionStore;
 import com.example.ykdsummer.bot.video.ILinkVideoDownloader;
@@ -15,6 +16,8 @@ import java.util.List;
 
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ILinkBotServiceDocumentReplyTest {
@@ -27,6 +30,7 @@ class ILinkBotServiceDocumentReplyTest {
                 new ILinkProperties(),
                 mock(ILinkSessionStore.class),
                 runtimeState,
+                mock(ILinkDeliveryAudit.class),
                 replyService,
                 mock(ILinkMessageRateLimiter.class),
                 mock(ILinkMediaDownloader.class),
@@ -47,6 +51,66 @@ class ILinkBotServiceDocumentReplyTest {
             var order = inOrder(bot);
             order.verify(bot).sendFile("user", "context", "report_v2.pdf", bytes);
             order.verify(bot).replyText(message, "继续修改或发送完成");
+        } finally {
+            service.stop();
+        }
+    }
+
+    @Test
+    void sendsGeneratedMp3WithoutAnExtraTextReply() {
+        ILinkReplyService replyService = mock(ILinkReplyService.class);
+        ILinkRuntimeState runtimeState = mock(ILinkRuntimeState.class);
+        ILinkBotService service = new ILinkBotService(
+                new ILinkProperties(), mock(ILinkSessionStore.class), runtimeState, mock(ILinkDeliveryAudit.class),
+                replyService,
+                mock(ILinkMessageRateLimiter.class), mock(ILinkMediaDownloader.class),
+                mock(ILinkFileDownloader.class), mock(ILinkVideoDownloader.class), new VideoProcessingProperties());
+        ILinkBot bot = mock(ILinkBot.class);
+        when(bot.isAutoPulling()).thenReturn(true);
+        ReflectionTestUtils.setField(service, "bot", bot);
+        WeixinMessage message = message();
+        byte[] bytes = {7, 8, 9};
+        when(replyService.createReply(message, List.of(), service.status()))
+                .thenReturn(new ILinkReply.AudioFile("answer.mp3", bytes));
+
+        try {
+            ReflectionTestUtils.invokeMethod(service, "processReply", message, List.of());
+            var order = inOrder(bot);
+            order.verify(bot).sendFile("user", "context", "answer.mp3", bytes);
+        } finally {
+            service.stop();
+        }
+    }
+
+    @Test
+    void keepsTheAttachmentFailureAndTriesToNotifyTheWechatUser() {
+        ILinkReplyService replyService = mock(ILinkReplyService.class);
+        ILinkRuntimeState runtimeState = mock(ILinkRuntimeState.class);
+        ILinkDeliveryAudit audit = mock(ILinkDeliveryAudit.class);
+        ILinkBotService service = new ILinkBotService(
+                new ILinkProperties(), mock(ILinkSessionStore.class), runtimeState, audit, replyService,
+                mock(ILinkMessageRateLimiter.class), mock(ILinkMediaDownloader.class),
+                mock(ILinkFileDownloader.class), mock(ILinkVideoDownloader.class), new VideoProcessingProperties());
+        ILinkBot bot = mock(ILinkBot.class);
+        when(bot.isAutoPulling()).thenReturn(true);
+        ReflectionTestUtils.setField(service, "bot", bot);
+        WeixinMessage message = message();
+        byte[] bytes = {1, 2, 3};
+        when(replyService.createReply(message, List.of(), service.status()))
+                .thenReturn(new ILinkReply.DocumentFile("report.pdf", bytes, ""));
+        doThrow(new IllegalStateException("CDN upload failed"))
+                .when(bot).sendFile("user", "context", "report.pdf", bytes);
+
+        try {
+            ReflectionTestUtils.invokeMethod(service, "processReply", message, List.of());
+            var order = inOrder(bot);
+            order.verify(bot).sendFile("user", "context", "report.pdf", bytes);
+            order.verify(bot).replyText(message, "文件已在机器人本地生成，但上传或发送到微信失败。请稍后重新执行原请求。");
+            verify(runtimeState).messageDeliveryFailed("CDN upload failed");
+            verify(runtimeState).fallbackMessageSent();
+            verify(audit).failed(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.eq("document"), org.mockito.ArgumentMatchers.eq(3),
+                    org.mockito.ArgumentMatchers.any(IllegalStateException.class));
         } finally {
             service.stop();
         }
