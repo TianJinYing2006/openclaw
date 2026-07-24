@@ -5,6 +5,7 @@ import com.example.ykdsummer.bot.config.VideoProcessingProperties;
 import com.example.ykdsummer.bot.message.ILinkMessageType;
 import com.example.ykdsummer.bot.message.RecentMessageIds;
 import com.example.ykdsummer.bot.runtime.ILinkDeliveryAudit;
+import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.session.ILinkSessionStore;
 import com.example.ykdsummer.bot.video.ILinkVideoDownloader;
@@ -65,6 +66,7 @@ public class ILinkBotService {
     private final ILinkSessionStore sessionStore;
     private final ILinkRuntimeState runtimeState;
     private final ILinkDeliveryAudit deliveryAudit;
+    private final ILinkReplyContextStore replyContexts;
     private final ILinkReplyService replyService;
     private final ILinkMessageRateLimiter rateLimiter;
     private final ILinkMediaDownloader mediaDownloader;
@@ -108,11 +110,30 @@ public class ILinkBotService {
             ILinkVideoDownloader videoDownloader,
             VideoProcessingProperties videoProperties
     ) {
+        this(settings, sessionStore, runtimeState, deliveryAudit, replyService, rateLimiter, mediaDownloader,
+                fileDownloader, videoDownloader, videoProperties, new ILinkReplyContextStore());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ILinkBotService(
+            ILinkProperties settings,
+            ILinkSessionStore sessionStore,
+            ILinkRuntimeState runtimeState,
+            ILinkDeliveryAudit deliveryAudit,
+            ILinkReplyService replyService,
+            ILinkMessageRateLimiter rateLimiter,
+            ILinkMediaDownloader mediaDownloader,
+            ILinkFileDownloader fileDownloader,
+            ILinkVideoDownloader videoDownloader,
+            VideoProcessingProperties videoProperties,
+            ILinkReplyContextStore replyContexts
+    ) {
         // 这些对象都由 Spring 创建并传入；构造器本身不会连接腾讯服务器。
         this.settings = settings;
         this.sessionStore = sessionStore;
         this.runtimeState = runtimeState;
         this.deliveryAudit = deliveryAudit;
+        this.replyContexts = replyContexts;
         this.replyService = replyService;
         this.rateLimiter = rateLimiter;
         this.mediaDownloader = mediaDownloader;
@@ -243,6 +264,33 @@ public class ILinkBotService {
         runtimeState.messageSent();
     }
 
+    /** 供后台图片任务在完成后主动推送结果，仍使用该用户最近一次有效微信会话上下文。 */
+    public void sendGeneratedImage(String toUserId, String contextToken, String taskId, byte[] imageBytes) {
+        ILinkBot currentBot = requireRunningBot();
+        requireText(toUserId, "toUserId");
+        requireText(contextToken, "contextToken");
+        if (imageBytes == null || imageBytes.length == 0) {
+            throw new IllegalArgumentException("imageBytes cannot be blank");
+        }
+        try {
+            currentBot.sendImage(toUserId, contextToken, imageBytes);
+            runtimeState.messageSent();
+            deliveryAudit.gatewayAccepted(taskId, toUserId, "image", imageBytes.length);
+        } catch (RuntimeException exception) {
+            runtimeState.messageDeliveryFailed(safeErrorMessage(exception));
+            deliveryAudit.failed(taskId, toUserId, "image", imageBytes.length, exception);
+            try {
+                currentBot.sendText(toUserId, contextToken,
+                        "图片已生成，但自动推送失败。你可以说“把刚才生成的图片再发一次”。");
+                runtimeState.fallbackMessageSent();
+                deliveryAudit.fallbackAccepted(taskId, toUserId, "image");
+            } catch (RuntimeException fallbackException) {
+                log.warn("Could not send image-task fallback, task={}", taskId, fallbackException);
+            }
+            throw exception;
+        }
+    }
+
     /**
      * SDK 的单条入站消息回调，也是本项目最重要的业务入口。
      *
@@ -278,6 +326,7 @@ public class ILinkBotService {
             log.info("Skip duplicate iLink message {}", message.messageId());
             return;
         }
+        replyContexts.remember(message.fromUserId(), message.contextToken());
         // 恢复旧游标时可能短暂拉到历史消息，启动保护期内跳过过旧消息。
         if (isStaleAtStartup(message)) {
             recentMessageIds.remember(message.messageId());

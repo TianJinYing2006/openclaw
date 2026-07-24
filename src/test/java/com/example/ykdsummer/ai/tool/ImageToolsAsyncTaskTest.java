@@ -15,12 +15,13 @@ import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import java.nio.file.Files;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class ImageToolsAsyncTaskTest {
 
     @Test
-    void returnsImmediatelyThenPersistsTheCompletedImageWithoutAnArtifact() throws Exception {
+    void returnsImmediatelyThenPersistsAndPublishesTheCompletedImageWithoutAnArtifact() throws Exception {
         AiImageGenerationService imageService = mock(AiImageGenerationService.class);
         when(imageService.generate(eq("async-user"), anyString()))
                 .thenReturn(AiImageGenerationService.Result.image(new byte[]{1, 2, 3}));
@@ -28,9 +29,10 @@ class ImageToolsAsyncTaskTest {
         artifacts.begin("async-user");
         ImageTaskStatusStore taskStore = new ImageTaskStatusStore();
         QueuedRunner runner = new QueuedRunner();
+        AtomicReference<ImageTaskCompletionEvent> completion = new AtomicReference<>();
         LocalImageAssetStore store = new LocalImageAssetStore(Files.createTempDirectory("async-image-task"));
         ImageTools tools = new ImageTools(imageService, store, artifacts, ImageInspectionService.unavailable(),
-                taskStore, runner, AiTraceLogger.disabled());
+                taskStore, runner, completion::set, AiTraceLogger.disabled());
 
         String response = tools.generateImage("一只戴蓝色围巾的小狗");
         String taskId = taskStore.latest("async-user").orElseThrow().taskId();
@@ -48,6 +50,10 @@ class ImageToolsAsyncTaskTest {
                 .extracting(task -> task.status(), task -> task.resultAssetId(), task -> task.resultVersion())
                 .containsExactly(ImageTaskStatusStore.Status.SUCCEEDED,
                         store.current("async-user").orElseThrow().assetId(), 1);
+        assertThat(completion.get()).isNotNull();
+        assertThat(completion.get().userId()).isEqualTo("async-user");
+        assertThat(completion.get().taskId()).isEqualTo(taskId);
+        assertThat(completion.get().imageBytes()).containsExactly(1, 2, 3);
     }
 
     private static final class QueuedRunner implements ImageTaskRunner {

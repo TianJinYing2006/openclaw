@@ -29,13 +29,14 @@ public class ImageTools {
     private final ImageInspectionService inspectionService;
     private final ImageTaskStatusStore taskStore;
     private final ImageTaskRunner taskRunner;
+    private final ImageTaskCompletionPublisher completionPublisher;
     private final AiTraceLogger trace;
 
     public ImageTools(AiImageGenerationService imageService,
                       LocalImageAssetStore imageStore,
                       ToolArtifactCollector artifacts) {
         this(imageService, imageStore, artifacts, ImageInspectionService.unavailable(),
-                new ImageTaskStatusStore(), ImageTaskRunner.inline(), AiTraceLogger.disabled());
+                new ImageTaskStatusStore(), ImageTaskRunner.inline(), ImageTaskCompletionPublisher.noOp(), AiTraceLogger.disabled());
     }
 
     public ImageTools(AiImageGenerationService imageService,
@@ -43,7 +44,7 @@ public class ImageTools {
                       ToolArtifactCollector artifacts,
                       ImageInspectionService inspectionService) {
         this(imageService, imageStore, artifacts, inspectionService, new ImageTaskStatusStore(),
-                ImageTaskRunner.inline(), AiTraceLogger.disabled());
+                ImageTaskRunner.inline(), ImageTaskCompletionPublisher.noOp(), AiTraceLogger.disabled());
     }
 
     public ImageTools(AiImageGenerationService imageService,
@@ -52,7 +53,7 @@ public class ImageTools {
                       ImageInspectionService inspectionService,
                       AiTraceLogger trace) {
         this(imageService, imageStore, artifacts, inspectionService, new ImageTaskStatusStore(),
-                ImageTaskRunner.inline(), trace);
+                ImageTaskRunner.inline(), ImageTaskCompletionPublisher.noOp(), trace);
     }
 
     public ImageTools(AiImageGenerationService imageService,
@@ -64,7 +65,6 @@ public class ImageTools {
         this(imageService, imageStore, artifacts, inspectionService, taskStore, ImageTaskRunner.inline(), trace);
     }
 
-    @Autowired
     public ImageTools(AiImageGenerationService imageService,
                       LocalImageAssetStore imageStore,
                       ToolArtifactCollector artifacts,
@@ -72,18 +72,32 @@ public class ImageTools {
                       ImageTaskStatusStore taskStore,
                       ImageTaskRunner taskRunner,
                       AiTraceLogger trace) {
+        this(imageService, imageStore, artifacts, inspectionService, taskStore, taskRunner,
+                ImageTaskCompletionPublisher.noOp(), trace);
+    }
+
+    @Autowired
+    public ImageTools(AiImageGenerationService imageService,
+                      LocalImageAssetStore imageStore,
+                      ToolArtifactCollector artifacts,
+                      ImageInspectionService inspectionService,
+                      ImageTaskStatusStore taskStore,
+                      ImageTaskRunner taskRunner,
+                      ImageTaskCompletionPublisher completionPublisher,
+                      AiTraceLogger trace) {
         this.imageService = imageService;
         this.imageStore = imageStore;
         this.artifacts = artifacts;
         this.inspectionService = inspectionService;
         this.taskStore = taskStore;
         this.taskRunner = taskRunner;
+        this.completionPublisher = completionPublisher;
         this.trace = trace;
     }
 
     @Tool(name = "generate_image", description = "当用户明确要求生成、画出、制作一张全新图片时调用。"
             + "prompt 要写成完整中文画面描述，包含主体、动作、风格、构图和限制；普通解释、分析或只讨论图片时不要调用。"
-            + "该任务会在后台执行并立即返回任务编号；完成后不会自动发送图片，用户可通过任务状态或资产查询取得结果。")
+            + "该任务会在后台执行并立即返回任务编号；完成后会自动把图片推送给用户。")
     public String generateImage(
             @ToolParam(required = true, description = "完整中文画面描述，必须包含用户想要的主体和关键视觉细节。") String prompt
     ) {
@@ -96,7 +110,7 @@ public class ImageTools {
             trace.toolResult("generate_image", result);
             return result;
         }
-        String result = withTask("图片任务已提交后台执行。完成后不会自动发送，请稍后查询任务状态或让我发送结果图片",
+        String result = withTask("图片任务已提交后台执行。完成后会自动把图片发送给用户",
                 task.taskId(), "执行中");
         trace.toolResult("generate_image", result);
         return result;
@@ -153,7 +167,7 @@ public class ImageTools {
     @Tool(name = "create_image_revision", description = "当用户要求把某张已保存图片改成另一种颜色、风格、人物状态或构图时调用。"
             + "必须先 get_current_image 或 list_recent_images 选择 image assetId。该工具会把上一版原图以私有 OSS 的短时参考地址送入图生图接口；"
             + "如果新要求依赖原图中具体人物、物体或颜色，必须先调用 inspect_image 获取视觉描述。"
-            + "改图在后台完成且不会自动推送，必须返回任务编号供后续查询。")
+            + "改图在后台完成后会自动推送，必须返回任务编号供后续查询。")
     public String createImageRevision(
             @ToolParam(required = true, description = "要修改的 image assetId，必须来自图片查询工具。") String assetId,
             @ToolParam(required = true, description = "新的完整画面描述，需包含保留什么、改变什么以及最终风格。") String prompt
@@ -190,7 +204,7 @@ public class ImageTools {
             trace.toolResult("create_image_revision", result);
             return result;
         }
-        String result = withTask("图片修改任务已提交后台执行。完成后不会自动发送，请稍后查询任务状态或让我发送结果图片",
+        String result = withTask("图片修改任务已提交后台执行。完成后会自动把图片发送给用户",
                 task.taskId(), "执行中");
         trace.toolResult("create_image_revision", result);
         return result;
@@ -256,6 +270,7 @@ public class ImageTools {
             }
             StoredImage stored = imageStore.saveGenerated(userId, prompt, result.imageBytes(), result.remoteUrl());
             taskStore.succeed(userId, taskId, stored.assetId(), stored.version());
+            publishCompletion(userId, taskId, result.imageBytes(), stored);
         } catch (RuntimeException exception) {
             taskStore.fail(userId, taskId, "图片生成服务请求失败");
             log.warn("Background image generation failed, user={}, task={}", anonymize(userId), taskId,
@@ -272,6 +287,7 @@ public class ImageTools {
             }
             StoredImage stored = imageStore.saveRevision(userId, assetId, prompt, result.imageBytes(), result.remoteUrl());
             taskStore.succeed(userId, taskId, stored.assetId(), stored.version());
+            publishCompletion(userId, taskId, result.imageBytes(), stored);
         } catch (RuntimeException exception) {
             taskStore.fail(userId, taskId, "图片修改服务请求失败");
             log.warn("Background image revision failed, user={}, task={}", anonymize(userId), taskId,
@@ -281,5 +297,15 @@ public class ImageTools {
 
     private static String anonymize(String userId) {
         return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
+    }
+
+    private void publishCompletion(String userId, String taskId, byte[] imageBytes, StoredImage stored) {
+        try {
+            completionPublisher.publish(new ImageTaskCompletionEvent(
+                    userId, taskId, imageBytes, stored.assetId(), stored.version()));
+        } catch (RuntimeException exception) {
+            // 图片已保存并可通过资产管理工具重发，推送失败不能把任务改成生成失败。
+            log.warn("Could not publish completed image task {}, user={}", taskId, anonymize(userId), exception);
+        }
     }
 }
