@@ -88,8 +88,8 @@ public class FeishuDocTools {
                 feishuClient.convertAndAddContent(docId, prepared);
             }
 
-            // 转移所有权到用户空间（如果配置了 default-owner-id）
-            feishuClient.transferDocumentOwnership(docId);
+            // 设为组织内可阅读（全员可通过链接访问）
+            feishuClient.setDocumentPublicToTenant(docId);
 
             String url = feishuClient.getDocumentUrl(docId);
             if (url != null) {
