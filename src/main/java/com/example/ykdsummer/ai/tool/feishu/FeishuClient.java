@@ -814,6 +814,46 @@ public class FeishuClient {
         }
     }
 
+    /** 是否配置了默认所有者。 */
+    public boolean hasDefaultOwner() {
+        return defaultOwnerId != null && !defaultOwnerId.isBlank();
+    }
+
+    /**
+     * 将文档设置为组织内可阅读。
+     * <p>调用飞书 Drive 权限公开 API，将文档设为"组织内可阅读"，
+     * 组织内所有成员通过链接即可查看，无需额外授权。</p>
+     *
+     * @param documentId 文档 ID（同时也是 Drive file_token）
+     */
+    public void setDocumentPublicToTenant(String documentId) {
+        ensureAvailable();
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("external_access_entity", "closed");
+            body.put("security_entity", "anyone_can_view");
+            body.put("comment_entity", "anyone_can_view");
+            body.put("share_entity", "anyone");
+            body.put("link_share_entity", "anyone_readable");
+            RawResponse resp = client.patch(
+                    "/open-apis/drive/v1/permissions/" + documentId + "/public",
+                    body,
+                    AccessTokenType.Tenant
+            );
+            String respBody = new String(resp.getBody(), StandardCharsets.UTF_8);
+            Map<String, Object> result = objectMapper.readValue(respBody, Map.class);
+            int code = ((Number) result.getOrDefault("code", -1)).intValue();
+            if (code != 0) {
+                String msg = (String) result.getOrDefault("msg", "未知错误");
+                log.warn("Feishu set public to tenant failed: code={}, msg={}", code, msg);
+            } else {
+                log.info("Feishu doc set to tenant-accessible: documentId={}", documentId);
+            }
+        } catch (Exception e) {
+            log.warn("Feishu set public to tenant error: {}", e.getMessage());
+        }
+    }
+
     // ======================== 内部方法 ========================
 
     private void ensureAvailable() {
