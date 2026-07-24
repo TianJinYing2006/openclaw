@@ -29,7 +29,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * 使用 Spring AI 1.1.8 调用 OpenAI Chat Completions 兼容接口的单一路由网关。
@@ -155,7 +154,20 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway, LlmGatew
             List<ConversationMessage> history, String prompt, List<AiImage> images
     ) {
         List<Message> messages = new ArrayList<>();
-        messages.add(new SystemMessage(properties.getSystemPrompt()));
+        // 动态构建 system prompt：基础提示 + 已注册的工具列表
+        String systemPrompt = properties.getSystemPrompt();
+        List<ToolRegistry.ToolMeta> toolMetas = toolRegistry.allToolMeta();
+       if (!toolMetas.isEmpty()) {
+           StringBuilder sb = new StringBuilder(systemPrompt);
+           sb.append("\n\n你有以下工具可用，仅在用户明确需要时调用：");
+           for (ToolRegistry.ToolMeta meta : toolMetas) {
+               sb.append("\n- ").append(meta.name()).append("：").append(meta.description());
+           }
+          systemPrompt = sb.toString();
+       } else {
+           log.warn("ToolRegistry returned empty tool list, model won't see available tools");
+       }
+        messages.add(new SystemMessage(systemPrompt));
 
         for (ConversationMessage msg : history == null ? List.<ConversationMessage>of() : history) {
             messages.add(msg.role() == ConversationMessage.Role.USER
@@ -190,9 +202,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway, LlmGatew
         if (response == null || response.getResults() == null || response.getResults().isEmpty()) {
             return "";
         }
-        // Spring AI 工具调用可能产生多轮回复（AI 推理文本 + 工具调用后的最终文本），
-        // 合并所有结果文本为一段，避免同一轮对话出现两段独立回复
-        String combined = response.getResults().stream()
+        // 工具调用可能产生多轮回复（AI 推理文本 + 工具调用后的最终文本），
+        // 只取最后一段非空文本作为最终回复，丢弃中间的推理过程
+        return response.getResults().stream()
                 .filter(Objects::nonNull)
                 .map(Generation::getOutput)
                 .filter(Objects::nonNull)
@@ -201,8 +213,8 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway, LlmGatew
                 .filter(Objects::nonNull)
                 .map(String::strip)
                 .filter(s -> !s.isBlank())
-                .collect(Collectors.joining("\n\n"));
-        return combined.isBlank() ? "" : combined;
+                .reduce((first, second) -> second)
+                .orElse("");
     }
 
     private static boolean isAuthenticationFailure(Throwable failure) {

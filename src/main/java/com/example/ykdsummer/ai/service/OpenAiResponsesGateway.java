@@ -39,7 +39,6 @@ import java.util.stream.Collectors;
  * 本类保留仅用于参考，Spring 不会再注入它。</p>
  */
 @Deprecated
-@Service
 public class OpenAiResponsesGateway implements ResponsesGateway {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiResponsesGateway.class);

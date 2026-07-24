@@ -89,7 +89,7 @@ class AiChatServiceTest {
         assertThat(gateway.requests.get(1).files()).isEmpty();
         assertThat(gateway.requests.get(1).history())
                 .extracting(ConversationMessage::text)
-                .containsExactly("总结\n[本轮附带文件：notes.txt]", "回答1");
+                .containsExactly("总结\n[用户曾附带文件：notes.txt]", "回答1");
     }
 
     @Test

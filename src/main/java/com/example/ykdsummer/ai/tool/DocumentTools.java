@@ -11,6 +11,8 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -22,8 +24,8 @@ public class DocumentTools {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentTools.class);
 
-    /** AI 响应后待发送的文档文件字节（单线程内传递）。 */
-    private static final ThreadLocal<PendingDocument> pendingDocument = new ThreadLocal<>();
+    /** AI 响应后待发送的文档文件字节（单线程内传递）。*/
+    private static final ThreadLocal<List<PendingDocument>> pendingDocuments = ThreadLocal.withInitial(ArrayList::new);
 
     private final DocumentTextExtractor textExtractor;
     private final DocumentRenderer renderer;
@@ -70,7 +72,7 @@ public class DocumentTools {
             Path outputPath = fileStorage.writeOutput(
                     AgentSessionContext.currentUserId(), AgentSessionContext.currentSessionId(), fileName, result);
             log.info("Document generated: {} ({} bytes)", outputPath, result.length);
-            pendingDocument.set(new PendingDocument(result, fileName));
+            pendingDocuments.get().add(new PendingDocument(result, fileName));
             return "文档已生成：" + outputPath.toAbsolutePath();
         } catch (RuntimeException exception) {
             log.warn("Document generation failed", exception);
@@ -81,7 +83,7 @@ public class DocumentTools {
     @Tool(name = "edit_document", description = "修改已有的 Office 文档（DOCX/XLSX/PPTX），返回修改后的文件路径")
     public String editDocument(
             @ToolParam(description = "待修改的文件路径") String filePath,
-            @ToolParam(description = "修改描述，例如：'把标题改为xxx'") String modificationDescription
+            @ToolParam(description = "修改描述，例如：'把标题改成xxx'") String modificationDescription
     ) {
         try {
             Path path = Path.of(filePath);
@@ -142,12 +144,21 @@ public class DocumentTools {
         return dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase();
     }
 
-    /** 检查是否有待发送的文档文件。调用后自动清除。 */
+    /** 消费所有待发送的文档列表。调用后自动清除。*/
+    public static List<PendingDocument> consumePendingDocuments() {
+        List<PendingDocument> list = pendingDocuments.get();
+        if (list == null || list.isEmpty()) {
+            pendingDocuments.remove();
+            return List.of();
+        }
+        pendingDocuments.remove();
+        return list;
+    }
+
+    /** 消费最后一个待发送的文档。调用后自动清除。*/
     public static PendingDocument consumePendingDocument() {
-        PendingDocument pd = pendingDocument.get();
-        if (pd == null) return null;
-        pendingDocument.remove();
-        return pd;
+        List<PendingDocument> list = consumePendingDocuments();
+        return list.isEmpty() ? null : list.getLast();
     }
 
     public record PendingDocument(byte[] bytes, String fileName) {

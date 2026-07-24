@@ -34,8 +34,7 @@ public class WebSearchTools {
         this.restClient = RestClient.create();
     }
 
-    @SuppressWarnings("unchecked")
-    @Tool(name = "search_web", description = "搜索互联网上的实时信息，返回搜索结果摘要")
+        @Tool(name = "search_web", description = "搜索互联网上的实时信息，返回搜索结果摘要")
     public String searchWeb(
             @ToolParam(description = "搜索关键词") String query
     ) {
@@ -51,7 +50,7 @@ public class WebSearchTools {
                     "summary", true
             );
 
-            Map<String, Object> response = restClient.post()
+            Object responseObj = restClient.post()
                     .uri("https://api.bocha.cn/v1/web-search")
                     .header("Authorization", "Bearer " + apiKey)
                     .contentType(MediaType.APPLICATION_JSON)
@@ -59,33 +58,27 @@ public class WebSearchTools {
                     .retrieve()
                     .body(Map.class);
 
-            if (response == null) {
-                log.warn("Bocha web search returned null response for query='{}'", query);
+            if (!(responseObj instanceof Map<?, ?> response)
+                    || response.get("code") == null
+                    || !"200".equals(response.get("code").toString())) {
+                log.warn("Bocha web search returned null or unexpected response for query='{}'", query);
                 return "搜索无结果";
             }
 
-            // 博查 API 返回格式：{ code, msg, data: { webPages: { value: [...] } } }
-            Object codeObj = response.get("code");
-            if (codeObj == null || !"200".equals(codeObj.toString())) {
-                log.warn("Bocha web search returned code={}, msg='{}' for query='{}'",
-                        codeObj, response.get("msg"), query);
-                return "搜索无结果（API 返回异常）";
-            }
-
-            Map<String, Object> data = (Map<String, Object>) response.get("data");
-            if (data == null) {
-                log.warn("Bocha web search: response has no 'data' field, keys={}", response.keySet());
+            Object dataObj = response.get("data");
+            if (!(dataObj instanceof Map<?, ?> data)) {
+                log.warn("Bocha web search: response has no data field, keys={}", response.keySet());
                 return "搜索无结果";
             }
 
-            Map<String, Object> webPages = (Map<String, Object>) data.get("webPages");
-            if (webPages == null) {
-                log.warn("Bocha web search: data has no 'webPages' field, keys={}", data.keySet());
+            Object webPagesObj = data.get("webPages");
+            if (!(webPagesObj instanceof Map<?, ?> webPages)) {
+                log.warn("Bocha web search: data has no webPages field, keys={}", data.keySet());
                 return "搜索无结果";
             }
 
-            List<Map<String, Object>> values = (List<Map<String, Object>>) webPages.get("value");
-            if (values == null || values.isEmpty()) {
+            Object valuesObj = webPages.get("value");
+            if (!(valuesObj instanceof List<?> values) || values.isEmpty()) {
                 log.info("Bocha web search returned 0 results for query='{}'", query);
                 return "搜索无结果";
             }
@@ -93,11 +86,19 @@ public class WebSearchTools {
             StringBuilder sb = new StringBuilder();
             sb.append("找到 ").append(values.size()).append(" 条结果：\n\n");
             for (int i = 0; i < values.size(); i++) {
-                Map<String, Object> item = values.get(i);
+                Object itemObj = values.get(i);
+                if (!(itemObj instanceof Map<?, ?> item)) {
+                    continue;
+                }
                 sb.append(i + 1).append(". ");
-                sb.append(item.getOrDefault("name", "")).append("\n");
-                sb.append("   链接：").append(item.getOrDefault("url", "")).append("\n");
-                sb.append("   摘要：").append(item.getOrDefault("snippet", "")).append("\n");
+                Object name = item.get("name");
+                sb.append(name != null ? name : "").append("\n");
+                sb.append("   链接：");
+                Object url = item.get("url");
+                sb.append(url != null ? url : "").append("\n");
+                sb.append("   摘要：");
+                Object snippet = item.get("snippet");
+                sb.append(snippet != null ? snippet : "").append("\n");
                 if (item.get("dateLastCrawled") != null) {
                     sb.append("   日期：").append(item.get("dateLastCrawled")).append("\n");
                 }

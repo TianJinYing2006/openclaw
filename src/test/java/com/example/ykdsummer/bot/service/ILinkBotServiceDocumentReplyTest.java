@@ -2,6 +2,7 @@ package com.example.ykdsummer.bot.service;
 
 import com.example.ykdsummer.bot.config.ILinkProperties;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
+import com.example.ykdsummer.bot.message.MessageExtractor;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.session.ILinkSessionStore;
 import com.example.ykdsummer.bot.video.ILinkVideoDownloader;
@@ -29,6 +30,7 @@ class ILinkBotServiceDocumentReplyTest {
                 runtimeState,
                 replyService,
                 mock(ILinkMessageRateLimiter.class),
+                mock(MessageExtractor.class),
                 mock(ILinkMediaDownloader.class),
                 mock(ILinkFileDownloader.class),
                 mock(ILinkVideoDownloader.class),

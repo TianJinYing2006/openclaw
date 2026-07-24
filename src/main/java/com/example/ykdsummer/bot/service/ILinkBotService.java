@@ -3,6 +3,7 @@ package com.example.ykdsummer.bot.service;
 import com.example.ykdsummer.bot.config.ILinkProperties;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
 import com.example.ykdsummer.bot.message.ILinkMessageType;
+import com.example.ykdsummer.bot.message.MessageExtractor;
 import com.example.ykdsummer.bot.message.RecentMessageIds;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.session.ILinkSessionStore;
@@ -56,13 +57,13 @@ public class ILinkBotService {
     /** 启动时只接受最近两分钟的消息，避免恢复旧游标后回复很久以前的历史消息。 */
     private static final long STARTUP_MESSAGE_GRACE_MS = 120_000;
     private static final String VIDEO_QUEUE_BUSY_REPLY = "当前视频任务较多，请稍后重试";
-    private static final String IMAGE_QUEUE_BUSY_REPLY = "当前生图任务较多，请稍后重试";
     private static final String TEXT_QUEUE_BUSY_REPLY = "当前对话任务较多，请稍后重试";
     private static final int TEXT_EXECUTOR_PARTITIONS = 8;
 
     private final ILinkProperties settings;
     private final ILinkSessionStore sessionStore;
     private final ILinkRuntimeState runtimeState;
+    private final MessageExtractor messageExtractor;
     private final ILinkReplyService replyService;
     private final ILinkMessageRateLimiter rateLimiter;
     private final ILinkMediaDownloader mediaDownloader;
@@ -81,8 +82,6 @@ public class ILinkBotService {
      * “生图：”任务使用的独立线程池，最多同时处理两张生成任务。
      * 普通文字和用户发来图片让模型理解的任务都不会进入这里。
      */
-    private final ExecutorService imageReplyExecutor;
-
     /**
      * 视频下载、FFmpeg 解码和多图模型调用都比较重，因此只允许一个任务执行，并限制等待数量。
      * AbortPolicy 会在队列满时抛出 RejectedExecutionException，让用户收到“稍后重试”。
@@ -100,6 +99,7 @@ public class ILinkBotService {
             ILinkRuntimeState runtimeState,
             ILinkReplyService replyService,
             ILinkMessageRateLimiter rateLimiter,
+            MessageExtractor messageExtractor,
             ILinkMediaDownloader mediaDownloader,
             ILinkFileDownloader fileDownloader,
             ILinkVideoDownloader videoDownloader,
@@ -110,6 +110,7 @@ public class ILinkBotService {
         this.sessionStore = sessionStore;
         this.runtimeState = runtimeState;
         this.replyService = replyService;
+        this.messageExtractor = messageExtractor;
         this.rateLimiter = rateLimiter;
         this.mediaDownloader = mediaDownloader;
         this.fileDownloader = fileDownloader;
@@ -121,11 +122,6 @@ public class ILinkBotService {
                         "ilink-text-reply-" + index
                 ))
                 .toArray(ExecutorService[]::new);
-        this.imageReplyExecutor = boundedExecutor(
-                2,
-                settings.getImageQueueCapacity(),
-                "ilink-image-reply"
-        );
         this.videoReplyExecutor = new ThreadPoolExecutor(
                 1,
                 1,
@@ -193,7 +189,6 @@ public class ILinkBotService {
         for (ExecutorService executor : textReplyExecutors) {
             executor.shutdownNow();
         }
-        imageReplyExecutor.shutdownNow();
         videoReplyExecutor.shutdownNow();
         closeSdkClients();
     }
@@ -274,16 +269,16 @@ public class ILinkBotService {
             log.info("Skip duplicate iLink message {}", message.messageId());
             return;
         }
+        // 立即记住，缩小 SDK 重试与入队之间的重复投递窗口
+        recentMessageIds.remember(message.messageId());
         // 恢复旧游标时可能短暂拉到历史消息，启动保护期内跳过过旧消息。
         if (isStaleAtStartup(message)) {
-            recentMessageIds.remember(message.messageId());
             log.info("Skip stale iLink message {} from before this startup", message.messageId());
             return;
         }
 
         String rateLimitType = rateLimitType(items);
         if (!rateLimiter.tryAcquire(message.fromUserId(), rateLimitType)) {
-            recentMessageIds.remember(message.messageId());
             log.info("Rate limited iLink message {}, user={}, type={}",
                     message.messageId(), anonymize(message.fromUserId()), rateLimitType);
             replyQueueBusy(message, "消息发送过快，请稍后再试");
@@ -302,22 +297,19 @@ public class ILinkBotService {
          * SDK 的 ilink-auto-pull 线程立即返回，继续维持 getupdates 长轮询连接。
          */
         /*
-         * 这里的“记住”表示本进程已经接受这条消息并准备入队，不代表 AI 已回答成功。
+         * 这里的"记住"表示本进程已经接受这条消息并准备入队，不代表 AI 已回答成功。
          * 先记住可以挡住 SDK 短时间内的重复投递。
          */
-        recentMessageIds.remember(message.messageId());
         try {
             List<MessageItem> safeItems = List.copyOf(items);
             /*
              * 只有“生图：描述”进入图片线程池。普通文字、语音转写、用户上传图片或文件的理解请求，
              * 都按用户 ID 分配到文字队列，以便多轮上下文保持顺序。
              */
-            boolean videoMessage = replyService.isVideoMessage(safeItems);
+            boolean videoMessage = messageExtractor.extract(safeItems).hasVideo();
             ExecutorService executor = videoMessage
                     ? videoReplyExecutor
-                    : replyService.isImageGenerationMessage(safeItems)
-                            ? imageReplyExecutor
-                            : textExecutorFor(message.fromUserId());
+                    : textExecutorFor(message.fromUserId());
             executor.execute(() -> processReply(message, safeItems));
             /*
              * execute 成功后本方法立即返回，SDK 就可能认为业务回调已完成，并提交本批建议游标。
@@ -325,11 +317,8 @@ public class ILinkBotService {
              * 不会随游标自动恢复。当前 Demo 没有持久化任务队列。
              */
         } catch (RejectedExecutionException exception) {
-            boolean videoMessage = replyService.isVideoMessage(items);
-            boolean imageMessage = !videoMessage && replyService.isImageGenerationMessage(items);
-            String reason = videoMessage
-                    ? VIDEO_QUEUE_BUSY_REPLY
-                    : imageMessage ? IMAGE_QUEUE_BUSY_REPLY : TEXT_QUEUE_BUSY_REPLY;
+            boolean videoMessage = messageExtractor.extract(items).hasVideo();
+            String reason = videoMessage ? VIDEO_QUEUE_BUSY_REPLY : TEXT_QUEUE_BUSY_REPLY;
             runtimeState.messageDeliveryFailed(reason);
             log.warn("Could not schedule reply for iLink message {}", message.messageId());
             replyQueueBusy(message, reason);

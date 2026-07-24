@@ -74,15 +74,6 @@ public class AiChatService {
     }
 
     /**
-     * “语音：”模式的回答入口。模型额外收到简洁播报要求，但聊天记录只保存用户真实问题，
-     * 不把内部的长度限制带进下一轮对话。
-     */
-    public String answerForVoice(String userId, String prompt) {
-        String modelPrompt = prompt + "\n\n请用自然、适合语音播报的简洁中文回答，最多 120 个汉字。";
-        return answer(userId, prompt, modelPrompt, List.of(), List.of());
-    }
-
-    /**
      * 允许业务层附加用户不可见的内部协议提示，同时聊天记忆只保存用户真正发送的文字。
      * TJY 文件生成协议使用这个入口让模型返回 FILE_GEN||JSON 标记。
      */
@@ -148,15 +139,19 @@ public class AiChatService {
                         anonymize(userId),
                         exception.kind()
                 );
-                return switch (exception.kind()) {
+                String errorReply = switch (exception.kind()) {
                     case AUTHENTICATION -> AUTH_ERROR_REPLY;
                     case EMPTY_RESPONSE -> EMPTY_REPLY;
                     case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
                 };
-            } catch (RuntimeException exception) {
-                log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
-                return UNAVAILABLE_REPLY;
-            }
+                // 缓存错误回复，确保 SDK 重试时命中缓存返回相同错误，避免两次回复
+                recentResponses.put(dedupKey, errorReply);
+                return errorReply;
+           } catch (RuntimeException exception) {
+               log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
+                recentResponses.put(dedupKey, UNAVAILABLE_REPLY);
+               return UNAVAILABLE_REPLY;
+           }
         }
     }
 
@@ -185,17 +180,17 @@ public class AiChatService {
     }
 
     /**
-     * 图片只服务于当前模型请求，不把 Base64 大数据放进历史；历史中只留下“本轮带图”的文字提示。
+     * 图片只服务于当前模型请求，不把 Base64 大数据放进历史；历史中只留下"用户曾附带图片"的文字提示。
      */
     private static String memoryText(String prompt, List<AiImage> images, List<AiFile> files) {
         int imageCount = images == null ? 0 : images.size();
         List<AiFile> safeFiles = files == null ? List.of() : files;
         StringBuilder memory = new StringBuilder(prompt);
         if (imageCount > 0) {
-            memory.append("\n[本轮附带了 ").append(imageCount).append(" 张图片]");
+            memory.append("\n[用户曾附带 ").append(imageCount).append(" 张图片]");
         }
         if (!safeFiles.isEmpty()) {
-            memory.append("\n[本轮附带文件：")
+            memory.append("\n[用户曾附带文件：")
                     .append(safeFiles.stream().map(AiFile::fileName).collect(java.util.stream.Collectors.joining("、")))
                     .append(']');
         }

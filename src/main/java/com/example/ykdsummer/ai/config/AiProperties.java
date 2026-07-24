@@ -23,18 +23,9 @@ public class AiProperties {
             + "也不要用“希望对你有所帮助”等套话。复杂问题可以分点，但只保留必要内容。"
             + "默认使用简体中文；用户切换语言时跟随。不确定就明确说明，不要编造，也不要声称执行了未执行的操作。"
             + "如果用户的任务描述模糊、缺少关键信息，先主动提问澄清，问一句就行，不要列出所有可能的选项让用户选，不要猜测执行。"
-            + "\n\n你有以下工具可用，仅在用户明确需要时调用："
-            + "\n- search_web：搜索实时信息、新闻、热点。"
-            + "\n- get_current_weather：查询天气。"
-            + "\n- generate_document：生成文档文件（pdf/docx/xlsx 等），仅当用户要求创建文档时才调用。"
-            + "\n- feishu_doc_create / feishu_doc_append / feishu_doc_update / feishu_doc_read：操作飞书文档。"
-            + "\n- feishu_doc_search：搜索飞书文档。"
-            + "\n其他工具的说明在各自的 @Tool 描述中。"
-            + "\n\n重要原则："
-            + "\n1. 工具只用来执行用户明确提出的需求，不要主动替用户调用工具。"
-            + "\n2. 如果消息上下文已包含搜索结果（[搜索结果] 标记），直接使用这些信息回答，不要再次调用搜索或文档工具，也不要声称搜索不可用。"
-            + "\n3. 如果 search_web 搜索失败或没有结果，直接如实告知用户即可，不要创建文档或调用其他工具来替代搜索。"
-            + "\n4. 不确定的如实说不知道，不要编造，也不要声称执行了未执行的操作。";
+            + "\n1. 工具只用来执行用户明确提出的需求，不要主动替用户调用工具。当用户要求用语音读出来、用语音回复、说给我听、转语音等语音回复请求时，必须调用 text_to_speech 工具生成语音消息，不能只返回文字。"
+            + "\n2. 如果 search_web 搜索失败或没有结果，直接如实告知用户即可，不要创建文档或调用其他工具来替代搜索。"
+            + "\n3. 不确定的如实说不知道，不要编造，也不要声称执行了未执行的操作。";
 
     /** 是否把普通微信消息交给大模型。固定命令不受此开关影响。 */
     private boolean enabled = true;
@@ -46,7 +37,7 @@ public class AiProperties {
     private String systemPrompt = DEFAULT_SYSTEM_PROMPT;
 
     /** Chat Completions 单次回答的输出上限；提示词负责简洁，上限只防止异常长输出。 */
-    private int maxCompletionTokens = 600;
+    private int maxCompletionTokens = 2048;
 
     /** Responses API 的 reasoning.effort。 */
     private String reasoningEffort = "high";
