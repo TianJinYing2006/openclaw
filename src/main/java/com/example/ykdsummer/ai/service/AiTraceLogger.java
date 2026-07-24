@@ -77,15 +77,36 @@ public class AiTraceLogger {
         }
     }
 
+    /** 记录本轮实际交给模型的 Tool，不等同于模型一定会调用它们。 */
+    public void toolCatalog(List<String> toolNames) {
+        if (properties.isEnabled()) {
+            log.info("[本轮工具] count={} names={}", toolNames == null ? 0 : toolNames.size(), toolNames);
+        }
+    }
+
     public void toolResult(String toolName, Object result) {
         if (properties.isEnabled()) {
             log.info("[工具结果] name={} result=\"{}\"", toolName, preview(String.valueOf(result)));
         }
     }
 
+    public void toolResult(String toolName, Object result, long durationMs) {
+        if (properties.isEnabled()) {
+            log.info("[工具结果] name={} durationMs={} result=\"{}\"",
+                    toolName, durationMs, preview(String.valueOf(result)));
+        }
+    }
+
     public void toolFailure(String toolName, RuntimeException failure) {
         if (properties.isEnabled()) {
             log.warn("[工具失败] name={} error={}", toolName, failure.getClass().getSimpleName());
+        }
+    }
+
+    public void toolFailure(String toolName, RuntimeException failure, long durationMs) {
+        if (properties.isEnabled()) {
+            log.warn("[工具失败] name={} durationMs={} error={}",
+                    toolName, durationMs, failure.getClass().getSimpleName());
         }
     }
 

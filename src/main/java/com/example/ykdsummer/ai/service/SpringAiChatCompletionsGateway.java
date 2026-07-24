@@ -21,6 +21,7 @@ import com.example.ykdsummer.ai.tool.ImageTaskStatusTools;
 import com.example.ykdsummer.ai.tool.InformationToolSet;
 import com.example.ykdsummer.ai.tool.LocationSearchTools;
 import com.example.ykdsummer.ai.tool.WebSearchTools;
+import com.example.ykdsummer.ai.tool.PhoneInfoTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -33,13 +34,17 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 使用 Spring AI 1.1.8 调用 OpenAI Chat Completions 兼容接口。
@@ -71,10 +76,12 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private final SteamUserTools steamUserTools;
     private final QqUserTools qqUserTools;
     private final BilibiliUserTools bilibiliUserTools;
+    private PhoneInfoTools phoneInfoTools;
     private ExternalToolSet externalToolSet;
     private InformationToolSet informationToolSet;
     private AmapTools amapTools;
     private LocationSearchTools locationSearchTools;
+    private RealtimeEvidenceAugmenter realtimeEvidenceAugmenter;
 
     public SpringAiChatCompletionsGateway(
             ChatModel chatModel,
@@ -158,6 +165,16 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     @Autowired(required = false)
     void setLocationSearchTools(LocationSearchTools locationSearchTools) {
         this.locationSearchTools = locationSearchTools;
+    }
+
+    @Autowired(required = false)
+    void setPhoneInfoTools(PhoneInfoTools phoneInfoTools) {
+        this.phoneInfoTools = phoneInfoTools;
+    }
+
+    @Autowired(required = false)
+    void setRealtimeEvidenceAugmenter(RealtimeEvidenceAugmenter realtimeEvidenceAugmenter) {
+        this.realtimeEvidenceAugmenter = realtimeEvidenceAugmenter;
     }
 
     /** 兼容文件生产 Tool 上线前的测试构造器；正式 Spring Bean 会额外注册该 Tool。 */
@@ -251,58 +268,64 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             if (artifacts != null) {
                 artifacts.begin(userId);
             }
-            var request = chatClient.prompt(buildPrompt(history, prompt, outputLimit(budget))).tools(weatherTools);
+            List<ToolCallback> callbacks = new ArrayList<>();
+            addToolCallbacks(callbacks, weatherTools);
             if (imageTools != null) {
-                request = request.tools(imageTools);
+                addToolCallbacks(callbacks, imageTools);
             }
             if (speechTools != null) {
-                request = request.tools(speechTools);
+                addToolCallbacks(callbacks, speechTools);
             }
             if (voiceSettingsTools != null) {
-                request = request.tools(voiceSettingsTools);
+                addToolCallbacks(callbacks, voiceSettingsTools);
             }
             if (documentTools != null) {
-                request = request.tools(documentTools);
+                addToolCallbacks(callbacks, documentTools);
             }
             if (fileProductionTools != null) {
-                request = request.tools(fileProductionTools);
+                addToolCallbacks(callbacks, fileProductionTools);
             }
             if (conversationMemoryTools != null) {
-                request = request.tools(conversationMemoryTools);
+                addToolCallbacks(callbacks, conversationMemoryTools);
             }
             if (assetManagementTools != null) {
-                request = request.tools(assetManagementTools);
+                addToolCallbacks(callbacks, assetManagementTools);
             }
             if (imageTaskStatusTools != null) {
-                request = request.tools(imageTaskStatusTools);
+                addToolCallbacks(callbacks, imageTaskStatusTools);
             }
             if (webSearchTools != null) {
-                request = request.tools(webSearchTools);
+                addToolCallbacks(callbacks, webSearchTools);
             }
             if (epicFreeGamesTools != null) {
-                request = request.tools(epicFreeGamesTools);
+                addToolCallbacks(callbacks, epicFreeGamesTools);
             }
             if (steamUserTools != null) {
-                request = request.tools(steamUserTools);
+                addToolCallbacks(callbacks, steamUserTools);
             }
             if (qqUserTools != null) {
-                request = request.tools(qqUserTools);
+                addToolCallbacks(callbacks, qqUserTools);
             }
             if (bilibiliUserTools != null) {
-                request = request.tools(bilibiliUserTools);
+                addToolCallbacks(callbacks, bilibiliUserTools);
+            }
+            if (phoneInfoTools != null) {
+                addToolCallbacks(callbacks, phoneInfoTools);
             }
             if (externalToolSet != null) {
-                request = request.tools(externalToolSet.toolBeans());
+                addToolCallbacks(callbacks, externalToolSet.toolBeans());
             }
             if (informationToolSet != null) {
-                request = request.tools(informationToolSet.toolBeans());
+                addToolCallbacks(callbacks, informationToolSet.toolBeans());
             }
             if (amapTools != null) {
-                request = request.tools(amapTools);
+                addToolCallbacks(callbacks, amapTools);
             }
             if (locationSearchTools != null) {
-                request = request.tools(locationSearchTools);
+                addToolCallbacks(callbacks, locationSearchTools);
             }
+            trace.toolCatalog(callbacks.stream().map(callback -> callback.getToolDefinition().name()).toList());
+            var request = chatClient.prompt(buildPrompt(history, prompt, outputLimit(budget))).toolCallbacks(callbacks);
             ChatResponse response = request
                     .call()
                     .chatResponse();
@@ -336,13 +359,28 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         }
     }
 
+    private void addToolCallbacks(List<ToolCallback> callbacks, Object... toolBeans) {
+        if (toolBeans == null || toolBeans.length == 0) {
+            return;
+        }
+        Object[] configuredTools = Arrays.stream(toolBeans)
+                .filter(Objects::nonNull)
+                .toArray();
+        if (configuredTools.length == 0) {
+            return;
+        }
+        for (ToolCallback callback : ToolCallbacks.from(configuredTools)) {
+            callbacks.add(new TracingToolCallback(callback, trace, realtimeEvidenceAugmenter));
+        }
+    }
+
     Prompt buildPrompt(List<ConversationMessage> history, String prompt) {
         return buildPrompt(history, prompt, properties.getMaxCompletionTokens());
     }
 
     Prompt buildPrompt(List<ConversationMessage> history, String prompt, int maxOutputTokens) {
         List<Message> messages = new ArrayList<>();
-        messages.add(new SystemMessage(properties.getSystemPrompt()));
+        messages.add(new SystemMessage(properties.getSystemPrompt() + RealtimeQueryContext.systemContext(prompt)));
         for (ConversationMessage message : history == null ? List.<ConversationMessage>of() : history) {
             messages.add(message.role() == ConversationMessage.Role.USER
                     ? new UserMessage(message.text())

@@ -19,7 +19,6 @@ public class InformationToolSet {
             IPTools ipTools,
             RecipeTools recipeTools,
             ScenicSpotTools scenicSpotTools,
-            StockTools stockTools,
             TodayInHistoryTools todayInHistoryTools,
             WebPageFetchTools webPageFetchTools
     ) {
@@ -32,7 +31,6 @@ public class InformationToolSet {
                 ipTools,
                 recipeTools,
                 scenicSpotTools,
-                stockTools,
                 todayInHistoryTools,
                 webPageFetchTools
         };

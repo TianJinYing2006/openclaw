@@ -31,7 +31,7 @@ public class QqUserTools {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    @Value("${uapis.api-key:not-configured}")
+    @Value("${uapis.api-key:}")
     private String apiKey;
 
     public QqUserTools() {
@@ -60,12 +60,14 @@ public class QqUserTools {
         try {
             String url = API_URL + "?qq=" + qqNumber;
 
-            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(15))
                     .header("User-Agent", "YKD-Summer-Bot/1.0")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .GET()
-                    .build();
+                    .GET();
+            if (isApiKeyConfigured()) {
+                requestBuilder.header("Authorization", "Bearer " + apiKey.strip());
+            }
+            HttpRequest request = requestBuilder.build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
@@ -170,5 +172,9 @@ public class QqUserTools {
         }
 
         return result.toString();
+    }
+
+    private boolean isApiKeyConfigured() {
+        return apiKey != null && !apiKey.isBlank() && !"not-configured".equalsIgnoreCase(apiKey.strip());
     }
 }

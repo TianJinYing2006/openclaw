@@ -31,7 +31,7 @@ public class BilibiliUserTools {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    @Value("${uapis.api-key:not-configured}")
+    @Value("${uapis.api-key:}")
     private String apiKey;
 
     public BilibiliUserTools() {
@@ -60,12 +60,14 @@ public class BilibiliUserTools {
         try {
             String url = API_URL + "?uid=" + uid;
 
-            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(15))
                     .header("User-Agent", "YKD-Summer-Bot/1.0")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .GET()
-                    .build();
+                    .GET();
+            if (isApiKeyConfigured()) {
+                requestBuilder.header("Authorization", "Bearer " + apiKey.strip());
+            }
+            HttpRequest request = requestBuilder.build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
@@ -155,6 +157,10 @@ public class BilibiliUserTools {
         result.append("🔗 主页：https://space.bilibili.com/").append(mid).append("\n");
 
         return result.toString();
+    }
+
+    private boolean isApiKeyConfigured() {
+        return apiKey != null && !apiKey.isBlank() && !"not-configured".equalsIgnoreCase(apiKey.strip());
     }
 
     private String formatNumber(int num) {
