@@ -24,7 +24,7 @@ public class ToolRegistry implements ApplicationListener<ContextRefreshedEvent> 
     private static final Logger log = LoggerFactory.getLogger(ToolRegistry.class);
 
     private final ApplicationContext applicationContext;
-    private Map<String, ToolEntry> tools;
+    private Map<String, ToolEntry> tools = new LinkedHashMap<>();
 
     public ToolRegistry(ApplicationContext applicationContext) {
         this.applicationContext = applicationContext;
