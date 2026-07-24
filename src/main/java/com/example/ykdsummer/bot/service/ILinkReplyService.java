@@ -218,6 +218,12 @@ public class ILinkReplyService {
         return false;
     }
 
+    /** 图片、文件和视频需下载、解码或分析，不能占用后续普通文字的顺序队列。 */
+    boolean isMediaMessage(List<MessageItem> items) {
+        ExtractedContent content = extract(items == null ? List.of() : items);
+        return content.hasImage() || content.hasFile() || content.hasVideo();
+    }
+
     /** 只检查消息是否包含 SDK 已解析的 VideoItem，不做下载或抽帧。 */
     boolean isVideoMessage(List<MessageItem> items) {
         return extract(items == null ? List.of() : items).hasVideo();

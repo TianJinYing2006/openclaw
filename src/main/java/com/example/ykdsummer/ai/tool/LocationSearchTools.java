@@ -47,7 +47,7 @@ public class LocationSearchTools {
             double lat,
             @ToolParam(required = true, description = "经度，如116.4074（北京经度）")
             double lng,
-            @ToolParam(required = false, description = "搜索半径（米），默认1000米")
+            @ToolParam(required = false, description = "搜索半径（米，10 到 1000；默认1000）")
             Integer radiusMeters
     ) {
         if (!locationSearchService.isConfigured()) {

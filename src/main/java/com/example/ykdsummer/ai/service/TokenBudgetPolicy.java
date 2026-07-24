@@ -7,11 +7,17 @@ import com.example.ykdsummer.ai.model.ConversationMessage;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Locale;
 
 /** 把一条微信消息按复杂度分成三档，并为两个 OpenAI 兼容协议生成同一种预算对象。 */
 @Component
 public class TokenBudgetPolicy {
     private static final long SYSTEM_AND_PROTOCOL_OVERHEAD = 400L;
+    private static final List<String> ROUTE_PLANNING_KEYWORDS = List.of(
+            "路线", "导航", "怎么走", "如何到达", "怎么去", "公交", "地铁", "驾车", "开车",
+            "步行", "骑行", "起点", "终点", "换乘", "路程", "route", "navigation", "directions",
+            "driving", "walking", "cycling", "transit"
+    );
     private final AiUsageProperties properties;
 
     public TokenBudgetPolicy(AiUsageProperties properties) { this.properties = properties; }
@@ -42,7 +48,7 @@ public class TokenBudgetPolicy {
     }
 
     private AiRequestBudget.TaskClass classify(String prompt, int historyCount, int imageCount, int fileCount) {
-        if (imageCount > 0 || fileCount > 0 || historyCount > 8 || prompt.length() > 600) {
+        if (imageCount > 0 || fileCount > 0 || historyCount > 8 || prompt.length() > 600 || isRoutePlanningRequest(prompt)) {
             return AiRequestBudget.TaskClass.COMPLEX_OR_MULTIMODAL;
         }
         if (historyCount == 0 && prompt.length() <= properties.getSimplePromptCharacters()) {
@@ -50,5 +56,11 @@ public class TokenBudgetPolicy {
         }
         return AiRequestBudget.TaskClass.STANDARD;
     }
+
+    private static boolean isRoutePlanningRequest(String prompt) {
+        String normalizedPrompt = prompt.toLowerCase(Locale.ROOT);
+        return ROUTE_PLANNING_KEYWORDS.stream().anyMatch(normalizedPrompt::contains);
+    }
+
     private static long ceilDivide(long value, long divisor) { return value <= 0 ? 0L : (value + divisor - 1) / divisor; }
 }

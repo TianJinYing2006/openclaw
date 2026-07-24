@@ -37,6 +37,17 @@ class AiUsageBudgetTest {
     }
 
     @Test
+    void classifiesShortRoutePlanningRequestsAsComplex() {
+        AiUsageProperties properties = new AiUsageProperties();
+        TokenBudgetPolicy policy = new TokenBudgetPolicy(properties);
+
+        AiRequestBudget routePlanning = policy.plan(List.of(), "从北京南站到故宫怎么走", List.of(), List.of());
+
+        assertThat(routePlanning.taskClass()).isEqualTo(AiRequestBudget.TaskClass.COMPLEX_OR_MULTIMODAL);
+        assertThat(routePlanning.maxOutputTokens()).isEqualTo(1_000);
+    }
+
+    @Test
     void blocksOversizedFilesBeforeAnyModelRequest() {
         AiUsageProperties properties = new AiUsageProperties();
         properties.setMaxEstimatedInputTokens(100);

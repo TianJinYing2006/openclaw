@@ -57,8 +57,9 @@ public class VideoAnalysisService {
             return analyzeVideoBytes(userId, userPrompt, videoBytes);
         } catch (VideoProcessingException exception) {
             log.warn(
-                    "Could not analyze iLink video, user={}, kind={}",
+                    "Could not analyze iLink video, user={}, reason={}, kind={}",
                     anonymize(userId),
+                    exception.userMessage(),
                     exception.getClass().getSimpleName()
             );
             return exception.userMessage();
@@ -90,8 +91,9 @@ public class VideoAnalysisService {
             return aiChatService.answer(userId, prompt, images);
         } catch (VideoProcessingException exception) {
             log.warn(
-                    "Could not analyze video bytes, user={}, kind={}",
+                    "Could not analyze video bytes, user={}, reason={}, kind={}",
                     anonymize(userId),
+                    exception.userMessage(),
                     exception.getClass().getSimpleName()
             );
             return exception.userMessage();

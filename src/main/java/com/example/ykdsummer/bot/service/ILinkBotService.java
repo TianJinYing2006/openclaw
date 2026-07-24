@@ -317,9 +317,10 @@ public class ILinkBotService {
              * 分配到同一文字队列，以便多轮上下文保持顺序。
              */
             boolean videoMessage = replyService.isVideoMessage(safeItems);
+            boolean mediaMessage = replyService.isMediaMessage(safeItems);
             ExecutorService executor = videoMessage
                     ? videoReplyExecutor
-                    : replyService.isImageGenerationMessage(safeItems)
+                    : mediaMessage
                             ? imageReplyExecutor
                             : textExecutorFor(message.fromUserId());
             executor.execute(() -> processReply(message, safeItems));
@@ -330,10 +331,10 @@ public class ILinkBotService {
              */
         } catch (RejectedExecutionException exception) {
             boolean videoMessage = replyService.isVideoMessage(items);
-            boolean imageMessage = !videoMessage && replyService.isImageGenerationMessage(items);
+            boolean mediaMessage = !videoMessage && replyService.isMediaMessage(items);
             String reason = videoMessage
                     ? VIDEO_QUEUE_BUSY_REPLY
-                    : imageMessage ? IMAGE_QUEUE_BUSY_REPLY : TEXT_QUEUE_BUSY_REPLY;
+                    : mediaMessage ? IMAGE_QUEUE_BUSY_REPLY : TEXT_QUEUE_BUSY_REPLY;
             runtimeState.messageDeliveryFailed(reason);
             log.warn("Could not schedule reply for iLink message {}", message.messageId());
             replyQueueBusy(message, reason);

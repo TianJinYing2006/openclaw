@@ -7,7 +7,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.service.AiImageGenerationService;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.service.ImageInspectionService;
@@ -45,14 +44,11 @@ class ImageTaskStatusToolsCallbackTest {
 
         assertThat(running).contains("没有正在执行");
         assertThat(checked).contains(failed.taskId(), "失败", "图片服务暂时没有响应");
-        assertThat(retried).contains("图片已生成", "任务编号", "已成功");
+        assertThat(retried).contains("图片任务已提交后台", "任务编号", "执行中");
         assertThat(taskStore.recent("task-user", 8))
                 .extracting(ImageTaskStatusStore.ImageTask::status)
                 .containsExactly(Status.SUCCEEDED, Status.FAILED);
-        assertThat(artifacts.finish()).singleElement().satisfies(artifact -> {
-            assertThat(artifact.type()).isEqualTo(AiArtifact.Type.IMAGE);
-            assertThat(artifact.assetId()).isEqualTo(imageStore.current("task-user").orElseThrow().assetId());
-        });
+        assertThat(artifacts.finish()).isEmpty();
         verify(imageService).generate(eq("task-user"), eq("一只戴蓝色围巾的小狗"));
     }
 

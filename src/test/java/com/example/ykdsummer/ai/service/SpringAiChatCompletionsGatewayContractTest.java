@@ -45,7 +45,7 @@ import static org.mockito.Mockito.when;
 class SpringAiChatCompletionsGatewayContractTest {
 
     @Test
-    void imageToolCallKeepsArtifactWhenOssPersistenceFails() throws IOException {
+    void imageToolCallReportsTaskSubmissionWithoutReturningAnAttachment() throws IOException {
         byte[] png = {9, 8, 7, 6};
         AtomicInteger calls = new AtomicInteger();
         List<String> requestBodies = new CopyOnWriteArrayList<>();
@@ -99,14 +99,9 @@ class SpringAiChatCompletionsGatewayContractTest {
             LlmGateway.ModelReply reply = gateway.generate("image-user", List.of(), "给我生成一张小狗图片");
 
             assertThat(reply.text()).isEqualTo("图片已经为你生成。");
-            assertThat(reply.artifacts()).singleElement().satisfies(artifact -> {
-                assertThat(artifact.type()).isEqualTo(com.example.ykdsummer.ai.model.AiArtifact.Type.IMAGE);
-                assertThat(artifact.bytes()).containsExactly(png);
-                assertThat(artifact.assetId()).isNull();
-                assertThat(artifact.version()).isZero();
-            });
+            assertThat(reply.artifacts()).isEmpty();
             assertThat(calls).hasValue(2);
-            assertThat(requestBodies.get(1)).contains("\"role\":\"tool\"", "图片资产保存失败", "本轮仍可查看");
+            assertThat(requestBodies.get(1)).contains("\"role\":\"tool\"", "图片任务已提交后台", "任务编号");
             verify(imageService).generate(eq("image-user"), anyString());
         } finally {
             server.stop(0);

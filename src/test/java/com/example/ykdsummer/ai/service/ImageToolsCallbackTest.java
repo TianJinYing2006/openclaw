@@ -10,7 +10,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
 import com.example.ykdsummer.ai.tool.ImageTools;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
@@ -22,7 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
 
-/** 验证模型返回图片 tool_call 后，Spring AI 能绑定参数并真正生成可回传的图片资源。 */
+/** 验证图片 Tool 能创建可查询的任务和图片资产，而不是在本轮直接交付附件。 */
 class ImageToolsCallbackTest {
 
     @Test
@@ -47,20 +46,19 @@ class ImageToolsCallbackTest {
         String revised = callback(tools, "create_image_revision")
                 .call("{\"assetId\":\"" + assetId + "\",\"prompt\":\"保留橘猫，围巾改成蓝色\"}");
 
-        assertThat(generated).contains("图片编号", assetId, "v1", "任务编号", "已成功");
-        assertThat(revised).contains(assetId, "v2", "任务编号", "已成功");
+        assertThat(generated).contains("图片任务已提交后台", "任务编号", "执行中");
+        assertThat(revised).contains("图片修改任务已提交后台", "任务编号", "执行中");
         assertThat(store.current("image-user").orElseThrow().version()).isEqualTo(2);
         assertThat(taskStore.recent("image-user", 8))
                 .extracting(ImageTaskStatusStore.ImageTask::status)
                 .containsExactly(ImageTaskStatusStore.Status.SUCCEEDED, ImageTaskStatusStore.Status.SUCCEEDED);
-        assertThat(artifacts.finish()).extracting(AiArtifact::type)
-                .containsExactly(AiArtifact.Type.IMAGE, AiArtifact.Type.IMAGE);
+        assertThat(artifacts.finish()).isEmpty();
         verify(imageService).generate(eq("image-user"), anyString());
         verify(imageService).revise(eq("image-user"), anyString(), anyString());
     }
 
     @Test
-    void generatedBytesRemainDeliverableWhenOssPersistenceFails() {
+    void generatedTaskFailsWhenItsResultCannotBePersisted() {
         byte[] png = {7, 8, 9};
         AiImageGenerationService imageService = mock(AiImageGenerationService.class);
         when(imageService.generate(eq("image-user"), anyString())).thenReturn(
@@ -71,23 +69,23 @@ class ImageToolsCallbackTest {
                 .thenThrow(new IllegalStateException("OSS unavailable"));
         ToolArtifactCollector artifacts = new ToolArtifactCollector();
         artifacts.begin("image-user");
-        ImageTools tools = new ImageTools(imageService, store, artifacts);
+        ImageTaskStatusStore taskStore = new ImageTaskStatusStore();
+        ImageTools tools = new ImageTools(imageService, store, artifacts, ImageInspectionService.unavailable(),
+                taskStore, AiTraceLogger.disabled());
 
         String result = callback(tools, "generate_image")
                 .call("{\"prompt\":\"一只在草地上的小狗\"}");
-        java.util.List<AiArtifact> generated = artifacts.finish();
+        String taskId = taskStore.latest("image-user").orElseThrow().taskId();
 
-        assertThat(result).contains("图片已生成", "图片资产保存失败", "本轮仍可查看");
-        assertThat(generated).singleElement().satisfies(artifact -> {
-            assertThat(artifact.type()).isEqualTo(AiArtifact.Type.IMAGE);
-            assertThat(artifact.bytes()).containsExactly(png);
-            assertThat(artifact.assetId()).isNull();
-            assertThat(artifact.version()).isZero();
-        });
+        assertThat(result).contains("图片任务已提交后台", "任务编号", "执行中");
+        assertThat(taskStore.find("image-user", taskId)).get()
+                .extracting(ImageTaskStatusStore.ImageTask::status, ImageTaskStatusStore.ImageTask::failureSummary)
+                .containsExactly(ImageTaskStatusStore.Status.FAILED, "图片生成服务请求失败");
+        assertThat(artifacts.finish()).isEmpty();
     }
 
     @Test
-    void revisedBytesRemainDeliverableWhenNewVersionCannotBeSaved() {
+    void revisedTaskFailsWhenNewVersionCannotBeSaved() {
         byte[] revisedPng = {6, 5, 4};
         String assetId = "img_abc123def456";
         StoredImage base = new StoredImage(assetId, 1, Path.of("base.png"), "一只小狗", "",
@@ -102,19 +100,19 @@ class ImageToolsCallbackTest {
                 .thenThrow(new IllegalStateException("OSS unavailable"));
         ToolArtifactCollector artifacts = new ToolArtifactCollector();
         artifacts.begin("image-user");
-        ImageTools tools = new ImageTools(imageService, store, artifacts);
+        ImageTaskStatusStore taskStore = new ImageTaskStatusStore();
+        ImageTools tools = new ImageTools(imageService, store, artifacts, ImageInspectionService.unavailable(),
+                taskStore, AiTraceLogger.disabled());
 
         String result = callback(tools, "create_image_revision")
                 .call("{\"assetId\":\"" + assetId + "\",\"prompt\":\"把小狗的围巾改成蓝色\"}");
-        java.util.List<AiArtifact> generated = artifacts.finish();
+        String taskId = taskStore.latest("image-user").orElseThrow().taskId();
 
-        assertThat(result).contains("图片修改结果已生成", "未能保存为新版本", "当前图片资产保持不变");
-        assertThat(generated).singleElement().satisfies(artifact -> {
-            assertThat(artifact.type()).isEqualTo(AiArtifact.Type.IMAGE);
-            assertThat(artifact.bytes()).containsExactly(revisedPng);
-            assertThat(artifact.assetId()).isNull();
-            assertThat(artifact.version()).isZero();
-        });
+        assertThat(result).contains("图片修改任务已提交后台", "任务编号", "执行中");
+        assertThat(taskStore.find("image-user", taskId)).get()
+                .extracting(ImageTaskStatusStore.ImageTask::status, ImageTaskStatusStore.ImageTask::failureSummary)
+                .containsExactly(ImageTaskStatusStore.Status.FAILED, "图片修改服务请求失败");
+        assertThat(artifacts.finish()).isEmpty();
     }
 
     private static ToolCallback callback(Object tools, String name) {
