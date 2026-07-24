@@ -49,7 +49,7 @@ class AmapServiceV5ContractTest {
             query.set(exchange.getRequestURI().getRawQuery());
             json(exchange, """
                     {"status":"1","info":"OK","geocodes":[{"formatted_address":"杭州市西湖区","citycode":"0571",
-                    "adcode":"330106","location":"120.1,30.2"}]}
+                    "adcode":"330106","district":[],"location":"120.1,30.2"}]}
                     """);
         });
         server.start();

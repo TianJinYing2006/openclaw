@@ -1,6 +1,7 @@
 package com.example.ykdsummer.navigation;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.List;
 
@@ -12,14 +13,11 @@ public record AmapGeoResult(
         String info,
         @JsonProperty("geocodes") List<Geocode> geocodes
 ) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Geocode(
             String formatted_address,
-            String country,
-            String province,
-            String city,
             String citycode,
             String adcode,
-            String district,
             @JsonProperty("location") String location
     ) {
         public double longitude() {
