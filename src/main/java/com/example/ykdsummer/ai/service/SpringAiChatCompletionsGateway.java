@@ -145,6 +145,11 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         this.steamUserTools = steamUserTools;
         this.qqUserTools = qqUserTools;
         this.bilibiliUserTools = bilibiliUserTools;
+        log.info(
+                "Spring AI chat gateway initialized, configuredModel={}, reasoningEffort={}",
+                properties.getModel(),
+                properties.getReasoningEffort()
+        );
     }
 
     @Autowired(required = false)
@@ -325,6 +330,12 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                 addToolCallbacks(callbacks, locationSearchTools);
             }
             trace.toolCatalog(callbacks.stream().map(callback -> callback.getToolDefinition().name()).toList());
+            log.info(
+                    "Spring AI chat completion request, configuredModel={}, reasoningEffort={}, toolCount={}",
+                    properties.getModel(),
+                    properties.getReasoningEffort(),
+                    callbacks.size()
+            );
             var request = chatClient.prompt(buildPrompt(history, prompt, outputLimit(budget))).toolCallbacks(callbacks);
             ChatResponse response = request
                     .call()
@@ -337,7 +348,11 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                     || response.getMetadata().getModel().isBlank()
                     ? properties.getModel()
                     : response.getMetadata().getModel();
-            log.info("Spring AI chat completion completed, model={}", actualModel);
+            log.info(
+                    "Spring AI chat completion completed, configuredModel={}, returnedModel={}",
+                    properties.getModel(),
+                    actualModel
+            );
             trace.modelReply("Chat Completions", actualModel, text);
             return new LlmGateway.ModelReply(
                     text,
@@ -388,12 +403,14 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         }
         messages.add(new UserMessage(prompt));
 
-        OpenAiChatOptions options = OpenAiChatOptions.builder()
+        OpenAiChatOptions.Builder options = OpenAiChatOptions.builder()
                 .model(properties.getModel())
-                .maxCompletionTokens(Math.max(1, maxOutputTokens))
-                .store(false)
-                .build();
-        return new Prompt(messages, options);
+                .reasoningEffort(properties.getReasoningEffort())
+                .store(false);
+        if (maxOutputTokens > 0) {
+            options.maxCompletionTokens(maxOutputTokens);
+        }
+        return new Prompt(messages, options.build());
     }
 
     private static String extractText(ChatResponse response) {

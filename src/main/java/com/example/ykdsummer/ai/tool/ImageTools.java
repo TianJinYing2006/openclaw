@@ -8,7 +8,9 @@ import com.example.ykdsummer.ai.service.ImageTaskStatusStore.ImageTask;
 import com.example.ykdsummer.ai.service.ImageTaskStatusStore.Operation;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
+import com.example.ykdsummer.ai.service.OssImageAssetStore;
 import com.example.ykdsummer.ai.service.ImageInspectionService;
+import com.example.ykdsummer.persistence.ImageAssetMetadataStore;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.ai.tool.annotation.Tool;
@@ -31,6 +33,7 @@ public class ImageTools {
     private final ImageTaskRunner taskRunner;
     private final ImageTaskCompletionPublisher completionPublisher;
     private final AiTraceLogger trace;
+    private volatile ImageAssetMetadataStore assetMetadata = ImageAssetMetadataStore.disabled();
 
     public ImageTools(AiImageGenerationService imageService,
                       LocalImageAssetStore imageStore,
@@ -93,6 +96,11 @@ public class ImageTools {
         this.taskRunner = taskRunner;
         this.completionPublisher = completionPublisher;
         this.trace = trace;
+    }
+
+    @Autowired(required = false)
+    void setAssetMetadata(ImageAssetMetadataStore assetMetadata) {
+        this.assetMetadata = assetMetadata == null ? ImageAssetMetadataStore.disabled() : assetMetadata;
     }
 
     @Tool(name = "generate_image", description = "当用户明确要求生成、画出、制作一张全新图片时调用。"
@@ -229,6 +237,7 @@ public class ImageTools {
         trace.toolCall("restore_image_version", "asset=" + safe(assetId) + ", targetVersion=" + targetVersion);
         try {
             StoredImage stored = imageStore.restore(artifacts.userId(), assetId, targetVersion);
+            recordAsset(artifacts.userId(), stored);
             byte[] bytes = imageStore.readBytes(stored);
             artifacts.add(AiArtifact.image(bytes, "恢复后的图片", stored.assetId(), stored.version()));
             String toolResult = describe("已恢复并会作为新版本发送给用户", stored) + "（内容来自历史 v" + targetVersion + "）";
@@ -269,6 +278,7 @@ public class ImageTools {
                 return;
             }
             StoredImage stored = imageStore.saveGenerated(userId, prompt, result.imageBytes(), result.remoteUrl());
+            recordAsset(userId, stored);
             taskStore.succeed(userId, taskId, stored.assetId(), stored.version());
             publishCompletion(userId, taskId, result.imageBytes(), stored);
         } catch (RuntimeException exception) {
@@ -286,6 +296,7 @@ public class ImageTools {
                 return;
             }
             StoredImage stored = imageStore.saveRevision(userId, assetId, prompt, result.imageBytes(), result.remoteUrl());
+            recordAsset(userId, stored);
             taskStore.succeed(userId, taskId, stored.assetId(), stored.version());
             publishCompletion(userId, taskId, result.imageBytes(), stored);
         } catch (RuntimeException exception) {
@@ -307,5 +318,9 @@ public class ImageTools {
             // 图片已保存并可通过资产管理工具重发，推送失败不能把任务改成生成失败。
             log.warn("Could not publish completed image task {}, user={}", taskId, anonymize(userId), exception);
         }
+    }
+
+    private void recordAsset(String userId, StoredImage stored) {
+        assetMetadata.record(userId, stored, imageStore instanceof OssImageAssetStore ? "oss" : "local");
     }
 }

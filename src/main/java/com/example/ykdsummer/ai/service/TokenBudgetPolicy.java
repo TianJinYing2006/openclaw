@@ -38,6 +38,9 @@ public class TokenBudgetPolicy {
         for (AiFile file : safeFiles) {
             if (file != null && file.bytes() != null) estimatedInput += ceilDivide(file.bytes().length, 4);
         }
+        if (!properties.isEnabled()) {
+            return new AiRequestBudget(AiRequestBudget.TaskClass.STANDARD, 0, estimatedInput, estimatedInput);
+        }
         AiRequestBudget.TaskClass taskClass = classify(safePrompt, safeHistory.size(), safeImages.size(), safeFiles.size());
         int maxOutput = switch (taskClass) {
             case SIMPLE_TEXT -> properties.getSimpleMaxOutputTokens();

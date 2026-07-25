@@ -23,6 +23,9 @@ public class RealtimeEvidenceProperties {
     private int workerThreads = 8;
     private int queueCapacity = 64;
     private int maxQueryCharacters = 320;
+    private int maxSpecializedResultCharacters = 1_200;
+    private int maxWebResultCharacters = 1_200;
+    private int maxCombinedResultCharacters = 2_400;
     private Duration cacheTtl = Duration.ofSeconds(30);
     private long maxCacheEntries = 500;
     private Set<String> eligibleTools = defaultEligibleTools();
@@ -40,6 +43,12 @@ public class RealtimeEvidenceProperties {
     public void setQueueCapacity(int queueCapacity) { this.queueCapacity = Math.max(1, Math.min(1000, queueCapacity)); }
     public int getMaxQueryCharacters() { return maxQueryCharacters; }
     public void setMaxQueryCharacters(int maxQueryCharacters) { this.maxQueryCharacters = Math.max(64, maxQueryCharacters); }
+    public int getMaxSpecializedResultCharacters() { return maxSpecializedResultCharacters; }
+    public void setMaxSpecializedResultCharacters(int value) { this.maxSpecializedResultCharacters = Math.max(200, value); }
+    public int getMaxWebResultCharacters() { return maxWebResultCharacters; }
+    public void setMaxWebResultCharacters(int value) { this.maxWebResultCharacters = Math.max(200, value); }
+    public int getMaxCombinedResultCharacters() { return maxCombinedResultCharacters; }
+    public void setMaxCombinedResultCharacters(int value) { this.maxCombinedResultCharacters = Math.max(400, value); }
     public Duration getCacheTtl() { return cacheTtl; }
     public void setCacheTtl(Duration cacheTtl) {
         this.cacheTtl = cacheTtl == null || cacheTtl.isNegative() || cacheTtl.isZero()
@@ -61,7 +70,6 @@ public class RealtimeEvidenceProperties {
 
     private static Set<String> defaultEligibleTools() {
         return Set.of(
-                "get_current_weather",
                 "convert_currency",
                 "get_bilibili_live_room_info",
                 "search_scenic_spot",

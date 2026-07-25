@@ -48,6 +48,17 @@ class AiUsageBudgetTest {
     }
 
     @Test
+    void disablesOutputCapsAndQuotaPlanningWhenUsageProtectionIsOff() {
+        AiUsageProperties properties = new AiUsageProperties();
+        properties.setEnabled(false);
+
+        AiRequestBudget budget = new TokenBudgetPolicy(properties).plan(
+                List.of(), "从北京南站到故宫怎么走", List.of(), List.of());
+
+        assertThat(budget.maxOutputTokens()).isZero();
+    }
+
+    @Test
     void blocksOversizedFilesBeforeAnyModelRequest() {
         AiUsageProperties properties = new AiUsageProperties();
         properties.setMaxEstimatedInputTokens(100);

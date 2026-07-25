@@ -196,15 +196,17 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
         Reasoning reasoning = Reasoning.builder()
                 .effort(ReasoningEffort.of(reasoningEffort))
                 .build();
-        return ResponseCreateParams.builder()
+        ResponseCreateParams.Builder request = ResponseCreateParams.builder()
                 .model(properties.getModel())
                 .instructions(instructions())
                 .inputOfResponse(input)
                 .reasoning(reasoning)
-                .maxOutputTokens(maxOutputTokens)
                 // 禁止模型服务端保存这次 Response；多轮历史完全由 AiChatService 管理。
-                .store(false)
-                .build();
+                .store(false);
+        if (maxOutputTokens > 0) {
+            request.maxOutputTokens(maxOutputTokens);
+        }
+        return request.build();
     }
 
     private String instructions() {

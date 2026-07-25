@@ -4,7 +4,8 @@ package com.example.ykdsummer.ai.service;
 public record AiRequestBudget(TaskClass taskClass, int maxOutputTokens, long estimatedInputTokens, long reservedTokens) {
     public AiRequestBudget {
         taskClass = taskClass == null ? TaskClass.STANDARD : taskClass;
-        maxOutputTokens = Math.max(1, maxOutputTokens);
+        // 0 表示当前环境不向上游下发输出 token 上限；管理员重新启用预算后会恢复正数限制。
+        maxOutputTokens = Math.max(0, maxOutputTokens);
         estimatedInputTokens = Math.max(0L, estimatedInputTokens);
         reservedTokens = Math.max(estimatedInputTokens, reservedTokens);
     }

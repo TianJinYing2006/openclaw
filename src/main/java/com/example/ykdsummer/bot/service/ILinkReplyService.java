@@ -5,6 +5,8 @@ import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.service.AiChatService;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
+import com.example.ykdsummer.ai.service.OssImageAssetStore;
+import com.example.ykdsummer.persistence.ImageAssetMetadataStore;
 import com.example.ykdsummer.bot.audio.TtsVoiceSelectionService;
 import com.example.ykdsummer.bot.file.FileInstructionService;
 import com.example.ykdsummer.bot.file.FileSessionService;
@@ -19,6 +21,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 一条微信消息的“回复路由器”：从 SDK 消息中提取内容，再决定走哪一种回复分支。
@@ -50,6 +53,8 @@ public class ILinkReplyService {
     private final FileSessionService fileSessions;
     private final FileInstructionService fileInstructionService;
     private final LocalImageAssetStore imageAssets;
+    private final LongTextOutputService longTextOutputs;
+    private volatile ImageAssetMetadataStore assetMetadata = ImageAssetMetadataStore.disabled();
 
     public ILinkReplyService(AiChatService aiChatService, ILinkMediaDownloader mediaDownloader,
                              ILinkFileDownloader fileDownloader,
@@ -58,7 +63,20 @@ public class ILinkReplyService {
                              FileSessionService fileSessions,
                              FileInstructionService fileInstructionService) {
         this(aiChatService, mediaDownloader, fileDownloader, videoAnalysisService, voiceSelectionService,
-                fileSessions, fileInstructionService, new LocalImageAssetStore());
+                fileSessions, fileInstructionService, new LocalImageAssetStore(),
+                new LongTextOutputService(new com.example.ykdsummer.bot.config.LongTextOutputProperties()));
+    }
+
+    public ILinkReplyService(AiChatService aiChatService, ILinkMediaDownloader mediaDownloader,
+                             ILinkFileDownloader fileDownloader,
+                             VideoAnalysisService videoAnalysisService,
+                             TtsVoiceSelectionService voiceSelectionService,
+                             FileSessionService fileSessions,
+                             FileInstructionService fileInstructionService,
+                             LocalImageAssetStore imageAssets) {
+        this(aiChatService, mediaDownloader, fileDownloader, videoAnalysisService, voiceSelectionService,
+                fileSessions, fileInstructionService, imageAssets,
+                new LongTextOutputService(new com.example.ykdsummer.bot.config.LongTextOutputProperties()));
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -68,7 +86,8 @@ public class ILinkReplyService {
                              TtsVoiceSelectionService voiceSelectionService,
                              FileSessionService fileSessions,
                              FileInstructionService fileInstructionService,
-                             LocalImageAssetStore imageAssets) {
+                             LocalImageAssetStore imageAssets,
+                             LongTextOutputService longTextOutputs) {
         this.aiChatService = aiChatService;
         this.mediaDownloader = mediaDownloader;
         this.fileDownloader = fileDownloader;
@@ -77,6 +96,12 @@ public class ILinkReplyService {
         this.fileSessions = fileSessions;
         this.fileInstructionService = fileInstructionService;
         this.imageAssets = imageAssets;
+        this.longTextOutputs = longTextOutputs;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setAssetMetadata(ImageAssetMetadataStore assetMetadata) {
+        this.assetMetadata = assetMetadata == null ? ImageAssetMetadataStore.disabled() : assetMetadata;
     }
 
     public ILinkReply createReply(
@@ -86,6 +111,14 @@ public class ILinkReplyService {
     ) {
         // 第一步只整理 SDK item，不做网络请求：文字会合并，语音取微信已有转写，图片只记存在。
         ExtractedContent content = extract(items);
+
+        if (content.isPlainTextOnly()) {
+            Optional<LongTextOutputService.Delivery> selection = longTextOutputs.consumeSelection(
+                    message.fromUserId(), content.prompt());
+            if (selection.isPresent()) {
+                return toReply(selection.get());
+            }
+        }
 
         // 没有文字要求的文件会短暂等待下一条普通话指令；真正处理时会登记到可持久恢复的文档版本仓库。
         if (content.hasFile()) {
@@ -100,7 +133,7 @@ public class ILinkReplyService {
                 AiFile file = uploaded.getFirst();
                 if (!content.prompt().isBlank()) {
                     return toReply(fileInstructionService.process(
-                            message.fromUserId(), content.prompt(), file));
+                            message.fromUserId(), content.prompt(), file), message.fromUserId());
                 }
                 fileSessions.cache(message.fromUserId(), file);
                 return new ILinkReply.Text("已收到文件，请告诉我怎么处理");
@@ -143,7 +176,7 @@ public class ILinkReplyService {
         if (content.isPlainTextOnly()) {
             AiFile sourceFile = fileSessions.consume(message.fromUserId()).orElse(null);
             return toReply(fileInstructionService.process(
-                    message.fromUserId(), content.prompt(), sourceFile));
+                    message.fromUserId(), content.prompt(), sourceFile), message.fromUserId());
         }
 
         // 微信语音已经有转写文字时，按普通问答处理，但不把转写误当成用户手打的工具命令。
@@ -165,7 +198,12 @@ public class ILinkReplyService {
         // 上传图也登记为可追踪资产。当前轮仍以原始图片走 Responses；之后用户只发文字说“改上一张图”时，
         // 模型可以通过 ImageTools 查询这个 assetId 与版本信息。
         List<StoredImage> storedImages = images.stream()
-                .map(image -> imageAssets.saveIncoming(message.fromUserId(), prompt, image.bytes(), image.mediaType()))
+                .map(image -> {
+                    StoredImage stored = imageAssets.saveIncoming(message.fromUserId(), prompt, image.bytes(), image.mediaType());
+                    assetMetadata.record(message.fromUserId(), stored,
+                            imageAssets instanceof OssImageAssetStore ? "oss" : "local");
+                    return stored;
+                })
                 .toList();
         /*
          * 图片先落成 img_* 资产，再以纯文本 Agent 入口处理用户要求。这样“把这只猫变白”在首次上传时
@@ -180,23 +218,24 @@ public class ILinkReplyService {
                 + "\n如果回答、判断或修改依赖图片真实内容，必须先调用 inspect_image；"
                 + "若用户要求修改图片，再调用 create_image_revision，并使用对应 assetId。";
         return toReply(aiChatService.answerWithInternalPromptRich(
-                message.fromUserId(), prompt, modelPrompt, List.of()));
+                message.fromUserId(), prompt, modelPrompt, List.of()), message.fromUserId());
     }
 
-    private static ILinkReply toReply(FileInstructionService.Result result) {
+    private ILinkReply toReply(FileInstructionService.Result result, String userId) {
         if (result.hasImage()) {
             return new ILinkReply.Image(result.imageBytes(), result.text());
         }
         if (result.hasAudio()) {
             return new ILinkReply.AudioFile(result.audioFileName(), result.audioBytes());
         }
-        return result.hasFile()
-                ? new ILinkReply.DocumentFile(result.fileName(), result.bytes(),
-                result.text().isBlank() ? "文件已生成" : result.text())
-                : new ILinkReply.Text(result.text());
+        if (result.hasFile()) {
+            return new ILinkReply.DocumentFile(result.fileName(), result.bytes(),
+                    result.text().isBlank() ? "文件已生成" : result.text());
+        }
+        return textReply(userId, result.text());
     }
 
-    private static ILinkReply toReply(AiChatService.AssistantAnswer answer) {
+    private ILinkReply toReply(AiChatService.AssistantAnswer answer, String userId) {
         return answer.artifacts().stream()
                 .filter(artifact -> artifact.bytes() != null)
                 .findFirst()
@@ -205,7 +244,19 @@ public class ILinkReplyService {
                     case AUDIO -> new ILinkReply.AudioFile(artifact.fileName(), artifact.bytes());
                     case DOCUMENT -> new ILinkReply.DocumentFile(artifact.fileName(), artifact.bytes(), answer.text());
                 })
-                .orElseGet(() -> new ILinkReply.Text(answer.text()));
+                .orElseGet(() -> textReply(userId, answer.text()));
+    }
+
+    private ILinkReply textReply(String userId, String text) {
+        return longTextOutputs.offer(userId, text)
+                .<ILinkReply>map(ILinkReply.Text::new)
+                .orElseGet(() -> new ILinkReply.Text(text));
+    }
+
+    private static ILinkReply toReply(LongTextOutputService.Delivery delivery) {
+        return delivery.hasFile()
+                ? new ILinkReply.DocumentFile(delivery.fileName(), delivery.bytes(), delivery.followUpText())
+                : new ILinkReply.Text(delivery.text());
     }
 
     /**

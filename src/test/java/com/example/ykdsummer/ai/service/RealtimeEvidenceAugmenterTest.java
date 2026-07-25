@@ -114,6 +114,25 @@ class RealtimeEvidenceAugmenterTest {
         }
     }
 
+    @Test
+    void truncatesOversizedEvidenceBeforeItReturnsToTheModel() {
+        RealtimeEvidenceProperties properties = properties(Duration.ofSeconds(2));
+        properties.setMaxSpecializedResultCharacters(20);
+        properties.setMaxWebResultCharacters(20);
+        properties.setMaxCombinedResultCharacters(80);
+        WebSearchTools webSearchTools = mock(WebSearchTools.class);
+        when(webSearchTools.webSearch(anyString())).thenReturn("联网补充内容".repeat(200));
+
+        try (Fixture fixture = fixture(properties, webSearchTools)) {
+            String result = fixture.augmenter().augment(
+                    "convert_currency", "{\"base\":\"USD\",\"target\":\"CNY\"}",
+                    () -> "专用数据".repeat(200));
+
+            assertThat(result).contains("工具结果已截断");
+            assertThat(result.codePointCount(0, result.length())).isLessThanOrEqualTo(450);
+        }
+    }
+
     private static RealtimeEvidenceProperties properties(Duration timeout) {
         RealtimeEvidenceProperties properties = new RealtimeEvidenceProperties();
         properties.setTimeout(timeout);

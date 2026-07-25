@@ -7,6 +7,7 @@ import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.ConversationMessage;
+import com.example.ykdsummer.persistence.ConversationHistoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +42,7 @@ public class AiChatService {
     private final AiTraceLogger trace;
     private final AiUsageMeter usageMeter;
     private final TokenBudgetPolicy budgetPolicy;
+    private volatile ConversationHistoryStore conversationHistory = ConversationHistoryStore.disabled();
     /** key 是 iLink fromUserId，value 是该微信用户自己的最近对话。 */
     private final Cache<String, UserConversation> conversations;
 
@@ -71,6 +73,11 @@ public class AiChatService {
                 .maximumSize(properties.getMaxMemoryUsers())
                 .expireAfterAccess(safeMemoryTimeout(properties.getMemoryIdleTimeout()))
                 .build();
+    }
+
+    @Autowired(required = false)
+    void setConversationHistory(ConversationHistoryStore conversationHistory) {
+        this.conversationHistory = conversationHistory == null ? ConversationHistoryStore.disabled() : conversationHistory;
     }
 
     /**
@@ -133,7 +140,8 @@ public class AiChatService {
             return AssistantAnswer.text(DISABLED_REPLY);
         }
         // Caffeine 按访问时间自动过期，并对总用户数设置上限，避免长期运行后 Map 无限增长。
-        UserConversation conversation = conversations.get(userId, ignored -> new UserConversation());
+        UserConversation conversation = conversations.get(userId,
+                ignored -> new UserConversation(conversationHistory.load(ignored, properties.getMaxMemoryMessages())));
         /*
          * Caffeine 负责会话对象的容量和过期，不负责同一用户两次请求的历史顺序。
          * synchronized 锁住该用户自己的会话：同一用户必须一个问题回答完再记下一条；
@@ -168,14 +176,12 @@ public class AiChatService {
                     }
                 }
                 // 只有模型成功返回后才把这一问一答写入历史，失败提示不会污染下一轮上下文。
-                conversation.remember(
-                        new ConversationMessage(ConversationMessage.Role.USER, memoryText(memoryPrompt, images, files)),
-                        properties.getMaxMemoryMessages()
-                );
-                conversation.remember(
-                        new ConversationMessage(ConversationMessage.Role.ASSISTANT, reply.text()),
-                        properties.getMaxMemoryMessages()
-                );
+                ConversationMessage userMessage = new ConversationMessage(
+                        ConversationMessage.Role.USER, memoryText(memoryPrompt, images, files));
+                ConversationMessage assistantMessage = new ConversationMessage(ConversationMessage.Role.ASSISTANT, reply.text());
+                conversation.remember(userMessage, properties.getMaxMemoryMessages());
+                conversation.remember(assistantMessage, properties.getMaxMemoryMessages());
+                conversationHistory.appendTurn(userId, userMessage, assistantMessage);
                 return new AssistantAnswer(reply.text(), reply.artifacts());
             } catch (AiGatewayException exception) {
                 log.warn(
@@ -204,6 +210,7 @@ public class AiChatService {
                 removed.messages.clear();
             }
         }
+        conversationHistory.clear(userId);
     }
 
     public boolean isEnabled() {
@@ -249,7 +256,11 @@ public class AiChatService {
 
     private static final class UserConversation {
         /** USER 和 ASSISTANT 消息交替存放，条数达到上限时从最旧消息开始删除。 */
-        private final List<ConversationMessage> messages = new ArrayList<>();
+        private final List<ConversationMessage> messages;
+
+        private UserConversation(List<ConversationMessage> initialMessages) {
+            this.messages = new ArrayList<>(initialMessages == null ? List.of() : initialMessages);
+        }
 
         private List<ConversationMessage> copyMessages() {
             return List.copyOf(messages);

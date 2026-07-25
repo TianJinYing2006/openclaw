@@ -73,7 +73,8 @@ public class RealtimeEvidenceAugmenter {
         }
 
         String query = buildSearchQuery(toolName, toolInput);
-        CompletableFuture<Evidence> specialized = submit(specializedCall, "专用实时工具");
+        CompletableFuture<Evidence> specialized = submit(
+                () -> limit(specializedCall.get(), properties.getMaxSpecializedResultCharacters()), "专用实时工具");
         CompletableFuture<Evidence> web = submit(() -> webEvidence(query), "联网辅助检索");
         Instant deadline = Instant.now().plus(properties.getTimeout());
         Evidence specializedEvidence = await(specialized, deadline, "专用实时工具");
@@ -132,7 +133,8 @@ public class RealtimeEvidenceAugmenter {
     }
 
     private String webEvidence(String query) {
-        return webEvidenceCache.get(query, ignored -> webSearchTools.webSearch(query));
+        return limit(webEvidenceCache.get(query, ignored -> webSearchTools.webSearch(query)),
+                properties.getMaxWebResultCharacters());
     }
 
     private String buildSearchQuery(String toolName, String toolInput) {
@@ -173,11 +175,21 @@ public class RealtimeEvidenceAugmenter {
         }
     }
 
-    private static String format(String toolName, Evidence specialized, Evidence web) {
-        return "【专用实时工具结果：" + toolName + "】\n" + specialized.text()
+    private String format(String toolName, Evidence specialized, Evidence web) {
+        String result = "【专用实时工具结果：" + toolName + "】\n" + specialized.text()
                 + "\n\n【联网辅助检索：仅作补充和交叉验证】\n" + web.text()
                 + "\n\n请优先采用专用工具的结构化结果；若其失败、为空或与联网资料冲突，"
                 + "请明确说明不确定性，不要编造。";
+        return limit(result, properties.getMaxCombinedResultCharacters());
+    }
+
+    private static String limit(String value, int maxCharacters) {
+        String safe = value == null ? "" : value.strip();
+        if (safe.codePointCount(0, safe.length()) <= maxCharacters) {
+            return safe;
+        }
+        int end = safe.offsetByCodePoints(0, maxCharacters);
+        return safe.substring(0, end) + "\n[工具结果已截断，必要时请继续查询更具体的条件]";
     }
 
     @PreDestroy
