@@ -166,10 +166,25 @@ public class AiChatService {
                 }
                 LlmGateway.ModelReply reply;
                 boolean settled = false;
+                long gatewayStartedAt = System.nanoTime();
                 try {
                     reply = gateway.generate(userId, history, modelPrompt, images, files, budget);
-                    usageMeter.complete(reservation, reply.protocol(), reply.model(), reply.usage());
+                    long durationMs = elapsedMillis(gatewayStartedAt);
+                    usageMeter.complete(reservation, reply.protocol(), reply.model(), reply.usage(), durationMs);
+                    trace.modelCompleted(userId, reply.protocol(), reply.model(), durationMs, reply.usage(), reply.text());
                     settled = true;
+                } catch (AiGatewayException exception) {
+                    long durationMs = elapsedMillis(gatewayStartedAt);
+                    String protocol = anticipatedProtocol(images, files);
+                    usageMeter.fail(reservation, protocol, "", exception.kind().name(), durationMs);
+                    trace.modelFailure(userId, protocol, "", durationMs, exception.kind().name());
+                    throw exception;
+                } catch (RuntimeException exception) {
+                    long durationMs = elapsedMillis(gatewayStartedAt);
+                    String protocol = anticipatedProtocol(images, files);
+                    usageMeter.fail(reservation, protocol, "", "UNEXPECTED_ERROR", durationMs);
+                    trace.modelFailure(userId, protocol, "", durationMs, "UNEXPECTED_ERROR");
+                    throw exception;
                 } finally {
                     if (!settled) {
                         usageMeter.release(reservation);
@@ -184,18 +199,16 @@ public class AiChatService {
                 conversationHistory.appendTurn(userId, userMessage, assistantMessage);
                 return new AssistantAnswer(reply.text(), reply.artifacts());
             } catch (AiGatewayException exception) {
-                log.warn(
-                        "AI request failed, user={}, kind={}",
-                        anonymize(userId),
-                        exception.kind()
-                );
+                // AiTraceLogger already emitted the protocol, duration and sanitized user label for this failure.
+                log.debug("AI request mapped to user-safe reply, user={}, kind={}", anonymize(userId), exception.kind());
                 return AssistantAnswer.text(switch (exception.kind()) {
                     case AUTHENTICATION -> AUTH_ERROR_REPLY;
                     case EMPTY_RESPONSE -> EMPTY_REPLY;
                     case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
                 });
             } catch (RuntimeException exception) {
-                log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
+                log.debug("Unexpected AI failure mapped to user-safe reply, user={}, type={}",
+                        anonymize(userId), exception.getClass().getSimpleName());
                 return AssistantAnswer.text(UNAVAILABLE_REPLY);
             }
         }
@@ -246,6 +259,14 @@ public class AiChatService {
 
     private static String anonymize(String userId) {
         return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
+    }
+
+    private static String anticipatedProtocol(List<AiImage> images, List<AiFile> files) {
+        return files != null && !files.isEmpty() ? "responses" : "chat-completions";
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
     private static Duration safeMemoryTimeout(Duration configured) {

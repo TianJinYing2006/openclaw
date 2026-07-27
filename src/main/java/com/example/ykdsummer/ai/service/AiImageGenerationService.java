@@ -42,6 +42,7 @@ public class AiImageGenerationService {
     private final OpenAIClient client;
     private final AiProperties properties;
     private final AsyncImageEditGateway imageEditGateway;
+    private volatile UsageEventRecorder usageEvents = UsageEventRecorder.disabled();
 
     public AiImageGenerationService(
             @Qualifier("imageOpenAIClient") OpenAIClient client,
@@ -73,6 +74,7 @@ public class AiImageGenerationService {
         }
         log.info("AI image revision completed, user={}, model={}, bytes={}", anonymize(userId),
                 properties.getImageModel(), result.imageBytes().length);
+        usageEvents.recordOperation(userId, "IMAGE_EDIT", properties.getImageModel(), "create_image_revision", 1, 0);
         return Result.image(result.imageBytes(), result.remoteUrl());
     }
 
@@ -106,6 +108,7 @@ public class AiImageGenerationService {
                 return Result.error(EMPTY_REPLY);
             }
             log.info("AI image completed, user={}, model={}, bytes={}", anonymize(userId), properties.getImageModel(), bytes.length);
+            usageEvents.recordOperation(userId, "IMAGE_GENERATION", properties.getImageModel(), "generate_image", 1, 0);
             return Result.image(bytes);
         } catch (UnauthorizedException | PermissionDeniedException exception) {
             log.warn("AI image authentication failed, user={}", anonymize(userId));
@@ -186,6 +189,11 @@ public class AiImageGenerationService {
 
     private static String anonymize(String userId) {
         return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setUsageEvents(UsageEventRecorder usageEvents) {
+        this.usageEvents = usageEvents == null ? UsageEventRecorder.disabled() : usageEvents;
     }
 
     /**

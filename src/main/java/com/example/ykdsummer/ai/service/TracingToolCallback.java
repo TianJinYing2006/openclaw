@@ -1,5 +1,6 @@
 package com.example.ykdsummer.ai.service;
 
+import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
 import java.util.function.Supplier;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
@@ -12,9 +13,10 @@ final class TracingToolCallback implements ToolCallback {
     private final ToolCallback delegate;
     private final AiTraceLogger trace;
     private final RealtimeEvidenceAugmenter realtimeEvidenceAugmenter;
+    private final UsageEventRecorder usageEvents;
 
     TracingToolCallback(ToolCallback delegate, AiTraceLogger trace) {
-        this(delegate, trace, null);
+        this(delegate, trace, null, UsageEventRecorder.disabled());
     }
 
     TracingToolCallback(
@@ -22,9 +24,19 @@ final class TracingToolCallback implements ToolCallback {
             AiTraceLogger trace,
             RealtimeEvidenceAugmenter realtimeEvidenceAugmenter
     ) {
+        this(delegate, trace, realtimeEvidenceAugmenter, UsageEventRecorder.disabled());
+    }
+
+    TracingToolCallback(
+            ToolCallback delegate,
+            AiTraceLogger trace,
+            RealtimeEvidenceAugmenter realtimeEvidenceAugmenter,
+            UsageEventRecorder usageEvents
+    ) {
         this.delegate = delegate;
         this.trace = trace;
         this.realtimeEvidenceAugmenter = realtimeEvidenceAugmenter;
+        this.usageEvents = usageEvents == null ? UsageEventRecorder.disabled() : usageEvents;
     }
 
     @Override
@@ -55,10 +67,14 @@ final class TracingToolCallback implements ToolCallback {
             String result = realtimeEvidenceAugmenter == null
                     ? operation.get()
                     : realtimeEvidenceAugmenter.augment(toolName, toolInput, operation);
-            trace.toolResult(toolName, result, elapsedMillis(startedAt));
+            long durationMs = elapsedMillis(startedAt);
+            trace.toolResult(toolName, result, durationMs);
+            usageEvents.recordTool(AgentSessionContext.currentUserId(), toolName, true, durationMs);
             return result;
         } catch (RuntimeException exception) {
-            trace.toolFailure(toolName, exception, elapsedMillis(startedAt));
+            long durationMs = elapsedMillis(startedAt);
+            trace.toolFailure(toolName, exception, durationMs);
+            usageEvents.recordTool(AgentSessionContext.currentUserId(), toolName, false, durationMs);
             throw exception;
         }
     }

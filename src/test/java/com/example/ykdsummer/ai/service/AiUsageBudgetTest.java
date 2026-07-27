@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -123,6 +124,24 @@ class AiUsageBudgetTest {
         assertThat(meter.snapshot("u-1").reportedTotalTokens()).isEqualTo(12);
     }
 
+    @Test
+    void recordsSuccessfulAndFailedModelAttemptsWithTheirDurations() {
+        AiUsageProperties properties = new AiUsageProperties();
+        AiUsageMeter meter = new AiUsageMeter(properties, fixedClock());
+        RecordingUsageEvents events = new RecordingUsageEvents();
+        meter.setEventRecorder(events);
+        AiRequestBudget budget = new AiRequestBudget(AiRequestBudget.TaskClass.SIMPLE_TEXT, 10, 20, 30);
+
+        meter.complete(meter.reserve("managed:instance:user-a", budget), "chat-completions", "qwen-test",
+                AiModelUsage.reported(4, 6, 10), 345);
+        meter.fail(meter.reserve("managed:instance:user-a", budget), "chat-completions", "",
+                "TEMPORARY_UNAVAILABLE", 678);
+
+        assertThat(events.successDurations).containsExactly(345L);
+        assertThat(events.failureDurations).containsExactly(678L);
+        assertThat(events.failureReasons).containsExactly("TEMPORARY_UNAVAILABLE");
+    }
+
     private static Clock fixedClock() {
         return Clock.fixed(Instant.parse("2026-07-23T01:00:00Z"), ZoneId.of("Asia/Shanghai"));
     }
@@ -146,5 +165,32 @@ class AiUsageBudgetTest {
             return new ModelReply("收到", "test-model", List.of(),
                     AiModelUsage.reported(5, 7, 12), "chat-completions");
         }
+    }
+
+    private static final class RecordingUsageEvents implements UsageEventRecorder {
+        private final List<Long> successDurations = new ArrayList<>();
+        private final List<Long> failureDurations = new ArrayList<>();
+        private final List<String> failureReasons = new ArrayList<>();
+
+        @Override
+        public void recordModel(String userId, String protocol, String model, AiModelUsage usage, long estimatedTotalTokens) { }
+
+        @Override
+        public void recordModel(String userId, String protocol, String model, AiModelUsage usage,
+                                long estimatedTotalTokens, long durationMs) {
+            successDurations.add(durationMs);
+        }
+
+        @Override
+        public void recordModelFailure(String userId, String protocol, String model, String failureReason, long durationMs) {
+            failureDurations.add(durationMs);
+            failureReasons.add(failureReason);
+        }
+
+        @Override
+        public void recordOperation(String userId, String kind, String model, String toolName, long quantity, long durationMs) { }
+
+        @Override
+        public void recordTool(String userId, String toolName, boolean succeeded, long durationMs) { }
     }
 }

@@ -1,5 +1,6 @@
 package com.example.ykdsummer.ai.service;
 
+import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import com.example.ykdsummer.ai.tool.BilibiliUserTools;
@@ -82,6 +83,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private AmapTools amapTools;
     private LocationSearchTools locationSearchTools;
     private RealtimeEvidenceAugmenter realtimeEvidenceAugmenter;
+    private volatile UsageEventRecorder usageEvents = UsageEventRecorder.disabled();
 
     public SpringAiChatCompletionsGateway(
             ChatModel chatModel,
@@ -178,6 +180,11 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     }
 
     @Autowired(required = false)
+    void setUsageEventRecorder(UsageEventRecorder usageEvents) {
+        this.usageEvents = usageEvents == null ? UsageEventRecorder.disabled() : usageEvents;
+    }
+
+    @Autowired(required = false)
     void setRealtimeEvidenceAugmenter(RealtimeEvidenceAugmenter realtimeEvidenceAugmenter) {
         this.realtimeEvidenceAugmenter = realtimeEvidenceAugmenter;
     }
@@ -270,6 +277,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             String userId, List<ConversationMessage> history, String prompt, AiRequestBudget budget
     ) {
         try {
+            AgentSessionContext.set(userId, "chat");
             if (artifacts != null) {
                 artifacts.begin(userId);
             }
@@ -330,7 +338,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                 addToolCallbacks(callbacks, locationSearchTools);
             }
             trace.toolCatalog(callbacks.stream().map(callback -> callback.getToolDefinition().name()).toList());
-            log.info(
+            log.debug(
                     "Spring AI chat completion request, configuredModel={}, reasoningEffort={}, toolCount={}",
                     properties.getModel(),
                     properties.getReasoningEffort(),
@@ -348,7 +356,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                     || response.getMetadata().getModel().isBlank()
                     ? properties.getModel()
                     : response.getMetadata().getModel();
-            log.info(
+            log.debug(
                     "Spring AI chat completion completed, configuredModel={}, returnedModel={}",
                     properties.getModel(),
                     actualModel
@@ -371,6 +379,8 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                     ? AiGatewayException.Kind.AUTHENTICATION
                     : AiGatewayException.Kind.TEMPORARY_UNAVAILABLE;
             throw new AiGatewayException(kind, exception);
+        } finally {
+            AgentSessionContext.clear();
         }
     }
 
@@ -385,7 +395,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             return;
         }
         for (ToolCallback callback : ToolCallbacks.from(configuredTools)) {
-            callbacks.add(new TracingToolCallback(callback, trace, realtimeEvidenceAugmenter));
+            callbacks.add(new TracingToolCallback(callback, trace, realtimeEvidenceAugmenter, usageEvents));
         }
     }
 

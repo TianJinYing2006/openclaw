@@ -13,6 +13,7 @@ import com.example.ykdsummer.bot.file.FileSessionService;
 import com.example.ykdsummer.bot.message.ILinkMessageType;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.video.VideoAnalysisService;
+import io.github.morningwn.client.ILinkClient;
 import io.github.morningwn.protocol.MessageItem;
 import io.github.morningwn.protocol.WeixinMessage;
 import org.slf4j.Logger;
@@ -109,12 +110,27 @@ public class ILinkReplyService {
             List<MessageItem> items,
             ILinkRuntimeState.Snapshot status
     ) {
+        return createReply(message, items, status, message == null ? "" : message.fromUserId(), null);
+    }
+
+    /**
+     * Creates a reply in an instance-scoped namespace. A managed account supplies its own SDK client so
+     * media downloads and user memory cannot cross into another account.
+     */
+    public ILinkReply createReply(
+            WeixinMessage message,
+            List<MessageItem> items,
+            ILinkRuntimeState.Snapshot status,
+            String scopedUserId,
+            ILinkClient instanceClient
+    ) {
+        String userId = scopedUserId == null || scopedUserId.isBlank() ? message.fromUserId() : scopedUserId;
         // 第一步只整理 SDK item，不做网络请求：文字会合并，语音取微信已有转写，图片只记存在。
         ExtractedContent content = extract(items);
 
         if (content.isPlainTextOnly()) {
             Optional<LongTextOutputService.Delivery> selection = longTextOutputs.consumeSelection(
-                    message.fromUserId(), content.prompt());
+                    userId, content.prompt());
             if (selection.isPresent()) {
                 return toReply(selection.get());
             }
@@ -126,16 +142,18 @@ public class ILinkReplyService {
                 return new ILinkReply.Text("文档模式一次只能发送一个文件，不能同时附带图片或视频");
             }
             try {
-                List<AiFile> uploaded = fileDownloader.downloadFiles(items);
+                List<AiFile> uploaded = instanceClient == null
+                        ? fileDownloader.downloadFiles(items)
+                        : fileDownloader.downloadFiles(instanceClient, items);
                 if (uploaded.size() != 1) {
                     return new ILinkReply.Text("文档模式一次只能发送一个文件");
                 }
                 AiFile file = uploaded.getFirst();
                 if (!content.prompt().isBlank()) {
                     return toReply(fileInstructionService.process(
-                            message.fromUserId(), content.prompt(), file), message.fromUserId());
+                            userId, content.prompt(), file), userId);
                 }
-                fileSessions.cache(message.fromUserId(), file);
+                fileSessions.cache(userId, file);
                 return new ILinkReply.Text("已收到文件，请告诉我怎么处理");
             } catch (ILinkFileDownloader.FileProcessingException exception) {
                 log.warn("Could not prepare iLink file, user={}, reason={}",
@@ -146,7 +164,7 @@ public class ILinkReplyService {
 
         // 固定命令只接受纯手打文字，避免语音转写为“帮助”时误触发本地命令。
         if (content.isPlainTextOnly()) {
-            String commandReply = handleCommand(message.fromUserId(), content.prompt(), status);
+            String commandReply = handleCommand(userId, content.prompt(), status);
             if (commandReply != null) {
                 return new ILinkReply.Text(commandReply);
             }
@@ -165,8 +183,10 @@ public class ILinkReplyService {
             if (content.hasImage() || content.hasFile()) {
                 return new ILinkReply.Text(MIXED_VIDEO_ATTACHMENT_REPLY);
             }
-            return new ILinkReply.Text(videoAnalysisService.analyze(
-                    message.fromUserId(), content.prompt(), items));
+            String answer = instanceClient == null
+                    ? videoAnalysisService.analyze(userId, content.prompt(), items)
+                    : videoAnalysisService.analyze(userId, content.prompt(), items, instanceClient);
+            return new ILinkReply.Text(answer);
         }
 
         /*
@@ -174,20 +194,22 @@ public class ILinkReplyService {
          * SpeechTools 等能力；接入层不再解析 FILE_GEN 或依赖人工前缀。
          */
         if (content.isPlainTextOnly()) {
-            AiFile sourceFile = fileSessions.consume(message.fromUserId()).orElse(null);
+            AiFile sourceFile = fileSessions.consume(userId).orElse(null);
             return toReply(fileInstructionService.process(
-                    message.fromUserId(), content.prompt(), sourceFile), message.fromUserId());
+                    userId, content.prompt(), sourceFile), userId);
         }
 
         // 微信语音已经有转写文字时，按普通问答处理，但不把转写误当成用户手打的工具命令。
         if (!content.hasImage()) {
-            return new ILinkReply.Text(aiChatService.answer(message.fromUserId(), content.prompt(), List.of()));
+            return new ILinkReply.Text(aiChatService.answer(userId, content.prompt(), List.of()));
         }
 
         List<AiImage> images;
         try {
             // 这里拿到的是已经从腾讯 CDN 下载并解密的原始图片字节。
-            images = content.hasImage() ? mediaDownloader.downloadImages(items) : List.of();
+            images = content.hasImage()
+                    ? (instanceClient == null ? mediaDownloader.downloadImages(items) : mediaDownloader.downloadImages(instanceClient, items))
+                    : List.of();
         } catch (ILinkMediaDownloader.MediaProcessingException exception) {
             log.warn("Could not prepare iLink image, user={}, reason={}", anonymize(message.fromUserId()), exception.userMessage());
             return new ILinkReply.Text(exception.userMessage());
@@ -199,8 +221,8 @@ public class ILinkReplyService {
         // 模型可以通过 ImageTools 查询这个 assetId 与版本信息。
         List<StoredImage> storedImages = images.stream()
                 .map(image -> {
-                    StoredImage stored = imageAssets.saveIncoming(message.fromUserId(), prompt, image.bytes(), image.mediaType());
-                    assetMetadata.record(message.fromUserId(), stored,
+                    StoredImage stored = imageAssets.saveIncoming(userId, prompt, image.bytes(), image.mediaType());
+                    assetMetadata.record(userId, stored,
                             imageAssets instanceof OssImageAssetStore ? "oss" : "local");
                     return stored;
                 })
@@ -218,7 +240,7 @@ public class ILinkReplyService {
                 + "\n如果回答、判断或修改依赖图片真实内容，必须先调用 inspect_image；"
                 + "若用户要求修改图片，再调用 create_image_revision，并使用对应 assetId。";
         return toReply(aiChatService.answerWithInternalPromptRich(
-                message.fromUserId(), prompt, modelPrompt, List.of()), message.fromUserId());
+                userId, prompt, modelPrompt, List.of()), userId);
     }
 
     private ILinkReply toReply(FileInstructionService.Result result, String userId) {

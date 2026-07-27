@@ -1,7 +1,9 @@
 package com.example.ykdsummer.bot.service;
 
+import com.example.ykdsummer.admin.config.AdminWebProperties;
 import com.example.ykdsummer.bot.config.ILinkProperties;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
+import com.example.ykdsummer.bot.message.ILinkMessageDeduplicator;
 import com.example.ykdsummer.bot.message.ILinkMessageType;
 import com.example.ykdsummer.bot.message.RecentMessageIds;
 import com.example.ykdsummer.bot.runtime.ILinkDeliveryAudit;
@@ -52,7 +54,7 @@ import java.util.stream.IntStream;
 public class ILinkBotService {
 
     private static final Logger log = LoggerFactory.getLogger(ILinkBotService.class);
-    /** 单进程最多记住 1000 个近期 messageId，防止立即重复回复。 */
+    /** Redis 未启用或暂时不可用时，本地最多记住 1000 个近期 messageId。 */
     private static final int RECENT_MESSAGE_WINDOW = 1_000;
 
     /** 启动时只接受最近两分钟的消息，避免恢复旧游标后回复很久以前的历史消息。 */
@@ -74,6 +76,7 @@ public class ILinkBotService {
     private final ILinkVideoDownloader videoDownloader;
     private final RecentMessageIds recentMessageIds = new RecentMessageIds(RECENT_MESSAGE_WINDOW);
     private final long startedAtMs = System.currentTimeMillis();
+    private volatile ILinkMessageDeduplicator messageDeduplicator;
 
     /**
      * 8 条文字队列。相同用户总是进入同一条单线程队列，因此文字消息严格保持提交顺序；
@@ -97,6 +100,8 @@ public class ILinkBotService {
     private volatile ILinkBot bot;
     /** 与 ILinkBot 共用的底层客户端，供图片、文件和视频从腾讯 CDN 下载解密。 */
     private volatile ILinkClient lowLevelClient;
+    /** When the administrator site is enabled, managed instances own their own SDK clients instead. */
+    private volatile boolean managedInstanceMode;
 
     public ILinkBotService(
             ILinkProperties settings,
@@ -162,6 +167,17 @@ public class ILinkBotService {
         );
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void configureManagedInstanceMode(AdminWebProperties properties) {
+        managedInstanceMode = properties != null && properties.isEnabled();
+    }
+
+    /** Keeps direct unit-test construction working while Spring wires in the Redis-aware guard. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void configureMessageDeduplicator(ILinkMessageDeduplicator messageDeduplicator) {
+        this.messageDeduplicator = messageDeduplicator;
+    }
+
     /**
      * Spring 完成依赖注入后自动调用一次，不需要再在 PowerShell 手动启动第二个程序。
      *
@@ -169,6 +185,11 @@ public class ILinkBotService {
      */
     @PostConstruct
     public void start() {
+        if (managedInstanceMode) {
+            runtimeState.disabled();
+            log.info("Legacy single iLink service is disabled; managed instances own SDK connections");
+            return;
+        }
         if (!settings.isEnabled()) {
             runtimeState.disabled();
             log.info("iLink is disabled. Set ILINK_ENABLED=true to start QR login.");
@@ -322,21 +343,19 @@ public class ILinkBotService {
         logNonTextItems(message, items);
 
         // 先去重，防止 getupdates 重试时同一 messageId 被再次回复。
-        if (recentMessageIds.contains(message.messageId())) {
+        if (!claimInboundMessage(message)) {
             log.info("Skip duplicate iLink message {}", message.messageId());
             return;
         }
         replyContexts.remember(message.fromUserId(), message.contextToken());
         // 恢复旧游标时可能短暂拉到历史消息，启动保护期内跳过过旧消息。
         if (isStaleAtStartup(message)) {
-            recentMessageIds.remember(message.messageId());
             log.info("Skip stale iLink message {} from before this startup", message.messageId());
             return;
         }
 
         String rateLimitType = rateLimitType(items);
         if (!rateLimiter.tryAcquire(message.fromUserId(), rateLimitType)) {
-            recentMessageIds.remember(message.messageId());
             log.info("Rate limited iLink message {}, user={}, type={}",
                     message.messageId(), anonymize(message.fromUserId()), rateLimitType);
             replyQueueBusy(message, "消息发送过快，请稍后再试");
@@ -354,11 +373,6 @@ public class ILinkBotService {
          * 从这里开始可能要等待外部 AI 数十秒，必须移交给回复线程池。
          * SDK 的 ilink-auto-pull 线程立即返回，继续维持 getupdates 长轮询连接。
          */
-        /*
-         * 这里的“记住”表示本进程已经接受这条消息并准备入队，不代表 AI 已回答成功。
-         * 先记住可以挡住 SDK 短时间内的重复投递。
-         */
-        recentMessageIds.remember(message.messageId());
         try {
             List<MessageItem> safeItems = List.copyOf(items);
             /*
@@ -388,6 +402,13 @@ public class ILinkBotService {
             log.warn("Could not schedule reply for iLink message {}", message.messageId());
             replyQueueBusy(message, reason);
         }
+    }
+
+    private boolean claimInboundMessage(WeixinMessage message) {
+        ILinkMessageDeduplicator deduplicator = messageDeduplicator;
+        return deduplicator == null
+                ? recentMessageIds.claim(message.messageId()) || message.messageId() == null
+                : deduplicator.claim("legacy", message.messageId());
     }
 
     /** 任一有界队列满时直接发送固定提示，不再调用外部 AI。 */

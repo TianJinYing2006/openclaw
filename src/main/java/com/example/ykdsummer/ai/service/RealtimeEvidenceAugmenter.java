@@ -2,6 +2,7 @@ package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.RealtimeEvidenceProperties;
 import com.example.ykdsummer.ai.tool.WebSearchTools;
+import com.example.ykdsummer.persistence.RedisOperationalStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -24,6 +25,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 /**
@@ -41,14 +43,16 @@ public class RealtimeEvidenceAugmenter {
     private final ObjectMapper objectMapper;
     private final ExecutorService executor;
     private final Cache<String, String> webEvidenceCache;
+    private final RedisOperationalStore redis;
 
     @Autowired
     public RealtimeEvidenceAugmenter(
             RealtimeEvidenceProperties properties,
             WebSearchTools webSearchTools,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            ObjectProvider<RedisOperationalStore> redisProvider
     ) {
-        this(properties, webSearchTools, objectMapper, newExecutor(properties));
+        this(properties, webSearchTools, objectMapper, newExecutor(properties), redisProvider.getIfAvailable());
     }
 
     RealtimeEvidenceAugmenter(
@@ -57,10 +61,21 @@ public class RealtimeEvidenceAugmenter {
             ObjectMapper objectMapper,
             ExecutorService executor
     ) {
+        this(properties, webSearchTools, objectMapper, executor, null);
+    }
+
+    RealtimeEvidenceAugmenter(
+            RealtimeEvidenceProperties properties,
+            WebSearchTools webSearchTools,
+            ObjectMapper objectMapper,
+            ExecutorService executor,
+            RedisOperationalStore redis
+    ) {
         this.properties = properties;
         this.webSearchTools = webSearchTools;
         this.objectMapper = objectMapper;
         this.executor = executor;
+        this.redis = redis;
         this.webEvidenceCache = Caffeine.newBuilder()
                 .maximumSize(properties.getMaxCacheEntries())
                 .expireAfterWrite(properties.getCacheTtl())
@@ -133,8 +148,13 @@ public class RealtimeEvidenceAugmenter {
     }
 
     private String webEvidence(String query) {
-        return limit(webEvidenceCache.get(query, ignored -> webSearchTools.webSearch(query)),
-                properties.getMaxWebResultCharacters());
+        String shared = redis == null ? null : redis.get("realtime-web", query);
+        if (shared != null) return limit(shared, properties.getMaxWebResultCharacters());
+        return webEvidenceCache.get(query, ignored -> {
+            String evidence = limit(webSearchTools.webSearch(query), properties.getMaxWebResultCharacters());
+            if (redis != null) redis.put("realtime-web", query, evidence, properties.getCacheTtl());
+            return evidence;
+        });
     }
 
     private String buildSearchQuery(String toolName, String toolInput) {

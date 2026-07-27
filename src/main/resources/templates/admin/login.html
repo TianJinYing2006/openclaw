@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>机器人管理</title>
+    <link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
+</head>
+<body class="login-body">
+<main class="login-panel">
+    <div class="brand">YKD Bot 管理</div>
+    <h1>管理员登录</h1>
+    <p th:if="${param.error}" class="alert error">用户名或密码不正确</p>
+    <p th:if="${param.logout}" class="alert notice">已退出登录</p>
+    <form th:action="@{/admin/login}" method="post">
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+        <label>用户名<input name="username" autocomplete="username" autofocus required></label>
+        <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">登录</button>
+    </form>
+</main>
+</body>
+</html>

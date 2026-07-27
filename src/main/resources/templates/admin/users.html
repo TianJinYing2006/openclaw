@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="10">
+    <title>用户与实例</title><link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
+</head>
+<body>
+<header class="topbar"><a class="brand" th:href="@{/admin}">YKD Bot 管理</a><nav><a th:href="@{/admin}">概览</a><a class="active" th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<main class="page">
+    <div class="page-heading"><div><h1>用户与机器人实例</h1><p>一个平台用户对应一个当前有效实例。实时状态来自本次 Java 进程，持久状态来自 MySQL；归档实例保留在回收记录中。</p><div class="dashboard-meta"><span>页面每 10 秒刷新</span><span>重新绑定会清除该实例的当前登录态</span></div></div></div>
+    <p class="alert notice" th:if="${notice}" th:text="${notice}"></p><p class="alert error" th:if="${error}" th:text="${error}"></p>
+    <div class="metrics metrics-five">
+        <section><span>平台用户</span><strong th:text="${userSummary.totalUsers}">0</strong></section>
+        <section><span>当前有效绑定</span><strong th:text="${userSummary.activeBindings}">0</strong></section>
+        <section><span>实时已连接</span><strong th:text="${userSummary.connectedInstances}">0</strong></section>
+        <section><span>等待绑定</span><strong th:text="${userSummary.waitingForQr}">0</strong></section>
+        <section><span>状态待同步</span><strong th:text="${userSummary.instancesOutOfSync}">0</strong></section>
+    </div>
+    <section class="form-section"><h2>添加用户</h2><form class="inline-form" th:action="@{/admin/users}" method="post"><label>用户名<input name="username" maxlength="64" required placeholder="例如：张三"></label><label>备注<input name="remark" maxlength="255" placeholder="可选"></label><button type="submit">创建并准备绑定</button></form></section>
+    <section class="table-section"><div class="section-title"><h2>当前用户绑定</h2><span th:text="${#lists.size(users)} + ' 个用户'">0 个用户</span></div>
+        <table class="user-instance-table"><thead><tr><th>用户</th><th>当前实例</th><th>生命周期</th><th>实时 / MySQL 状态</th><th>一致性</th><th>iLink 账号</th><th>本次进程收/发</th><th>最近连接 / 消息</th><th></th></tr></thead><tbody>
+        <tr th:each="user : ${users}">
+            <td><strong th:text="${user.username}">用户</strong><small class="cell-sub" th:text="${#strings.isEmpty(user.remark) ? '无备注' : user.remark}">备注</small></td>
+            <td><span th:if="${user.hasActiveInstance}" class="mono" th:title="${user.instance.instanceId}" th:text="${'v' + user.instance.generation + ' ' + user.instance.instanceShortId}">v1</span><span th:unless="${user.hasActiveInstance}" class="muted">无当前实例</span></td>
+            <td><span class="status" th:classappend="${user.instance.lifecycleTone}" th:text="${user.instance.lifecycleLabel}">状态</span></td>
+            <td><span th:if="${user.hasActiveInstance}" class="status" th:classappend="${user.instance.liveTone}" th:text="${'实时 ' + user.instance.liveLabel}">实时</span><small th:if="${user.hasActiveInstance}" class="cell-sub"><span class="status" th:classappend="${user.instance.persistedTone}" th:text="${'MySQL ' + user.instance.persistedLabel}">MySQL</span></small><span th:unless="${user.hasActiveInstance}" class="muted">-</span></td>
+            <td><span th:class="${user.instance.stateSynchronized ? 'result-ok' : 'result-warn'}" th:text="${user.instance.stateNote}">状态</span><small th:if="${user.hasActiveInstance}" class="cell-sub" th:text="${user.instance.persistedUpdatedAt == null ? '-' : #temporals.format(user.instance.persistedUpdatedAt, 'MM-dd HH:mm:ss')}">-</small></td>
+            <td><span th:text="${user.instance.accountState}">未绑定</span><small th:if="${!#strings.isEmpty(user.instance.ilinkAccountId)}" class="cell-sub mono" th:text="${user.instance.ilinkAccountId}">账号</small></td>
+            <td th:text="${user.instance.receivedMessages + ' / ' + user.instance.sentMessages}">0 / 0</td>
+            <td><span th:text="${user.instance.lastMessageLabel}">暂无</span><small class="cell-sub" th:text="${user.instance.lastMessageAt == null ? '-' : #temporals.format(user.instance.lastMessageAt, 'MM-dd HH:mm:ss')}">-</small></td>
+            <td><a th:href="@{/admin/users/{id}(id=${user.id})}">查看</a></td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(users)}"><td colspan="9" class="empty">暂无用户</td></tr></tbody></table>
+    </section>
+</main>
+</body>
+</html>

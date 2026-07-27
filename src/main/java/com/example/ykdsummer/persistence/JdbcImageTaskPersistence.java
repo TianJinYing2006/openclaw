@@ -27,16 +27,19 @@ public class JdbcImageTaskPersistence implements ImageTaskPersistence {
     @Override
     public void save(String userId, ImageTask task) {
         if (userId == null || userId.isBlank() || task == null) return;
+        ManagedInstanceScope scope = ManagedInstanceScope.parse(userId);
+        Long platformUserId = scope.resolvePlatformUserId(jdbc);
         jdbc.update("""
-                INSERT INTO async_tasks(task_id, external_user_id, task_type, status, started_at, finished_at,
+                INSERT INTO async_tasks(task_id, external_user_id, platform_user_id, instance_id, task_type, status, started_at, finished_at,
                     retry_prompt, source_asset_id, source_version, result_asset_id, result_version, failure_summary)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE status = VALUES(status), finished_at = VALUES(finished_at),
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE platform_user_id = COALESCE(VALUES(platform_user_id), platform_user_id),
+                    instance_id = COALESCE(VALUES(instance_id), instance_id), status = VALUES(status), finished_at = VALUES(finished_at),
                     retry_prompt = VALUES(retry_prompt), source_asset_id = VALUES(source_asset_id),
                     source_version = VALUES(source_version), result_asset_id = VALUES(result_asset_id),
                     result_version = VALUES(result_version), failure_summary = VALUES(failure_summary),
                     updated_at = CURRENT_TIMESTAMP
-                """, task.taskId(), userId, task.operation().name(), task.status().name(), timestamp(task.startedAt()),
+                """, task.taskId(), userId, platformUserId, scope.instanceId(), task.operation().name(), task.status().name(), timestamp(task.startedAt()),
                 timestamp(task.finishedAt()), task.retryPrompt(), task.sourceAssetId(), task.sourceVersion(),
                 task.resultAssetId(), task.resultVersion(), task.failureSummary());
         jdbc.update("INSERT INTO task_events(task_id, event_type, details) VALUES (?, ?, ?)", task.taskId(),

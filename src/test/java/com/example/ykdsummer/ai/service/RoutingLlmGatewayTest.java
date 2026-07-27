@@ -3,6 +3,8 @@ package com.example.ykdsummer.ai.service;
 import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.ConversationMessage;
+import com.example.ykdsummer.ai.config.AiProperties;
+import com.example.ykdsummer.ai.config.OpenAiClientProperties;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -31,30 +33,64 @@ class RoutingLlmGatewayTest {
     }
 
     @Test
-    void keepsImagesAndFilesOnResponses() {
+    void routesImagesToChatCompletionsVisionAndBlocksRawFilesWhenResponsesAreDisabled() {
         RecordingTextGateway text = new RecordingTextGateway();
         RecordingResponsesGateway responses = new RecordingResponsesGateway();
-        RoutingLlmGateway gateway = new RoutingLlmGateway(text, responses);
+        RecordingVisionGateway vision = new RecordingVisionGateway();
+        RoutingLlmGateway gateway = new RoutingLlmGateway(
+                text, responses, vision, AiTraceLogger.disabled(), new AiProperties());
 
         gateway.generate(List.of(), "看图", List.of(new AiImage("image/png", new byte[]{1})), List.of());
         gateway.generate(List.of(), "看文件", List.of(),
                 List.of(new AiFile("a.txt", "text/plain", new byte[]{2})));
 
         assertThat(text.calls).isZero();
-        assertThat(responses.calls).isEqualTo(2);
+        assertThat(vision.calls).isEqualTo(1);
+        assertThat(responses.calls).isZero();
     }
 
     @Test
-    void keepsExplicitReasoningTasksOnResponsesEvenWithoutBinaryMedia() {
+    void routesRawFilesToResponsesOnlyWhenExplicitlyEnabled() {
+        RecordingTextGateway text = new RecordingTextGateway();
+        RecordingResponsesGateway responses = new RecordingResponsesGateway();
+        AiProperties properties = new AiProperties();
+        properties.setResponsesEnabled(true);
+        RoutingLlmGateway gateway = new RoutingLlmGateway(
+                text, responses, null, AiTraceLogger.disabled(), properties, configuredResponses());
+
+        gateway.generate(List.of(), "读取原始文件", List.of(), List.of(new AiFile("scan.pdf", "application/pdf", new byte[]{1})));
+
+        assertThat(text.calls).isZero();
+        assertThat(responses.calls).isEqualTo(1);
+    }
+
+    @Test
+    void blocksRawFilesWhenResponsesAreEnabledButItsConnectionIsIncomplete() {
+        RecordingTextGateway text = new RecordingTextGateway();
+        RecordingResponsesGateway responses = new RecordingResponsesGateway();
+        AiProperties properties = new AiProperties();
+        properties.setResponsesEnabled(true);
+        RoutingLlmGateway gateway = new RoutingLlmGateway(
+                text, responses, null, AiTraceLogger.disabled(), properties, new OpenAiClientProperties());
+
+        LlmGateway.ModelReply reply = gateway.generate(
+                List.of(), "读取原始文件", List.of(), List.of(new AiFile("scan.pdf", "application/pdf", new byte[]{1})));
+
+        assertThat(reply.protocol()).isEqualTo("local-file-fallback");
+        assertThat(reply.text()).isEqualTo(RoutingLlmGateway.RESPONSES_UNAVAILABLE_REPLY);
+        assertThat(responses.calls).isZero();
+    }
+
+    @Test
+    void keepsPureTextOnChatCompletionsEvenWhenOldCallerSpecifiesReasoning() {
         RecordingTextGateway text = new RecordingTextGateway();
         RecordingResponsesGateway responses = new RecordingResponsesGateway();
         RoutingLlmGateway gateway = new RoutingLlmGateway(text, responses);
 
         gateway.generate(List.of(), "分析已提取的文档文字", List.of(), List.of(), "low");
 
-        assertThat(text.calls).isZero();
-        assertThat(responses.calls).isEqualTo(1);
-        assertThat(responses.lastReasoningEffort).isEqualTo("low");
+        assertThat(text.calls).isEqualTo(1);
+        assertThat(responses.calls).isZero();
     }
 
     private static final class RecordingTextGateway implements TextChatGateway {
@@ -67,6 +103,14 @@ class RoutingLlmGatewayTest {
             lastPrompt = prompt;
             return new LlmGateway.ModelReply("简洁回答", "completion-model");
         }
+    }
+
+    private static OpenAiClientProperties configuredResponses() {
+        OpenAiClientProperties connection = new OpenAiClientProperties();
+        connection.setBaseUrl("https://responses.example/v1");
+        connection.setApiKey("responses-key");
+        connection.setModel("file-model");
+        return connection;
     }
 
     private static final class RecordingResponsesGateway implements ResponsesGateway {
@@ -86,6 +130,18 @@ class RoutingLlmGatewayTest {
             calls++;
             lastReasoningEffort = reasoningEffort;
             return new ModelReply("任务回答", "responses-model");
+        }
+    }
+
+    private static final class RecordingVisionGateway implements VisionChatGateway {
+        private int calls;
+
+        @Override
+        public LlmGateway.ModelReply generate(
+                List<ConversationMessage> history, String prompt, List<AiImage> images, AiRequestBudget budget
+        ) {
+            calls++;
+            return new LlmGateway.ModelReply("视觉回答", "vision-model");
         }
     }
 }

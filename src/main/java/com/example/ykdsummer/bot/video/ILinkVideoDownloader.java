@@ -44,6 +44,11 @@ public class ILinkVideoDownloader {
     }
 
     public byte[] downloadVideo(List<MessageItem> items) {
+        return downloadVideo(client, items);
+    }
+
+    /** Uses an explicitly owned client for a managed bot instance. */
+    public byte[] downloadVideo(ILinkClient currentClient, List<MessageItem> items) {
         List<VideoItem> videos = items.stream()
                 .filter(item -> item != null && ILinkMessageType.from(item.type()) == ILinkMessageType.VIDEO)
                 .map(MessageItem::videoItem)
@@ -71,7 +76,6 @@ public class ILinkVideoDownloader {
         if (media == null) {
             throw new VideoProcessingException("视频读取失败，请重新发送");
         }
-        ILinkClient currentClient = client;
         if (currentClient == null) {
             throw new VideoProcessingException("视频读取服务尚未连接，请稍后重试");
         }

@@ -51,10 +51,10 @@ public class JdbcConversationHistoryStore implements ConversationHistoryStore {
         if (userId == null || userId.isBlank() || userMessage == null || assistantMessage == null) return;
         try {
             transactions.executeWithoutResult(status -> {
-                long conversationId = conversationId(userId);
-                jdbc.batchUpdate("INSERT INTO chat_messages(conversation_id, role, content) VALUES (?, ?, ?)", List.of(
-                        new Object[]{conversationId, userMessage.role().name(), userMessage.text()},
-                        new Object[]{conversationId, assistantMessage.role().name(), assistantMessage.text()}
+                long conversationId = conversationId(userId, ManagedInstanceScope.parse(userId));
+                jdbc.batchUpdate("INSERT INTO chat_messages(conversation_id, role, content, direction, message_kind) VALUES (?, ?, ?, ?, 'TEXT')", List.of(
+                        new Object[]{conversationId, userMessage.role().name(), userMessage.text(), direction(userMessage)},
+                        new Object[]{conversationId, assistantMessage.role().name(), assistantMessage.text(), direction(assistantMessage)}
                 ));
             });
         } catch (RuntimeException exception) {
@@ -76,15 +76,29 @@ public class JdbcConversationHistoryStore implements ConversationHistoryStore {
         }
     }
 
-    private long conversationId(String userId) {
-        jdbc.update("INSERT INTO app_users(external_user_id) VALUES (?) ON DUPLICATE KEY UPDATE last_seen_at = CURRENT_TIMESTAMP", userId);
+    private long conversationId(String userId, ManagedInstanceScope scope) {
+        Long platformUserId = scope.resolvePlatformUserId(jdbc);
         jdbc.update("""
-                INSERT INTO chat_conversations(external_user_id) VALUES (?)
-                ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP
-                """, userId);
+                INSERT INTO app_users(external_user_id, platform_user_id, instance_id) VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE last_seen_at = CURRENT_TIMESTAMP,
+                    platform_user_id = COALESCE(VALUES(platform_user_id), platform_user_id),
+                    instance_id = COALESCE(VALUES(instance_id), instance_id)
+                """, userId, platformUserId, scope.instanceId());
+        jdbc.update("""
+                INSERT INTO chat_conversations(external_user_id, platform_user_id, instance_id) VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE platform_user_id = COALESCE(VALUES(platform_user_id), platform_user_id),
+                    instance_id = COALESCE(VALUES(instance_id), instance_id), updated_at = CURRENT_TIMESTAMP
+                """, userId, platformUserId, scope.instanceId());
         Long id = jdbc.queryForObject("SELECT id FROM chat_conversations WHERE external_user_id = ?", Long.class, userId);
         if (id == null) throw new IllegalStateException("Conversation row was not created");
         return id;
+    }
+
+    private static String direction(ConversationMessage message) {
+        return switch (message.role()) {
+            case USER -> "INBOUND";
+            case ASSISTANT -> "OUTBOUND";
+        };
     }
 
     private static String anonymize(String userId) {

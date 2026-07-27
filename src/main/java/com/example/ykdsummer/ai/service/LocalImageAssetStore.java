@@ -136,6 +136,17 @@ public class LocalImageAssetStore {
         return metadata(userId, assetId).flatMap(ImageMetadata::latest);
     }
 
+    public List<StoredImage> versions(String userId, String assetId) {
+        return metadata(userId, assetId).map(metadata -> {
+            int latest = integer(metadata.properties(), "latestVersion", 0);
+            return java.util.stream.IntStream.rangeClosed(1, latest)
+                    .mapToObj(version -> metadata.version(version))
+                    .flatMap(Optional::stream)
+                    .map(version -> version.toStored(assetId, metadata.mediaType()))
+                    .toList();
+        }).orElseGet(List::of);
+    }
+
     /**
      * 保存由视觉模型得到的可检索摘要。摘要属于版本元数据，不会修改图片字节，也不会新增版本。
      * 后续模型先查看最近资源时，可以用“猫、人物、衣服颜色”等真实画面信息定位图片。
@@ -174,7 +185,7 @@ public class LocalImageAssetStore {
                     .map(ImageMetadata::latest)
                     .flatMap(Optional::stream)
                     .sorted(Comparator.comparing(StoredImage::createdAt).reversed())
-                    .limit(Math.max(1, Math.min(limit, 20)))
+                    .limit(Math.max(1, Math.min(limit, 500)))
                     .toList();
         } catch (IOException exception) {
             return List.of();

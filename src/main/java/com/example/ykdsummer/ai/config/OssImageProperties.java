@@ -14,6 +14,7 @@ public class OssImageProperties {
     private String bucketName = "";
     private String prefix = "ilink-bot/images";
     private Duration signedUrlTtl = Duration.ofMinutes(10);
+    private boolean migrateLocalAssets;
 
     public boolean isConfigured() {
         return present(endpoint) && present(accessKeyId) && present(accessKeySecret) && present(bucketName);
@@ -38,4 +39,6 @@ public class OssImageProperties {
         this.signedUrlTtl = signedUrlTtl == null || signedUrlTtl.isNegative() || signedUrlTtl.isZero()
                 ? Duration.ofMinutes(10) : signedUrlTtl;
     }
+    public boolean isMigrateLocalAssets() { return migrateLocalAssets; }
+    public void setMigrateLocalAssets(boolean migrateLocalAssets) { this.migrateLocalAssets = migrateLocalAssets; }
 }

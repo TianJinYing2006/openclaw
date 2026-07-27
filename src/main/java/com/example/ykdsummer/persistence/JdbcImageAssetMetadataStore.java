@@ -19,14 +19,17 @@ public class JdbcImageAssetMetadataStore implements ImageAssetMetadataStore {
     public void record(String userId, StoredImage image, String storageProvider) {
         if (userId == null || userId.isBlank() || image == null) return;
         try {
+            ManagedInstanceScope scope = ManagedInstanceScope.parse(userId);
+            Long platformUserId = scope.resolvePlatformUserId(jdbc);
             jdbc.update("""
-                    INSERT INTO asset_versions(external_user_id, asset_id, version, asset_kind, storage_provider,
+                    INSERT INTO asset_versions(external_user_id, platform_user_id, instance_id, asset_id, version, asset_kind, storage_provider,
                         object_key, mime_type, source, prompt, tags, created_at)
-                    VALUES (?, ?, ?, 'IMAGE', ?, ?, ?, ?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE storage_provider = VALUES(storage_provider), object_key = VALUES(object_key),
+                    VALUES (?, ?, ?, ?, ?, 'IMAGE', ?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE platform_user_id = COALESCE(VALUES(platform_user_id), platform_user_id),
+                        instance_id = COALESCE(VALUES(instance_id), instance_id), storage_provider = VALUES(storage_provider), object_key = VALUES(object_key),
                         mime_type = VALUES(mime_type), source = VALUES(source), prompt = VALUES(prompt),
                         tags = VALUES(tags), updated_at = CURRENT_TIMESTAMP
-                    """, userId, image.assetId(), image.version(), safe(storageProvider), image.file().toString(),
+                    """, userId, platformUserId, scope.instanceId(), image.assetId(), image.version(), safe(storageProvider), image.file().toString(),
                     safe(image.mediaType()), safe(image.source()), safe(image.prompt()), safe(image.tags()),
                     java.sql.Timestamp.from(image.createdAt()));
         } catch (RuntimeException exception) {

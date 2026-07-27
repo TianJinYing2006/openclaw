@@ -1,6 +1,7 @@
 package com.example.ykdsummer.ai.tool;
 
 import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
+import com.example.ykdsummer.ai.service.UsageEventRecorder;
 import com.example.ykdsummer.bot.audio.TextToSpeechService;
 import com.example.ykdsummer.storage.FileStorageService;
 import org.slf4j.Logger;
@@ -27,6 +28,7 @@ public class TtsTools {
 
     private final TextToSpeechService ttsService;
     private final FileStorageService fileStorage;
+    private volatile UsageEventRecorder usageEvents = UsageEventRecorder.disabled();
 
     public TtsTools(TextToSpeechService ttsService, FileStorageService fileStorage) {
         this.ttsService = ttsService;
@@ -51,6 +53,7 @@ public class TtsTools {
                 AgentSessionContext.currentSessionId(),
                 fileName, audio.bytes());
         log.info("TTS completed, {} bytes -> {}", audio.bytes().length, outputPath);
+        usageEvents.recordOperation(AgentSessionContext.currentUserId(), "TTS", "", "text_to_speech", 1, 0);
 
         // 通过 ThreadLocal 暴露音频字节
         pendingAudios.get().add(new PendingAudio(audio.bytes(), fileName));
@@ -66,6 +69,11 @@ public class TtsTools {
         }
         pendingAudios.remove();
         return list;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setUsageEvents(UsageEventRecorder usageEvents) {
+        this.usageEvents = usageEvents == null ? UsageEventRecorder.disabled() : usageEvents;
     }
 
     /** 消费最后一个待发送的音频。调用后自动清除。 */

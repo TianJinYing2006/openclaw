@@ -1,6 +1,7 @@
 package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
+import com.example.ykdsummer.ai.config.OpenAiClientProperties;
 import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.ConversationMessage;
@@ -37,9 +38,14 @@ class OpenAiResponsesGatewayContractTest {
                 .build();
         try {
             AiProperties properties = new AiProperties();
-            properties.setModel("gpt-5.6");
+            properties.setModel("qwen3.7-plus");
             properties.setReasoningEffort("high");
-            OpenAiResponsesGateway gateway = new OpenAiResponsesGateway(client, properties);
+            OpenAiClientProperties connection = new OpenAiClientProperties();
+            connection.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
+            connection.setApiKey("test-only");
+            connection.setModel("gpt-5.6-file");
+            OpenAiResponsesGateway gateway = new OpenAiResponsesGateway(
+                    client, properties, connection, AiTraceLogger.disabled());
 
             LlmGateway.ModelReply reply = gateway.generate(
                     "responses-user",
@@ -65,7 +71,7 @@ class OpenAiResponsesGatewayContractTest {
             assertThat(reply.usage()).isEqualTo(AiModelUsage.reported(12, 3, 15));
             assertThat(requestPath.get()).isEqualTo("/v1/responses");
             assertThat(requestBody.get())
-                    .contains("\"model\":\"gpt-5.6\"")
+                    .contains("\"model\":\"gpt-5.6-file\"")
                     .contains("\"store\":false")
                     .contains("\"max_output_tokens\":777")
                     .contains("\"effort\":\"high\"")

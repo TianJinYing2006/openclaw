@@ -49,8 +49,8 @@ if (-not (Test-Path $jar)) {
     throw "Runnable JAR was not found: $jar"
 }
 
-# Command-line properties have the highest Spring precedence. The API key remains only in
-# application-local.properties, which is Git-ignored and packaged from this local machine.
+# Provider, model, and API keys are read from the Git-ignored application-local.properties.
+# Do not override them here: the IntelliJ and script startup paths must use the same configuration.
 $arguments = @(
     '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
     '--add-opens', 'java.base/java.util=ALL-UNNAMED',
@@ -59,11 +59,7 @@ $arguments = @(
     '--add-opens', 'java.base/java.lang.reflect=ALL-UNNAMED',
     '--add-opens', 'java.desktop/java.awt.font=ALL-UNNAMED',
     '-jar', $jar,
-    '--ilink.enabled=true',
-    '--spring.ai.openai.base-url=https://kittyapi.xyz/v1',
-    '--spring.ai.openai.chat.options.model=gpt-5.6-terra',
-    '--app.ai.model=gpt-5.6-terra',
-    '--app.ai.reasoning-effort=xhigh'
+    '--ilink.enabled=true'
 )
 
 $process = Start-Process -FilePath $java -ArgumentList $arguments -WorkingDirectory $projectRoot `
@@ -74,7 +70,8 @@ while ((Get-Date) -lt $deadline) {
     $listener = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($listener -and $listener.OwningProcess -eq $process.Id) {
         Write-Host "Bot started on http://127.0.0.1:8080 (PID $($process.Id))."
-        Write-Host "Model: Kitty gpt-5.6-terra, reasoning effort: xhigh."
+        Write-Host 'Administrator site: http://127.0.0.1:8081/admin (when app.admin.enabled=true).'
+        Write-Host 'Model: loaded from application-local.properties.'
         Write-Host "Logs: $stdout"
         exit 0
     }

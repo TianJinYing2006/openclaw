@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.ykdsummer.ai.config.RealtimeEvidenceProperties;
 import com.example.ykdsummer.ai.tool.WebSearchTools;
+import com.example.ykdsummer.persistence.RedisOperationalStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.Set;
@@ -91,6 +92,28 @@ class RealtimeEvidenceAugmenterTest {
             fixture.augmenter().augment("convert_currency", "{\"base\":\"USD\",\"target\":\"CNY\"}", () -> "专用结果二");
 
             verify(webSearchTools).webSearch("实时查询 convert_currency USD CNY");
+        }
+    }
+
+    @Test
+    void usesSharedRedisEvidenceBeforeRunningAnotherWebSearch() {
+        WebSearchTools webSearchTools = mock(WebSearchTools.class);
+        RedisOperationalStore redis = mock(RedisOperationalStore.class);
+        when(redis.get("realtime-web", "实时查询 convert_currency USD CNY")).thenReturn("Redis 缓存结果");
+        RealtimeEvidenceProperties properties = properties(Duration.ofSeconds(2));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        RealtimeEvidenceAugmenter augmenter = new RealtimeEvidenceAugmenter(
+                properties, webSearchTools, new ObjectMapper(), executor, redis);
+        try {
+            String result = augmenter.augment("convert_currency", "{\"base\":\"USD\",\"target\":\"CNY\"}",
+                    () -> "专用汇率：USD/CNY 7.2");
+
+            assertThat(result).contains("Redis 缓存结果");
+            verify(webSearchTools, times(0)).webSearch(anyString());
+        } finally {
+            augmenter.shutdown();
+            executor.shutdownNow();
         }
     }
 

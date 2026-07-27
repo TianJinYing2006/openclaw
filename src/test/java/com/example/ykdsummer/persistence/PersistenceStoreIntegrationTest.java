@@ -1,10 +1,13 @@
 package com.example.ykdsummer.persistence;
 
+import com.example.ykdsummer.admin.config.AdminWebProperties;
+import com.example.ykdsummer.admin.service.AdminPlatformService;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import com.example.ykdsummer.ai.service.ImageTaskStatusStore.ImageTask;
 import com.example.ykdsummer.ai.service.ImageTaskStatusStore.Operation;
 import com.example.ykdsummer.ai.service.ImageTaskStatusStore.Status;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.nio.file.Path;
@@ -18,10 +21,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Explicit opt-in only: it writes a temporary row to the local MySQL instance and removes it afterwards.
@@ -32,6 +39,8 @@ class PersistenceStoreIntegrationTest {
     private HikariDataSource dataSource;
     private JdbcTemplate jdbc;
     private String userId;
+    private String managedInstanceId;
+    private long platformUserId;
 
     @BeforeEach
     void setUp() {
@@ -43,18 +52,28 @@ class PersistenceStoreIntegrationTest {
         dataSource = new HikariDataSource(config);
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
-        userId = "persistence-test-" + UUID.randomUUID();
+        managedInstanceId = UUID.randomUUID().toString();
+        String username = "persistence-test-" + UUID.randomUUID();
+        jdbc.update("INSERT INTO platform_users(username, remark) VALUES (?, '')", username);
+        Long createdUserId = jdbc.queryForObject("SELECT id FROM platform_users WHERE username = ?", Long.class, username);
+        if (createdUserId == null) throw new IllegalStateException("Could not create integration platform user");
+        platformUserId = createdUserId;
+        jdbc.update("INSERT INTO bot_instances(id, platform_user_id) VALUES (?, ?)", managedInstanceId, platformUserId);
+        userId = "managed:" + managedInstanceId + ":persistence-test-" + UUID.randomUUID();
     }
 
     @AfterEach
     void tearDown() {
         if (jdbc != null && userId != null) {
+            jdbc.update("DELETE FROM ai_usage_events WHERE external_user_id = ?", userId);
             jdbc.update("DELETE FROM asset_versions WHERE external_user_id = ?", userId);
             jdbc.update("DELETE e FROM task_events e JOIN async_tasks t ON t.task_id = e.task_id WHERE t.external_user_id = ?", userId);
             jdbc.update("DELETE FROM async_tasks WHERE external_user_id = ?", userId);
             jdbc.update("DELETE m FROM chat_messages m JOIN chat_conversations c ON c.id = m.conversation_id WHERE c.external_user_id = ?", userId);
             jdbc.update("DELETE FROM chat_conversations WHERE external_user_id = ?", userId);
             jdbc.update("DELETE FROM app_users WHERE external_user_id = ?", userId);
+            jdbc.update("DELETE FROM bot_instances WHERE id = ?", managedInstanceId);
+            jdbc.update("DELETE FROM platform_users WHERE id = ?", platformUserId);
         }
         if (dataSource != null) dataSource.close();
     }
@@ -78,8 +97,188 @@ class PersistenceStoreIntegrationTest {
         ImageAssetMetadataStore assets = new JdbcImageAssetMetadataStore(jdbc);
         assets.record(userId, new StoredImage("img_test_asset", 1, Path.of("ilink-bot/images/test.png"),
                 "测试图片", "", Instant.now(), "image/png", "generated", ""), "oss");
+        DocumentAssetMetadataStore documents = new JdbcDocumentAssetMetadataStore(jdbc);
+        documents.record(userId, new com.example.ykdsummer.bot.file.LocalDocumentAssetStore.StoredDocument(
+                "doc_test_asset", 1, 1, Path.of("ilink-bot/documents/test.txt"), "test.txt", "txt", "测试文档", Instant.now()), "oss");
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM asset_versions WHERE external_user_id = ?", Integer.class, userId);
-        assertEquals(1, count);
+        assertEquals(2, count);
+        assertEquals(platformUserId, jdbc.queryForObject("SELECT platform_user_id FROM chat_conversations WHERE external_user_id = ?", Long.class, userId));
+        assertEquals(managedInstanceId, jdbc.queryForObject("SELECT instance_id FROM chat_conversations WHERE external_user_id = ?", String.class, userId));
+        assertEquals(platformUserId, jdbc.queryForObject("SELECT platform_user_id FROM async_tasks WHERE task_id = ?", Long.class, task.taskId()));
+        assertEquals(managedInstanceId, jdbc.queryForObject("SELECT instance_id FROM asset_versions WHERE external_user_id = ? AND asset_id = ?", String.class, userId, "img_test_asset"));
+        assertEquals("oss", jdbc.queryForObject("SELECT storage_provider FROM asset_versions WHERE external_user_id = ? AND asset_id = ?", String.class, userId, "doc_test_asset"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aggregatesDurableInstanceUsageForTheAdminDashboard() {
+        jdbc.update("INSERT INTO app_users(external_user_id, platform_user_id, instance_id) VALUES (?, ?, ?)",
+                userId, platformUserId, managedInstanceId);
+        jdbc.update("""
+                INSERT INTO ai_usage_events(platform_user_id, instance_id, external_user_id, usage_kind, provider, model,
+                    tool_name, prompt_tokens, completion_tokens, total_tokens, quantity, duration_ms, reported)
+                VALUES (?, ?, ?, 'MODEL', 'chat-completions', 'test-model', '', 12, 8, 20, 1, 321, true)
+                """, platformUserId, managedInstanceId, userId);
+        jdbc.update("""
+                INSERT INTO ai_usage_events(platform_user_id, instance_id, external_user_id, usage_kind, provider, model,
+                    tool_name, prompt_tokens, completion_tokens, total_tokens, quantity, duration_ms, failure_reason, reported)
+                VALUES (?, ?, ?, 'MODEL_FAILURE', 'chat-completions', '', '', 0, 0, 0, 1, 654, 'TEMPORARY_UNAVAILABLE', false)
+                """, platformUserId, managedInstanceId, userId);
+        jdbc.update("""
+                INSERT INTO ai_usage_events(platform_user_id, instance_id, external_user_id, usage_kind, provider, model,
+                    tool_name, prompt_tokens, completion_tokens, total_tokens, quantity, duration_ms, reported)
+                VALUES (?, ?, ?, 'IMAGE_GENERATION', '', 'test-image', 'generate_image', 0, 0, 0, 1, 0, false)
+                """, platformUserId, managedInstanceId, userId);
+        jdbc.update("""
+                INSERT INTO ai_usage_events(platform_user_id, instance_id, external_user_id, usage_kind, provider, model,
+                    tool_name, prompt_tokens, completion_tokens, total_tokens, quantity, duration_ms, reported)
+                VALUES (?, ?, ?, 'TOOL_SUCCESS', 'spring-ai-tool', '', 'search_web', 0, 0, 0, 1, 120, false)
+                """, platformUserId, managedInstanceId, userId);
+        jdbc.update("""
+                INSERT INTO ai_usage_events(platform_user_id, instance_id, external_user_id, usage_kind, provider, model,
+                    tool_name, prompt_tokens, completion_tokens, total_tokens, quantity, duration_ms, reported)
+                VALUES (?, ?, ?, 'TOOL_FAILURE', 'spring-ai-tool', '', 'search_web', 0, 0, 0, 1, 80, false)
+                """, platformUserId, managedInstanceId, userId);
+
+        ObjectProvider<JdbcTemplate> jdbcProvider = mock(ObjectProvider.class);
+        when(jdbcProvider.getIfAvailable()).thenReturn(jdbc);
+        ObjectProvider<TransactionTemplate> transactions = mock(ObjectProvider.class);
+        when(transactions.getIfAvailable()).thenReturn(new TransactionTemplate(new DataSourceTransactionManager(dataSource)));
+        AdminPlatformService service = new AdminPlatformService(jdbcProvider, transactions, new ObjectMapper(), new AdminWebProperties());
+
+        AdminPlatformService.DashboardSnapshot snapshot = service.dashboardSnapshot();
+        assertTrue(snapshot.dashboard().todayUsage().totalTokens() >= 20);
+        assertTrue(snapshot.dashboard().todayUsage().modelRequests() >= 1);
+        assertTrue(snapshot.capturedAt().isAfter(snapshot.usageWindowStart()));
+        AdminPlatformService.DashboardInstance instance = snapshot.instances().stream()
+                .filter(value -> value.instanceId().equals(managedInstanceId))
+                .findFirst().orElseThrow();
+        assertEquals(1, instance.modelRequestsToday());
+        assertEquals(20, instance.totalTokensToday());
+        assertEquals(1, instance.imageOperationsToday());
+        assertEquals(2, instance.toolCallsToday());
+        assertEquals(1, instance.toolFailuresToday());
+        AdminPlatformService.UsageTotals usage = service.usageSummary(managedInstanceId);
+        assertEquals(2, usage.toolCalls());
+        assertEquals(1, usage.toolFailures());
+        AdminPlatformService.ToolUsage tool = service.toolUsage(managedInstanceId).stream()
+                .filter(value -> value.toolName().equals("search_web"))
+                .findFirst().orElseThrow();
+        assertEquals(1, tool.succeededCalls());
+        assertEquals(1, tool.failedCalls());
+        assertEquals(100, tool.averageDurationMs());
+        assertTrue(service.chatUsers().stream().anyMatch(value -> value.externalUserId().equals(userId)
+                && value.instanceId().equals(managedInstanceId) && value.modelRequests() == 1 && value.modelFailures() == 1));
+        assertTrue(service.modelInvocationsForInstance(managedInstanceId).stream().anyMatch(value -> !value.succeeded()
+                && value.durationMs() == 654 && "TEMPORARY_UNAVAILABLE".equals(value.failureReason())));
+        Long appUserId = jdbc.queryForObject("SELECT id FROM app_users WHERE external_user_id = ?", Long.class, userId);
+        assertTrue(appUserId != null && service.modelInvocationsForChatUser(appUserId).stream()
+                .anyMatch(value -> value.succeeded() && value.durationMs() == 321 && "test-model".equals(value.model())));
+    }
+
+    @Test
+    void marksPersistedInstanceConnectedWhenAnEncryptedSessionIsRestored() {
+        ObjectProvider<JdbcTemplate> jdbcProvider = mock(ObjectProvider.class);
+        when(jdbcProvider.getIfAvailable()).thenReturn(jdbc);
+        ObjectProvider<TransactionTemplate> transactions = mock(ObjectProvider.class);
+        when(transactions.getIfAvailable()).thenReturn(new TransactionTemplate(new DataSourceTransactionManager(dataSource)));
+        AdminPlatformService service = new AdminPlatformService(jdbcProvider, transactions, new ObjectMapper(), new AdminWebProperties());
+
+        service.updateConnection(managedInstanceId, "STARTING", "");
+        service.markSessionRestored(managedInstanceId, "restored-account");
+
+        assertEquals("CONNECTED", jdbc.queryForObject(
+                "SELECT connection_status FROM bot_instances WHERE id = ?", String.class, managedInstanceId));
+        assertEquals("restored-account", jdbc.queryForObject(
+                "SELECT ilink_account_id FROM bot_instances WHERE id = ?", String.class, managedInstanceId));
+        assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM bot_instance_events WHERE instance_id = ? AND event_type = 'SESSION_RESTORED'",
+                Long.class, managedInstanceId) >= 1);
+    }
+
+    @Test
+    void keepsOneActiveBindingAndAuditsTheFullArchiveRestoreLifecycle() {
+        ObjectProvider<JdbcTemplate> jdbcProvider = mock(ObjectProvider.class);
+        when(jdbcProvider.getIfAvailable()).thenReturn(jdbc);
+        ObjectProvider<TransactionTemplate> transactions = mock(ObjectProvider.class);
+        when(transactions.getIfAvailable()).thenReturn(new TransactionTemplate(new DataSourceTransactionManager(dataSource)));
+        AdminPlatformService service = new AdminPlatformService(jdbcProvider, transactions, new ObjectMapper(), new AdminWebProperties());
+
+        service.archiveActiveInstance(platformUserId, "integration test");
+
+        AdminPlatformService.UserOverview archivedUser = service.findUser(platformUserId).orElseThrow();
+        assertNull(archivedUser.instanceId());
+        AdminPlatformService.ArchivedInstance archived = service.archivedInstances(platformUserId).stream()
+                .filter(value -> value.instanceId().equals(managedInstanceId))
+                .findFirst().orElseThrow();
+        assertEquals("ARCHIVED", archived.connectionStatus());
+        assertTrue(service.eventsForUser(platformUserId).stream()
+                .anyMatch(value -> value.instanceId().equals(managedInstanceId) && "INSTANCE_ARCHIVED".equals(value.eventType())));
+
+        service.restoreArchivedInstance(platformUserId, managedInstanceId);
+
+        AdminPlatformService.UserOverview restored = service.findUser(platformUserId).orElseThrow();
+        assertEquals(managedInstanceId, restored.instanceId());
+        assertEquals("PENDING_QR", restored.lifecycleState());
+        assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM bot_instances WHERE platform_user_id = ? AND lifecycle_state <> 'ARCHIVED'",
+                Long.class, platformUserId));
+        assertTrue(service.eventsForUser(platformUserId).stream()
+                .anyMatch(value -> value.instanceId().equals(managedInstanceId) && "INSTANCE_RESTORED".equals(value.eventType())));
+    }
+
+    @Test
+    void permanentlyDeletingAnArchivedInstanceRemovesItsScopedChatIdentity() {
+        ObjectProvider<JdbcTemplate> jdbcProvider = mock(ObjectProvider.class);
+        when(jdbcProvider.getIfAvailable()).thenReturn(jdbc);
+        ObjectProvider<TransactionTemplate> transactions = mock(ObjectProvider.class);
+        when(transactions.getIfAvailable()).thenReturn(new TransactionTemplate(new DataSourceTransactionManager(dataSource)));
+        AdminPlatformService service = new AdminPlatformService(jdbcProvider, transactions, new ObjectMapper(), new AdminWebProperties());
+        jdbc.update("INSERT INTO app_users(external_user_id, platform_user_id, instance_id) VALUES (?, ?, ?)",
+                userId, platformUserId, managedInstanceId);
+        String username = jdbc.queryForObject("SELECT username FROM platform_users WHERE id = ?", String.class, platformUserId);
+
+        service.archiveActiveInstance(platformUserId, "integration test");
+        service.permanentlyDeleteArchivedInstance(platformUserId, managedInstanceId, username, "integration cleanup");
+
+        assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM app_users WHERE external_user_id = ?", Long.class, userId));
+        assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM bot_instances WHERE id = ?", Long.class, managedInstanceId));
+    }
+
+    @Test
+    void keepsTheSameWechatIdentitySeparatedAcrossDifferentBotInstances() {
+        ObjectProvider<JdbcTemplate> jdbcProvider = mock(ObjectProvider.class);
+        when(jdbcProvider.getIfAvailable()).thenReturn(jdbc);
+        ObjectProvider<TransactionTemplate> transactions = mock(ObjectProvider.class);
+        when(transactions.getIfAvailable()).thenReturn(new TransactionTemplate(new DataSourceTransactionManager(dataSource)));
+        AdminPlatformService service = new AdminPlatformService(jdbcProvider, transactions, new ObjectMapper(), new AdminWebProperties());
+        String secondUsername = "persistence-peer-" + UUID.randomUUID();
+        String secondInstanceId = UUID.randomUUID().toString();
+        String rawWechatIdentity = "same-wechat-user@im.wechat";
+        String firstExternalUser = "managed:" + managedInstanceId + ':' + rawWechatIdentity;
+        String secondExternalUser = "managed:" + secondInstanceId + ':' + rawWechatIdentity;
+        jdbc.update("INSERT INTO platform_users(username, remark) VALUES (?, '')", secondUsername);
+        Long secondUserId = jdbc.queryForObject("SELECT id FROM platform_users WHERE username = ?", Long.class, secondUsername);
+        if (secondUserId == null) throw new IllegalStateException("Could not create second platform user");
+        jdbc.update("INSERT INTO bot_instances(id, platform_user_id) VALUES (?, ?)", secondInstanceId, secondUserId);
+        try {
+            jdbc.update("INSERT INTO app_users(external_user_id, platform_user_id, instance_id) VALUES (?, ?, ?)",
+                    firstExternalUser, platformUserId, managedInstanceId);
+            jdbc.update("INSERT INTO app_users(external_user_id, platform_user_id, instance_id) VALUES (?, ?, ?)",
+                    secondExternalUser, secondUserId, secondInstanceId);
+
+            List<AdminPlatformService.ChatUserOverview> matching = service.chatUsers().stream()
+                    .filter(value -> rawWechatIdentity.equals(value.externalUserId().substring(value.externalUserId().lastIndexOf(':') + 1)))
+                    .toList();
+
+            assertEquals(2, matching.size());
+            assertTrue(matching.stream().anyMatch(value -> value.instanceId().equals(managedInstanceId)
+                    && value.platformUserId() == platformUserId));
+            assertTrue(matching.stream().anyMatch(value -> value.instanceId().equals(secondInstanceId)
+                    && value.platformUserId() == secondUserId));
+        } finally {
+            jdbc.update("DELETE FROM app_users WHERE external_user_id IN (?, ?)", firstExternalUser, secondExternalUser);
+            jdbc.update("DELETE FROM bot_instances WHERE id = ?", secondInstanceId);
+            jdbc.update("DELETE FROM platform_users WHERE id = ?", secondUserId);
+        }
     }
 
     private static String requiredEnvironment(String name) {

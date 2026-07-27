@@ -1,6 +1,7 @@
 package com.example.ykdsummer.bot.file;
 
 import com.example.ykdsummer.ai.model.AiFile;
+import com.example.ykdsummer.persistence.DocumentAssetMetadataStore;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -15,6 +16,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 /**
  * 文档的本地版本仓库。
@@ -23,11 +26,13 @@ import org.springframework.stereotype.Service;
  * 而是将目标历史版本复制成一个新的当前版本，因此资源 ID、版本号和文件内容始终可追踪。</p>
  */
 @Service
+@ConditionalOnProperty(prefix = "oss.document", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class LocalDocumentAssetStore {
     private static final String CURRENT_FILE = "current-document.properties";
 
     private final Path root;
     private final ConcurrentMap<String, StoredDocument> currentCache = new ConcurrentHashMap<>();
+    private volatile DocumentAssetMetadataStore assetMetadata = DocumentAssetMetadataStore.disabled();
 
     public LocalDocumentAssetStore() {
         this(Path.of(".ai-assets", "documents").toAbsolutePath().normalize());
@@ -35,6 +40,11 @@ public class LocalDocumentAssetStore {
 
     public LocalDocumentAssetStore(Path root) {
         this.root = root.toAbsolutePath().normalize();
+    }
+
+    @Autowired(required = false)
+    void setAssetMetadata(DocumentAssetMetadataStore assetMetadata) {
+        this.assetMetadata = assetMetadata == null ? DocumentAssetMetadataStore.disabled() : assetMetadata;
     }
 
     public StoredDocument importUploaded(String userId, AiFile source) {
@@ -218,6 +228,7 @@ public class LocalDocumentAssetStore {
             write(directory.resolve("metadata.properties"), properties);
             StoredDocument stored = find(userId, assetId, version).orElseThrow();
             setCurrent(userId, stored);
+            recordAsset(userId, stored);
             return stored;
         } catch (IOException exception) {
             throw new IllegalStateException("无法保存本地文档资源", exception);
@@ -231,6 +242,12 @@ public class LocalDocumentAssetStore {
         write(userDirectory(userId).resolve(CURRENT_FILE), pointer);
         currentCache.put(safeUser(userId), stored);
     }
+
+    protected void recordAsset(String userId, StoredDocument document) {
+        assetMetadata.record(userId, document, storageProvider());
+    }
+
+    protected String storageProvider() { return "local"; }
 
     private StoredDocument requireCurrentAsset(String userId, String assetId) {
         if (!validAssetId(assetId)) {

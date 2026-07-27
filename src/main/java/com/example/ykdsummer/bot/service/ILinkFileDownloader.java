@@ -36,6 +36,11 @@ public class ILinkFileDownloader {
     }
 
     public List<AiFile> downloadFiles(List<MessageItem> items) {
+        return downloadFiles(client, items);
+    }
+
+    /** Uses an explicitly owned client for a managed bot instance. */
+    public List<AiFile> downloadFiles(ILinkClient currentClient, List<MessageItem> items) {
         List<FileItem> fileItems = items.stream()
                 .filter(item -> item != null && ILinkMessageType.from(item.type()) == ILinkMessageType.FILE)
                 .map(MessageItem::fileItem)
@@ -45,7 +50,6 @@ public class ILinkFileDownloader {
             throw new FileProcessingException("一次最多发送 3 个文件");
         }
 
-        ILinkClient currentClient = client;
         if (currentClient == null) {
             throw new FileProcessingException("文件读取服务尚未连接，请稍后重试");
         }

@@ -1,6 +1,7 @@
 package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
+import com.example.ykdsummer.ai.config.OpenAiClientProperties;
 import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.ConversationMessage;
@@ -26,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -36,26 +38,32 @@ import java.util.stream.Collectors;
 /**
  * 使用官方 OpenAI Java SDK 调用第三方服务提供的 Responses API。
  *
- * <p>已废弃：所有请求已统一由 {@link SpringAiChatCompletionsGateway} 处理。
- * 本类保留仅用于参考，Spring 不会再注入它。</p>
+ * <p>Only used after the router confirms that the separate Responses connection is enabled and complete.
+ * Chat Completions remains the active text and vision provider.</p>
  */
-@Deprecated
 @Service
 public class OpenAiResponsesGateway implements ResponsesGateway {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiResponsesGateway.class);
     private final OpenAIClient client;
     private final AiProperties properties;
+    private final OpenAiClientProperties connection;
     private final AiTraceLogger trace;
 
     public OpenAiResponsesGateway(OpenAIClient client, AiProperties properties) {
-        this(client, properties, AiTraceLogger.disabled());
+        this(client, properties, compatibilityConnection(properties), AiTraceLogger.disabled());
     }
 
     @Autowired
-    public OpenAiResponsesGateway(OpenAIClient client, AiProperties properties, AiTraceLogger trace) {
+    public OpenAiResponsesGateway(
+            @Qualifier("responsesOpenAIClient") OpenAIClient client,
+            AiProperties properties,
+            OpenAiClientProperties connection,
+            AiTraceLogger trace
+    ) {
         this.client = client;
         this.properties = properties;
+        this.connection = connection;
         this.trace = trace;
     }
 
@@ -197,7 +205,7 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
                 .effort(ReasoningEffort.of(reasoningEffort))
                 .build();
         ResponseCreateParams.Builder request = ResponseCreateParams.builder()
-                .model(properties.getModel())
+                .model(connection.getModel())
                 .instructions(instructions())
                 .inputOfResponse(input)
                 .reasoning(reasoning)
@@ -221,6 +229,12 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
 
     private int outputLimit(AiRequestBudget budget) {
         return budget == null ? properties.getMaxCompletionTokens() : budget.maxOutputTokens();
+    }
+
+    private static OpenAiClientProperties compatibilityConnection(AiProperties properties) {
+        OpenAiClientProperties connection = new OpenAiClientProperties();
+        connection.setModel(properties == null ? "not-configured" : properties.getModel());
+        return connection;
     }
 
     private static AiModelUsage extractUsage(Response response) {

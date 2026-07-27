@@ -59,8 +59,14 @@ public class AiProperties {
     /** Chat Completions 单次回答的输出上限；提示词负责简洁，上限只防止异常长输出。 */
     private int maxCompletionTokens = 800;
 
-    /** Responses API 的 reasoning.effort。 */
+    /** 当前模型的推理强度；Chat Completions 与可选 Responses 通道都使用它。 */
     private String reasoningEffort = "high";
+
+    /**
+     * 原始文件与旧 reasoning 请求是否允许使用 /v1/responses。
+     * 默认关闭：当前百炼 Qwen 配置只验证了 Chat Completions，不能把不兼容请求静默发给它。
+     */
+    private boolean responsesEnabled;
 
     /** 单次模型请求最长等待时间。 */
     private Duration timeout = Duration.ofSeconds(120);
@@ -127,6 +133,14 @@ public class AiProperties {
 
     public void setReasoningEffort(String reasoningEffort) {
         this.reasoningEffort = reasoningEffort;
+    }
+
+    public boolean isResponsesEnabled() {
+        return responsesEnabled;
+    }
+
+    public void setResponsesEnabled(boolean responsesEnabled) {
+        this.responsesEnabled = responsesEnabled;
     }
 
     public Duration getTimeout() {

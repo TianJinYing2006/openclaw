@@ -1,8 +1,11 @@
 package com.example.ykdsummer.bot.service;
 
 import com.example.ykdsummer.bot.config.ILinkRateLimitProperties;
+import com.example.ykdsummer.persistence.RedisOperationalStore;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -18,9 +21,21 @@ public class ILinkMessageRateLimiter {
 
     private final ILinkRateLimitProperties properties;
     private final Cache<String, SlidingWindow> windows;
+    private final RedisOperationalStore redis;
 
     public ILinkMessageRateLimiter(ILinkRateLimitProperties properties) {
+        this(properties, (RedisOperationalStore) null);
+    }
+
+    @Autowired
+    public ILinkMessageRateLimiter(ILinkRateLimitProperties properties,
+                                   ObjectProvider<RedisOperationalStore> redisProvider) {
+        this(properties, redisProvider.getIfAvailable());
+    }
+
+    ILinkMessageRateLimiter(ILinkRateLimitProperties properties, RedisOperationalStore redis) {
         this.properties = properties;
+        this.redis = redis;
         Duration retention = properties.getWindow().multipliedBy(2);
         this.windows = Caffeine.newBuilder()
                 .maximumSize(properties.getMaxUsers() * 6L)
@@ -34,6 +49,12 @@ public class ILinkMessageRateLimiter {
         }
         String safeUser = userId == null ? "unknown" : userId;
         String safeType = messageType == null ? "default" : messageType.toLowerCase(Locale.ROOT);
+        if (redis != null) {
+            RedisOperationalStore.Result result = redis.tryAcquire(
+                    "ilink-rate", safeUser + '\u0000' + safeType, properties.getWindow(), properties.limitFor(safeType));
+            if (result == RedisOperationalStore.Result.ACCEPTED) return true;
+            if (result == RedisOperationalStore.Result.REJECTED) return false;
+        }
         SlidingWindow window = windows.get(safeUser + '\u0000' + safeType, ignored -> new SlidingWindow());
         return window.tryAcquire(
                 System.nanoTime(),

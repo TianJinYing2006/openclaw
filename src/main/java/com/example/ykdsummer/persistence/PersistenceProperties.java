@@ -32,6 +32,8 @@ public class PersistenceProperties {
         private String host = "127.0.0.1";
         private int port = 6379;
         private String password;
+        private String keyPrefix = "ykd";
+        private Duration messageDedupTtl = Duration.ofHours(24);
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -41,5 +43,12 @@ public class PersistenceProperties {
         public void setPort(int port) { this.port = port; }
         public String getPassword() { return password; }
         public void setPassword(String password) { this.password = password; }
+        public String getKeyPrefix() { return keyPrefix; }
+        public void setKeyPrefix(String keyPrefix) { this.keyPrefix = keyPrefix; }
+        public Duration getMessageDedupTtl() { return messageDedupTtl; }
+        public void setMessageDedupTtl(Duration messageDedupTtl) {
+            this.messageDedupTtl = messageDedupTtl == null || messageDedupTtl.isZero() || messageDedupTtl.isNegative()
+                    ? Duration.ofHours(24) : messageDedupTtl;
+        }
     }
 }
