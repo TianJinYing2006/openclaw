@@ -2,19 +2,23 @@ package com.example.ykdsummer.ai.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.AiFile;
-import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.AiImage;
+import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.ConversationMessage;
+import com.example.ykdsummer.storage.db.SqliteChatMemory;
+import com.google.common.util.concurrent.Striped;
+import org.springframework.ai.chat.messages.*;import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import com.example.ykdsummer.ai.config.AiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * 管理每个微信用户的内存对话，并把普通问题交给模型网关。
@@ -43,15 +47,30 @@ public class AiChatService {
     private final TokenBudgetPolicy budgetPolicy;
     /** key 是 iLink fromUserId，value 是该微信用户自己的最近对话。 */
     private final Cache<String, UserConversation> conversations;
+    private final SqliteChatMemory chatMemory;
+    private final Striped<ReadWriteLock> userLocks;
 
     public AiChatService(AiProperties properties, LlmGateway gateway) {
         this(properties, gateway, AiTraceLogger.disabled(), AiUsageMeter.disabled(),
-                new TokenBudgetPolicy(new com.example.ykdsummer.ai.config.AiUsageProperties()));
+                new TokenBudgetPolicy(new com.example.ykdsummer.ai.config.AiUsageProperties()),
+                null);
     }
 
     public AiChatService(AiProperties properties, LlmGateway gateway, AiTraceLogger trace) {
         this(properties, gateway, trace, AiUsageMeter.disabled(),
-                new TokenBudgetPolicy(new com.example.ykdsummer.ai.config.AiUsageProperties()));
+                new TokenBudgetPolicy(new com.example.ykdsummer.ai.config.AiUsageProperties()),
+                null);
+    }
+
+    // 5-arg backward compat for tests (no SqliteChatMemory)
+    public AiChatService(
+            AiProperties properties,
+            LlmGateway gateway,
+            AiTraceLogger trace,
+            AiUsageMeter usageMeter,
+            TokenBudgetPolicy budgetPolicy
+    ) {
+        this(properties, gateway, trace, usageMeter, budgetPolicy, null);
     }
 
     @Autowired
@@ -60,17 +79,25 @@ public class AiChatService {
             LlmGateway gateway,
             AiTraceLogger trace,
             AiUsageMeter usageMeter,
-            TokenBudgetPolicy budgetPolicy
+            TokenBudgetPolicy budgetPolicy,
+            @Autowired(required = false) SqliteChatMemory chatMemory
     ) {
         this.properties = properties;
         this.gateway = gateway;
         this.trace = trace;
         this.usageMeter = usageMeter;
         this.budgetPolicy = budgetPolicy;
-        this.conversations = Caffeine.newBuilder()
-                .maximumSize(properties.getMaxMemoryUsers())
-                .expireAfterAccess(safeMemoryTimeout(properties.getMemoryIdleTimeout()))
-                .build();
+        this.chatMemory = chatMemory;
+        if (chatMemory != null) {
+            this.conversations = null;
+            this.userLocks = Striped.lazyWeakReadWriteLock(1024);
+        } else {
+            this.conversations = Caffeine.newBuilder()
+                    .maximumSize(properties.getMaxMemoryUsers())
+                    .expireAfterAccess(safeMemoryTimeout(properties.getMemoryIdleTimeout()))
+                    .build();
+            this.userLocks = null;
+        }
     }
 
     /**
@@ -131,6 +158,10 @@ public class AiChatService {
     ) {
         if (!properties.isEnabled()) {
             return AssistantAnswer.text(DISABLED_REPLY);
+        }
+
+        if (chatMemory != null) {
+            return answerSqliteInternal(userId, memoryPrompt, modelPrompt, images, files);
         }
         // Caffeine 按访问时间自动过期，并对总用户数设置上限，避免长期运行后 Map 无限增长。
         UserConversation conversation = conversations.get(userId, ignored -> new UserConversation());
@@ -195,8 +226,92 @@ public class AiChatService {
         }
     }
 
+    private AssistantAnswer answerSqliteInternal(
+            String userId,
+            String memoryPrompt,
+            String modelPrompt,
+            List<AiImage> images,
+            List<AiFile> files
+    ) {
+        String conversationId = userId + "::single";
+        Lock lock = userLocks.get(userId).writeLock();
+        lock.lock();
+        try {
+            int windowSize = chatMemory.getWindowSize(conversationId, properties.getMaxMemoryMessages());
+            List<ConversationMessage> history = chatMemory.getAsConversationMessages(conversationId, windowSize);
+
+            trace.request(userId, memoryPrompt, modelPrompt, history.size(), images, files);
+            AiRequestBudget budget = budgetPolicy.plan(history, modelPrompt, images, files);
+            AiUsageMeter.Reservation reservation = usageMeter.reserve(userId, budget);
+            if (!reservation.allowed()) {
+                log.info("AI request rejected by budget, user={}, reason={}, taskClass={}",
+                        anonymize(userId), reservation.rejectReason(), budget.taskClass());
+                return AssistantAnswer.text(reservation.rejectReason() == AiUsageMeter.RejectReason.INPUT_TOO_LARGE
+                        ? AiUsageMeter.INPUT_TOO_LARGE_REPLY
+                        : AiUsageMeter.DAILY_LIMIT_REPLY);
+            }
+            LlmGateway.ModelReply reply;
+            boolean settled = false;
+            try {
+                reply = gateway.generate(userId, history, modelPrompt, images, files, budget);
+                usageMeter.complete(reservation, reply.protocol(), reply.model(), reply.usage());
+                settled = true;
+            } finally {
+                if (!settled) {
+                    usageMeter.release(reservation);
+                }
+            }
+
+            // åªææ¨¡åæåè¿ååææè¿ä¸é®ä¸ç­åå¥åå²ï¼å¤±è´¥æç¤ºä¸ä¼æ±¡æä¸ä¸è½®ä¸ä¸æã
+            ConversationMessage userMsg = new ConversationMessage(
+                    ConversationMessage.Role.USER,
+                    memoryText(memoryPrompt, images, files)
+            );
+            ConversationMessage assistantMsg = new ConversationMessage(
+                    ConversationMessage.Role.ASSISTANT,
+                    reply.text()
+            );
+            chatMemory.add(conversationId, List.of(toSpringMessage(userMsg)));
+            chatMemory.add(conversationId, List.of(toSpringMessage(assistantMsg)));
+
+            return new AssistantAnswer(reply.text(), reply.artifacts());
+        } catch (AiGatewayException exception) {
+            log.warn(
+                    "AI request failed, user={}, kind={}",
+                    anonymize(userId),
+                    exception.kind()
+            );
+            return AssistantAnswer.text(switch (exception.kind()) {
+                case AUTHENTICATION -> AUTH_ERROR_REPLY;
+                case EMPTY_RESPONSE -> EMPTY_REPLY;
+                case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
+            });
+        } catch (RuntimeException exception) {
+            log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
+            return AssistantAnswer.text(UNAVAILABLE_REPLY);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * å°é¡¹ç®åé¨ç {@link ConversationMessage}
+     * è½¬æ¢ä¸º Spring AI ç {@link org.springframework.ai.chat.messages.Message}，
+     * ç¨äºåå¥ SqliteChatMemoryã
+     */
+    private static Message toSpringMessage(ConversationMessage msg) {
+        return switch (msg.role()) {
+            case USER -> new UserMessage(msg.text());
+            case ASSISTANT -> new AssistantMessage(msg.text());
+        };
+    }
+
     public void clear(String userId) {
         // “清空”命令传入当前发送者 ID，只删除这一位用户的记录。
+        if (chatMemory != null) {
+            chatMemory.clear(userId + "::single");
+            return;
+        }
         UserConversation removed = conversations.getIfPresent(userId);
         conversations.invalidate(userId);
         if (removed != null) {
@@ -215,6 +330,9 @@ public class AiChatService {
     }
 
     int conversationCount() {
+        if (chatMemory != null) {
+            return 0;
+        }
         conversations.cleanUp();
         return Math.toIntExact(conversations.estimatedSize());
     }

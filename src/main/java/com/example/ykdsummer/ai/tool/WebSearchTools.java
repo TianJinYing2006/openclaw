@@ -18,10 +18,9 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 /**
- * 联网搜索工具：使用 uapis.cn 的智能搜索引擎获取实时信息。
+ * 联网搜索工具（当前未注册，仅保留参考）：使用百炼 DashScope Web Search API。
  *
- * <p>调用 uapis.cn 的 Smart Search API（POST /api/v1/search/aggregate），
- * 返回网页搜索结果。每次调用消耗 4 积分。</p>
+ * <p>实际在用的搜索工具为 {@link BochaWebSearchTools}（search_web）。</p>
  */
 @Component
 public class WebSearchTools {

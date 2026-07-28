@@ -42,11 +42,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 使用 Spring AI 1.1.8 调用 OpenAI Chat Completions 兼容接口。
+ * 使用 Spring AI 1.1.8 调用 OpenAI Chat Completions 兼容接口（纯文本通道）。
  *
- * <p>这条通道只处理纯文本。它把 Java 内存中的 USER/ASSISTANT 历史转换为 Spring AI
- * Message，并在最前面加入统一 system prompt。后续 Agent 和 Tool 可以继续建立在同一个
- * {@link ChatModel} 上，而文件与多模态仍交给 ResponsesGateway。</p>
+ * <p>由 {@link RoutingLlmGateway} 在检测到<strong>仅含文字</strong>时路由至此。
+ * 它将 Java 内存中的 USER/ASSISTANT 历史转换为 Spring AI Message，并在最前面加入
+ * 统一 system prompt。所有工具（search_web、generate_image 等）在此注册。</p>
+ *
+ * <p>含图片/文件的多模态请求路由至 {@link OpenAiResponsesGateway}（Responses API）。</p>
  */
 @Service
 public class SpringAiChatCompletionsGateway implements TextChatGateway {

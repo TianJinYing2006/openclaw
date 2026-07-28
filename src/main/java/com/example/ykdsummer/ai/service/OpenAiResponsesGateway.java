@@ -36,10 +36,12 @@ import java.util.stream.Collectors;
 /**
  * 使用官方 OpenAI Java SDK 调用第三方服务提供的 Responses API。
  *
- * <p>已废弃：所有请求已统一由 {@link SpringAiChatCompletionsGateway} 处理。
- * 本类保留仅用于参考，Spring 不会再注入它。</p>
+ * <p>Routing 规则：<ul>
+ * <li>仅含文字 → {@link SpringAiChatCompletionsGateway}（Chat Completions）</li>
+ * <li>含图片/文件 → 本类（Responses API，多模态）</li>
+ * </ul>
+ * </p>
  */
-@Deprecated
 @Service
 public class OpenAiResponsesGateway implements ResponsesGateway {
 
