@@ -61,6 +61,7 @@ public class DatabaseConfig {
         DatabaseInitializer(JdbcTemplate jdbc) {
             this.jdbc = jdbc;
             createTables();
+            createScheduledTasksTable();
         }
 
         void createTables() {
@@ -113,6 +114,46 @@ public class DatabaseConfig {
                     """);
 
             log.info("SQLite tables initialized");
+        }
+
+        void createScheduledTasksTable() {
+            jdbc.execute("""
+                    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name            TEXT    NOT NULL,
+                        task_type       TEXT    NOT NULL
+                                            CHECK(task_type IN ('CRON', 'ONCE')),
+                        cron_expr       TEXT    DEFAULT '',
+                        fire_at         TEXT    DEFAULT NULL,
+                        status          TEXT    NOT NULL DEFAULT 'WAITING'
+                                            CHECK(status IN ('WAITING','RUNNING','PAUSED','FINISHED','FAILED')),
+                        handler_bean    TEXT    NOT NULL,
+                        params          TEXT    DEFAULT '{}',
+                        misfire_policy  TEXT    DEFAULT 'IGNORE',
+                        last_run_at     TEXT    DEFAULT NULL,
+                        last_run_result  TEXT   DEFAULT NULL,
+                        next_run_at     TEXT    DEFAULT NULL,
+                        total_run_count INTEGER DEFAULT 0,
+                        error_msg       TEXT    DEFAULT '',
+                        created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+                        updated_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+                    )
+                    """);
+
+            jdbc.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_status
+                        ON scheduled_tasks(status)
+                    """);
+
+            // 迁移：为旧表添加 user_id 列（幂等）
+            try {
+                jdbc.execute("ALTER TABLE scheduled_tasks ADD COLUMN user_id TEXT DEFAULT NULL");
+                log.info("Added user_id column to scheduled_tasks (migration)");
+            } catch (Exception ignored) {
+                // 列已存在时忽略
+            }
+
+            log.info("scheduled_tasks table initialized");
         }
     }
 }

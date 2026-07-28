@@ -1,6 +1,7 @@
 package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
+import com.example.ykdsummer.ai.provider.ImageGenerationProvider;
 import com.openai.client.OpenAIClient;
 import com.openai.errors.PermissionDeniedException;
 import com.openai.errors.UnauthorizedException;
@@ -42,23 +43,36 @@ public class AiImageGenerationService {
     private final OpenAIClient client;
     private final AiProperties properties;
     private final AsyncImageEditGateway imageEditGateway;
+    private final List<ImageGenerationProvider> providers;
 
     public AiImageGenerationService(
             @Qualifier("imageOpenAIClient") OpenAIClient client,
             AiProperties properties
     ) {
-        this(client, properties, (prompt, referenceImageUrl) -> AsyncImageEditGateway.EditResult.error("图片编辑服务未配置"));
+        this(client, properties, (prompt, referenceImageUrl) -> AsyncImageEditGateway.EditResult.error("图片编辑服务未配置"),
+                List.of());
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public AiImageGenerationService(
             @Qualifier("imageOpenAIClient") OpenAIClient client,
             AiProperties properties,
             AsyncImageEditGateway imageEditGateway
     ) {
+        this(client, properties, imageEditGateway, List.of());
+    }
+
+    /** 全参数构造器：Spring 自动注入 providers（包括 DashScopeProvider）。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    public AiImageGenerationService(
+            @Qualifier("imageOpenAIClient") OpenAIClient client,
+            AiProperties properties,
+            AsyncImageEditGateway imageEditGateway,
+            List<ImageGenerationProvider> providers
+    ) {
         this.client = client;
         this.properties = properties;
         this.imageEditGateway = imageEditGateway;
+        this.providers = providers;
     }
 
     /** 基于已保存原图创建新版本；参考图通过短时 OSS URL 进入异步媒体协议。 */
@@ -84,9 +98,34 @@ public class AiImageGenerationService {
         if (!properties.isEnabled() || !properties.isImageEnabled()) {
             return Result.error(DISABLED_REPLY);
         }
+
+        String model = properties.getImageModel();
+
+        // 万象系列（wanx/wan2）委托给 DashScope Provider
+        if ((model != null && (model.startsWith("wanx") || model.startsWith("wan2") || model.startsWith("wan.")))
+                && !providers.isEmpty()) {
+            ImageGenerationProvider provider = providers.stream()
+                    .filter(p -> "dashscope".equals(p.providerName()))
+                    .findFirst()
+                    .orElse(null);
+            if (provider != null) {
+                log.info("Delegating to DashScope provider: user={}, model={}", anonymize(userId), model);
+                ImageGenerationProvider.Result providerResult =
+                        provider.generate(prompt, properties.getImageSize(), model);
+                if (providerResult.success()) {
+                    log.info("AI image completed via DashScope, user={}, model={}, bytes={}",
+                            anonymize(userId), model, providerResult.imageBytes().length);
+                    return Result.image(providerResult.imageBytes());
+                }
+                log.warn("DashScope provider failed: {}", providerResult.errorMessage());
+                return Result.error(providerResult.errorMessage());
+            }
+        }
+
+        // 非万象模型 → OpenAI Images 兼容接口
         try {
             ImageGenerateParams params = ImageGenerateParams.builder()
-                    .model(properties.getImageModel())
+                    .model(model)
                     .prompt(prompt)
                     .n(1)
                     .size(properties.getImageSize())
@@ -105,7 +144,7 @@ public class AiImageGenerationService {
             if (bytes == null || bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES) {
                 return Result.error(EMPTY_REPLY);
             }
-            log.info("AI image completed, user={}, model={}, bytes={}", anonymize(userId), properties.getImageModel(), bytes.length);
+            log.info("AI image completed, user={}, model={}, bytes={}", anonymize(userId), model, bytes.length);
             return Result.image(bytes);
         } catch (UnauthorizedException | PermissionDeniedException exception) {
             log.warn("AI image authentication failed, user={}", anonymize(userId));

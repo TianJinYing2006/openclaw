@@ -75,6 +75,9 @@ public class AiProperties {
     /** 是否允许文字生成图片。 */
     private boolean imageEnabled = true;
 
+    /** 图片视觉识别专用模型（如 qwen-vl-max）。默认回退到主模型。 */
+    private String visionModel = "";
+
     /** 图片生成模型名称。当前活动客户端走 OpenAI Images 兼容的 gpt-image-2。 */
     private String imageModel = "gpt-image-2";
 
@@ -158,6 +161,9 @@ public class AiProperties {
     public void setMaxMemoryUsers(long maxMemoryUsers) {
         this.maxMemoryUsers = Math.max(1L, maxMemoryUsers);
     }
+
+    public String getVisionModel() { return visionModel; }
+    public void setVisionModel(String visionModel) { this.visionModel = visionModel; }
 
     public boolean isImageEnabled() { return imageEnabled; }
     public void setImageEnabled(boolean imageEnabled) { this.imageEnabled = imageEnabled; }

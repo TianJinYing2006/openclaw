@@ -7,16 +7,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 从 SDK {@link MessageItem} 列表中提取结构化内容。
+ * 从微信 iLink SDK 的 {@link MessageItem} 列表中提取结构化内容。
  *
- * <p>职责单一：只做"类型判断 + 文字合并"，不发起任何网络请求。</p>
+ * <p>职责仅限于读取 SDK 消息类型和文本字段，不做网络下载或解密。</p>
  */
 @Component
 public class MessageExtractor {
 
     /**
+     * 从原始 SDK 消息项中提取文字、图片、文件、视频和语音状态。
+     *
      * @param items SDK 消息项列表
-     * @return 提取的结构化内容
+     * @return 统一的结构化提取结果
      */
     public ExtractedContent extract(List<MessageItem> items) {
         List<String> textParts = new ArrayList<>();
@@ -68,7 +70,9 @@ public class MessageExtractor {
         }
     }
 
-    /** 本次提取的临时结果，只在处理一条微信消息时使用。 */
+    /**
+     * 一次消息提取的临时结果，只在处理这一条微信消息时使用。
+     */
     public record ExtractedContent(
             String prompt,
             boolean hasImage,
