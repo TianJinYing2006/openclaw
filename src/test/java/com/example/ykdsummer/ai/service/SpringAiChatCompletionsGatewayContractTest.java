@@ -93,8 +93,9 @@ class SpringAiChatCompletionsGatewayContractTest {
             ToolArtifactCollector collector = new ToolArtifactCollector();
             ImageTools imageTools = new ImageTools(imageService, failingStore, collector);
             SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
-                    createModel(server), new AiProperties(), new WeatherTools(mock(WeatherService.class)),
-                    imageTools, collector, AiTraceLogger.disabled());
+                    createModel(server), new AiProperties(),
+                    new Object[]{new WeatherTools(mock(WeatherService.class)), imageTools},
+                    collector, AiTraceLogger.disabled());
 
             LlmGateway.ModelReply reply = gateway.generate("image-user", List.of(), "给我生成一张小狗图片");
 
@@ -175,8 +176,9 @@ class SpringAiChatCompletionsGatewayContractTest {
                     "西南风", "2级", 95, "5 分钟前发布"
             ));
             SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
-                    model, properties, new WeatherTools(weatherService)
-            );
+                    model, properties,
+                    new Object[]{new WeatherTools(weatherService)},
+                    null, AiTraceLogger.disabled());
 
             LlmGateway.ModelReply reply = gateway.generate(List.of(), "杭州现在天气怎么样？");
 
@@ -221,20 +223,19 @@ class SpringAiChatCompletionsGatewayContractTest {
             ImageTools imageTools = new ImageTools(mock(AiImageGenerationService.class), mock(LocalImageAssetStore.class),
                     collector, ImageInspectionService.unavailable(), taskStore, AiTraceLogger.disabled());
             SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
-                    model,
-                    properties,
-                    new WeatherTools(mock(WeatherService.class)),
-                    imageTools,
-                    collector,
-                    new SpeechTools(mock(TextToSpeechService.class), voices, collector),
-                    new VoiceSettingsTools(voices, collector),
-                    new DocumentTools(new LocalDocumentAssetStore(), new DocumentTextExtractor(), collector),
-                    new FileProductionTools(new LocalDocumentAssetStore(), collector),
-                    memoryTools,
-                    new AssetManagementTools(new LocalImageAssetStore(), new LocalDocumentAssetStore(), collector),
-                    new ImageTaskStatusTools(taskStore, imageTools, collector),
-                    AiTraceLogger.disabled()
-            );
+                    model, properties,
+                    new Object[]{
+                            new WeatherTools(mock(WeatherService.class)),
+                            imageTools,
+                            new SpeechTools(mock(TextToSpeechService.class), voices, collector),
+                            new VoiceSettingsTools(voices, collector),
+                            new DocumentTools(new LocalDocumentAssetStore(), new DocumentTextExtractor(), collector),
+                            new FileProductionTools(new LocalDocumentAssetStore(), collector),
+                            memoryTools,
+                            new AssetManagementTools(new LocalImageAssetStore(), new LocalDocumentAssetStore(), collector),
+                            new ImageTaskStatusTools(taskStore, imageTools, collector)
+                    },
+                    collector, AiTraceLogger.disabled());
 
             LlmGateway.ModelReply reply = gateway.generate(
                     "chat-user",
@@ -316,9 +317,12 @@ class SpringAiChatCompletionsGatewayContractTest {
             store.importUploaded("pdf-user", new com.example.ykdsummer.ai.model.AiFile(
                     "tool-test.pdf", "application/pdf", pdf));
             SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
-                    createModel(server), new AiProperties(), new WeatherTools(mock(WeatherService.class)),
-                    null, collector, null, null,
-                    new DocumentTools(store, new DocumentTextExtractor(), collector), AiTraceLogger.disabled());
+                    createModel(server), new AiProperties(),
+                    new Object[]{
+                            new WeatherTools(mock(WeatherService.class)),
+                            new DocumentTools(store, new DocumentTextExtractor(), collector)
+                    },
+                    collector, AiTraceLogger.disabled());
 
             LlmGateway.ModelReply reply = gateway.generate("pdf-user", List.of(), "请查看我刚上传的 PDF");
 

@@ -1,5 +1,8 @@
 package com.example.ykdsummer.ai.service;
 
+import com.example.ykdsummer.schedule.model.ScheduledTask;
+import com.example.ykdsummer.schedule.model.TaskStatus;
+import com.example.ykdsummer.schedule.repo.ScheduledTaskRepository;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.example.ykdsummer.ai.model.AiFile;
@@ -8,11 +11,16 @@ import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import com.example.ykdsummer.storage.db.SqliteChatMemory;
 import com.google.common.util.concurrent.Striped;
-import org.springframework.ai.chat.messages.*;import java.time.Duration;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 import com.example.ykdsummer.ai.config.AiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,8 +35,8 @@ import org.springframework.stereotype.Service;
  * {@link com.example.ykdsummer.bot.service.ILinkReplyService} 整理好的用户 ID、文字和图片，
  * 找到该用户自己的历史记录，然后调用 {@link LlmGateway}。</p>
  *
- * <p>历史记录只存在当前 Java 进程内存中，以 iLink 的 {@code fromUserId} 为键。两个微信
- * 用户使用不同的键，因此聊天不会混在一起；应用重启后这些记录会全部消失。</p>
+ * <p>历史记录通过 Caffeine 本地缓存或 SQLite 持久化存储，以 iLink 的 {@code fromUserId} 为键。
+ * 两个微信用户使用不同的键，因此聊天不会混在一起。</p>
  */
 @Service
 public class AiChatService {
@@ -49,20 +57,21 @@ public class AiChatService {
     private final Cache<String, UserConversation> conversations;
     private final SqliteChatMemory chatMemory;
     private final Striped<ReadWriteLock> userLocks;
+    private final ScheduledTaskRepository taskRepository;
 
     public AiChatService(AiProperties properties, LlmGateway gateway) {
         this(properties, gateway, AiTraceLogger.disabled(), AiUsageMeter.disabled(),
                 new TokenBudgetPolicy(new com.example.ykdsummer.ai.config.AiUsageProperties()),
-                null);
+                null, null);
     }
 
     public AiChatService(AiProperties properties, LlmGateway gateway, AiTraceLogger trace) {
         this(properties, gateway, trace, AiUsageMeter.disabled(),
                 new TokenBudgetPolicy(new com.example.ykdsummer.ai.config.AiUsageProperties()),
-                null);
+                null, null);
     }
 
-    // 5-arg backward compat for tests (no SqliteChatMemory)
+    // 5-arg backward compat for tests (no SqliteChatMemory, no ScheduledTaskRepository)
     public AiChatService(
             AiProperties properties,
             LlmGateway gateway,
@@ -70,7 +79,19 @@ public class AiChatService {
             AiUsageMeter usageMeter,
             TokenBudgetPolicy budgetPolicy
     ) {
-        this(properties, gateway, trace, usageMeter, budgetPolicy, null);
+        this(properties, gateway, trace, usageMeter, budgetPolicy, null, null);
+    }
+
+    // 6-arg backward compat for tests (no ScheduledTaskRepository)
+    public AiChatService(
+            AiProperties properties,
+            LlmGateway gateway,
+            AiTraceLogger trace,
+            AiUsageMeter usageMeter,
+            TokenBudgetPolicy budgetPolicy,
+            SqliteChatMemory chatMemory
+    ) {
+        this(properties, gateway, trace, usageMeter, budgetPolicy, chatMemory, null);
     }
 
     @Autowired
@@ -80,7 +101,8 @@ public class AiChatService {
             AiTraceLogger trace,
             AiUsageMeter usageMeter,
             TokenBudgetPolicy budgetPolicy,
-            @Autowired(required = false) SqliteChatMemory chatMemory
+            @Autowired(required = false) SqliteChatMemory chatMemory,
+            @Autowired(required = false) ScheduledTaskRepository taskRepository
     ) {
         this.properties = properties;
         this.gateway = gateway;
@@ -88,6 +110,7 @@ public class AiChatService {
         this.usageMeter = usageMeter;
         this.budgetPolicy = budgetPolicy;
         this.chatMemory = chatMemory;
+        this.taskRepository = taskRepository;
         if (chatMemory != null) {
             this.conversations = null;
             this.userLocks = Striped.lazyWeakReadWriteLock(1024);
@@ -100,40 +123,23 @@ public class AiChatService {
         }
     }
 
-    /**
-     * 回答一条普通问题。调用者是 ILinkReplyService，返回值最终仍会作为文字发回微信。
-     *
-     * @param userId 入站 WeixinMessage.fromUserId()，用于隔离不同用户的历史
-     * @param prompt 当前消息中的文字，或微信已提供的语音转写
-     * @param images 本轮入站图片的解密字节；没有图片时是空列表
-     */
     public String answer(String userId, String prompt, List<AiImage> images) {
         return answer(userId, prompt, images, List.of());
     }
 
-    /** 文件和图片都只用于当前轮次，不把二进制内容放入聊天记忆。 */
     public String answer(String userId, String prompt, List<AiImage> images, List<AiFile> files) {
         return answerRich(userId, prompt, images, files).text();
     }
 
-    /** 供微信回复层使用：除文字外还能带回本轮 Agent 工具生成的图片。 */
     public AssistantAnswer answerRich(String userId, String prompt, List<AiImage> images, List<AiFile> files) {
         return answerInternal(userId, prompt, prompt, images, files);
     }
 
-    /**
-     * “语音：”模式的回答入口。模型额外收到简洁播报要求，但聊天记录只保存用户真实问题，
-     * 不把内部的长度限制带进下一轮对话。
-     */
     public String answerForVoice(String userId, String prompt) {
         String modelPrompt = prompt + "\n\n请用自然、适合语音播报的简洁中文回答，最多 120 个汉字。";
         return answerInternal(userId, prompt, modelPrompt, List.of(), List.of()).text();
     }
 
-    /**
-     * 允许业务层附加用户不可见的内部协议提示，同时聊天记忆只保存用户真正发送的文字。
-     * TJY 文件生成协议使用这个入口让模型返回 FILE_GEN||JSON 标记。
-     */
     public String answerWithInternalPrompt(
             String userId,
             String userPrompt,
@@ -160,69 +166,22 @@ public class AiChatService {
             return AssistantAnswer.text(DISABLED_REPLY);
         }
 
+        // 追加待执行定时任务上下文，让 AI 自然感知即将触发的提醒
+        String context = pendingTaskContext(userId);
+        String enhancedPrompt = context.isEmpty() ? modelPrompt : modelPrompt + context;
+
         if (chatMemory != null) {
-            return answerSqliteInternal(userId, memoryPrompt, modelPrompt, images, files);
+            return answerSqliteInternal(userId, memoryPrompt, enhancedPrompt, images, files);
         }
         // Caffeine 按访问时间自动过期，并对总用户数设置上限，避免长期运行后 Map 无限增长。
         UserConversation conversation = conversations.get(userId, ignored -> new UserConversation());
-        /*
-         * Caffeine 负责会话对象的容量和过期，不负责同一用户两次请求的历史顺序。
-         * synchronized 锁住该用户自己的会话：同一用户必须一个问题回答完再记下一条；
-         * 不同用户锁的是不同对象，仍然可以并行。
-         */
         synchronized (conversation) {
-            try {
-                /*
-                 * Completion 与 Responses 请求都设置为 store=false，服务端不替我们保存上下文。
-                 * 所以每次调用都复制最近历史，并连同本轮 prompt/images 重新发给模型。
-                 */
-                List<ConversationMessage> history = conversation.copyMessages();
-                trace.request(userId, memoryPrompt, modelPrompt, history.size(), images, files);
-                AiRequestBudget budget = budgetPolicy.plan(history, modelPrompt, images, files);
-                AiUsageMeter.Reservation reservation = usageMeter.reserve(userId, budget);
-                if (!reservation.allowed()) {
-                    log.info("AI request rejected by budget, user={}, reason={}, taskClass={}",
-                            anonymize(userId), reservation.rejectReason(), budget.taskClass());
-                    return AssistantAnswer.text(reservation.rejectReason() == AiUsageMeter.RejectReason.INPUT_TOO_LARGE
-                            ? AiUsageMeter.INPUT_TOO_LARGE_REPLY
-                            : AiUsageMeter.DAILY_LIMIT_REPLY);
-                }
-                LlmGateway.ModelReply reply;
-                boolean settled = false;
-                try {
-                    reply = gateway.generate(userId, history, modelPrompt, images, files, budget);
-                    usageMeter.complete(reservation, reply.protocol(), reply.model(), reply.usage());
-                    settled = true;
-                } finally {
-                    if (!settled) {
-                        usageMeter.release(reservation);
-                    }
-                }
-                // 只有模型成功返回后才把这一问一答写入历史，失败提示不会污染下一轮上下文。
-                conversation.remember(
-                        new ConversationMessage(ConversationMessage.Role.USER, memoryText(memoryPrompt, images, files)),
-                        properties.getMaxMemoryMessages()
-                );
-                conversation.remember(
-                        new ConversationMessage(ConversationMessage.Role.ASSISTANT, reply.text()),
-                        properties.getMaxMemoryMessages()
-                );
-                return new AssistantAnswer(reply.text(), reply.artifacts());
-            } catch (AiGatewayException exception) {
-                log.warn(
-                        "AI request failed, user={}, kind={}",
-                        anonymize(userId),
-                        exception.kind()
-                );
-                return AssistantAnswer.text(switch (exception.kind()) {
-                    case AUTHENTICATION -> AUTH_ERROR_REPLY;
-                    case EMPTY_RESPONSE -> EMPTY_REPLY;
-                    case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
-                });
-            } catch (RuntimeException exception) {
-                log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
-                return AssistantAnswer.text(UNAVAILABLE_REPLY);
-            }
+            return executeWithGateway(userId, memoryPrompt, enhancedPrompt, images, files,
+                    conversation::copyMessages,
+                    (userMsg, assistantMsg) -> {
+                        conversation.remember(userMsg, properties.getMaxMemoryMessages());
+                        conversation.remember(assistantMsg, properties.getMaxMemoryMessages());
+                    });
         }
     }
 
@@ -237,68 +196,81 @@ public class AiChatService {
         Lock lock = userLocks.get(userId).writeLock();
         lock.lock();
         try {
-            int windowSize = chatMemory.getWindowSize(conversationId, properties.getMaxMemoryMessages());
-            List<ConversationMessage> history = chatMemory.getAsConversationMessages(conversationId, windowSize);
-
-            trace.request(userId, memoryPrompt, modelPrompt, history.size(), images, files);
-            AiRequestBudget budget = budgetPolicy.plan(history, modelPrompt, images, files);
-            AiUsageMeter.Reservation reservation = usageMeter.reserve(userId, budget);
-            if (!reservation.allowed()) {
-                log.info("AI request rejected by budget, user={}, reason={}, taskClass={}",
-                        anonymize(userId), reservation.rejectReason(), budget.taskClass());
-                return AssistantAnswer.text(reservation.rejectReason() == AiUsageMeter.RejectReason.INPUT_TOO_LARGE
-                        ? AiUsageMeter.INPUT_TOO_LARGE_REPLY
-                        : AiUsageMeter.DAILY_LIMIT_REPLY);
-            }
-            LlmGateway.ModelReply reply;
-            boolean settled = false;
-            try {
-                reply = gateway.generate(userId, history, modelPrompt, images, files, budget);
-                usageMeter.complete(reservation, reply.protocol(), reply.model(), reply.usage());
-                settled = true;
-            } finally {
-                if (!settled) {
-                    usageMeter.release(reservation);
-                }
-            }
-
-            // åªææ¨¡åæåè¿ååææè¿ä¸é®ä¸ç­åå¥åå²ï¼å¤±è´¥æç¤ºä¸ä¼æ±¡æä¸ä¸è½®ä¸ä¸æã
-            ConversationMessage userMsg = new ConversationMessage(
-                    ConversationMessage.Role.USER,
-                    memoryText(memoryPrompt, images, files)
-            );
-            ConversationMessage assistantMsg = new ConversationMessage(
-                    ConversationMessage.Role.ASSISTANT,
-                    reply.text()
-            );
-            chatMemory.add(conversationId, List.of(toSpringMessage(userMsg)));
-            chatMemory.add(conversationId, List.of(toSpringMessage(assistantMsg)));
-
-            return new AssistantAnswer(reply.text(), reply.artifacts());
-        } catch (AiGatewayException exception) {
-            log.warn(
-                    "AI request failed, user={}, kind={}",
-                    anonymize(userId),
-                    exception.kind()
-            );
-            return AssistantAnswer.text(switch (exception.kind()) {
-                case AUTHENTICATION -> AUTH_ERROR_REPLY;
-                case EMPTY_RESPONSE -> EMPTY_REPLY;
-                case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
-            });
-        } catch (RuntimeException exception) {
-            log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
-            return AssistantAnswer.text(UNAVAILABLE_REPLY);
+            return executeWithGateway(userId, memoryPrompt, modelPrompt, images, files,
+                    () -> {
+                        int windowSize = chatMemory.getWindowSize(conversationId, properties.getMaxMemoryMessages());
+                        return chatMemory.getAsConversationMessages(conversationId, windowSize);
+                    },
+                    (userMsg, assistantMsg) -> {
+                        chatMemory.add(conversationId, List.of(toSpringMessage(userMsg)));
+                        chatMemory.add(conversationId, List.of(toSpringMessage(assistantMsg)));
+                    });
         } finally {
             lock.unlock();
         }
     }
 
     /**
-     * å°é¡¹ç®åé¨ç {@link ConversationMessage}
-     * è½¬æ¢ä¸º Spring AI ç {@link org.springframework.ai.chat.messages.Message}，
-     * ç¨äºåå¥ SqliteChatMemoryã
+     * 共享的网关调用模板方法。负责预算检查、用量计量、模型调用、历史保存和异常处理。
+     *
+     * @param historySupplier 获取历史记录列表
+     * @param historySaver    保存用户与助理消息的回调
      */
+    private AssistantAnswer executeWithGateway(
+            String userId, String memoryPrompt, String modelPrompt,
+            List<AiImage> images, List<AiFile> files,
+            Supplier<List<ConversationMessage>> historySupplier,
+            BiConsumer<ConversationMessage, ConversationMessage> historySaver
+    ) {
+        List<ConversationMessage> history;
+        try {
+            history = historySupplier.get();
+        } catch (RuntimeException e) {
+            log.warn("Failed to load chat history, user={}", anonymize(userId), e);
+            return AssistantAnswer.text(UNAVAILABLE_REPLY);
+        }
+
+        trace.request(userId, memoryPrompt, modelPrompt, history.size(), images, files);
+        AiRequestBudget budget = budgetPolicy.plan(history, modelPrompt, images, files);
+        AiUsageMeter.Reservation reservation = usageMeter.reserve(userId, budget);
+        if (!reservation.allowed()) {
+            log.info("AI request rejected by budget, user={}, reason={}, taskClass={}",
+                    anonymize(userId), reservation.rejectReason(), budget.taskClass());
+            return AssistantAnswer.text(reservation.rejectReason() == AiUsageMeter.RejectReason.INPUT_TOO_LARGE
+                    ? AiUsageMeter.INPUT_TOO_LARGE_REPLY
+                    : AiUsageMeter.DAILY_LIMIT_REPLY);
+        }
+
+        try {
+            LlmGateway.ModelReply reply = gateway.generate(userId, history, modelPrompt, images, files, budget);
+            usageMeter.complete(reservation, reply.protocol(), reply.model(), reply.usage());
+
+            ConversationMessage userMsg = new ConversationMessage(
+                    ConversationMessage.Role.USER, memoryText(memoryPrompt, images, files));
+            ConversationMessage assistantMsg = new ConversationMessage(
+                    ConversationMessage.Role.ASSISTANT, reply.text());
+            try {
+                historySaver.accept(userMsg, assistantMsg);
+            } catch (RuntimeException e) {
+                log.warn("Failed to save chat history, user={}", anonymize(userId), e);
+            }
+
+            return new AssistantAnswer(reply.text(), reply.artifacts());
+        } catch (AiGatewayException exception) {
+            usageMeter.release(reservation);
+            log.warn("AI request failed, user={}, kind={}", anonymize(userId), exception.kind());
+            return AssistantAnswer.text(switch (exception.kind()) {
+                case AUTHENTICATION -> AUTH_ERROR_REPLY;
+                case EMPTY_RESPONSE -> EMPTY_REPLY;
+                case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
+            });
+        } catch (RuntimeException exception) {
+            usageMeter.release(reservation);
+            log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
+            return AssistantAnswer.text(UNAVAILABLE_REPLY);
+        }
+    }
+
     private static Message toSpringMessage(ConversationMessage msg) {
         return switch (msg.role()) {
             case USER -> new UserMessage(msg.text());
@@ -307,7 +279,6 @@ public class AiChatService {
     }
 
     public void clear(String userId) {
-        // “清空”命令传入当前发送者 ID，只删除这一位用户的记录。
         if (chatMemory != null) {
             chatMemory.clear(userId + "::single");
             return;
@@ -337,9 +308,6 @@ public class AiChatService {
         return Math.toIntExact(conversations.estimatedSize());
     }
 
-    /**
-     * 图片只服务于当前模型请求，不把 Base64 大数据放进历史；历史中只留下“本轮带图”的文字提示。
-     */
     private static String memoryText(String prompt, List<AiImage> images, List<AiFile> files) {
         int imageCount = images == null ? 0 : images.size();
         List<AiFile> safeFiles = files == null ? List.of() : files;
@@ -355,6 +323,46 @@ public class AiChatService {
         return memory.toString();
     }
 
+    /**
+     * 查询用户待执行的定时任务，构建上下文提示附加到 modelPrompt 中。
+     * 可以让 AI 在回复时自然提及即将触发的提醒，并知晓当前日期时间。
+     */
+    private String pendingTaskContext(String userId) {
+        StringBuilder sb = new StringBuilder();
+
+        // 当前时间上下文，方便 AI 创建提醒时自动补齐日期
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        sb.append("\n\n## 当前时间\n")
+                .append(now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")))
+                .append("（周").append(now.getDayOfWeek().getValue()).append("）\n");
+
+        if (taskRepository == null || userId == null) {
+            return sb.toString();
+        }
+        try {
+            List<ScheduledTask> waiting = taskRepository.findByUserId(userId).stream()
+                    .filter(t -> t.getStatus() == TaskStatus.WAITING)
+                    .collect(java.util.stream.Collectors.toList());
+            if (!waiting.isEmpty()) {
+                sb.append("\n## 你当前待执行的定时提醒\n");
+                for (ScheduledTask task : waiting) {
+                    sb.append("- ").append(task.getName());
+                    if (task.getFireAt() != null) {
+                        sb.append("（").append(task.getFireAt().format(
+                                java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm")))
+                                .append(" 执行）");
+                    }
+                    sb.append("\n");
+                }
+                sb.append("如果用户问及时钟或提醒，请参考以上信息。");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.debug("Failed to build pending task context, user={}", anonymize(userId), e);
+            return sb.toString();
+        }
+    }
+
     private static String anonymize(String userId) {
         return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
     }
@@ -366,7 +374,6 @@ public class AiChatService {
     }
 
     private static final class UserConversation {
-        /** USER 和 ASSISTANT 消息交替存放，条数达到上限时从最旧消息开始删除。 */
         private final List<ConversationMessage> messages = new ArrayList<>();
 
         private List<ConversationMessage> copyMessages() {
@@ -375,12 +382,10 @@ public class AiChatService {
 
         private void remember(ConversationMessage message, int maxMessages) {
             messages.add(message);
-            // maxMessages 统计的是消息条数，不是问答轮数；默认 20 条约等于 10 轮。
             while (messages.size() > maxMessages) {
                 messages.removeFirst();
             }
         }
-
     }
 
     public record AssistantAnswer(String text, List<AiArtifact> artifacts) {

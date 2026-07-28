@@ -2,25 +2,8 @@ package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.ConversationMessage;
-import com.example.ykdsummer.ai.tool.BilibiliUserTools;
-import com.example.ykdsummer.ai.tool.EpicFreeGamesTools;
-import com.example.ykdsummer.ai.tool.QqUserTools;
-import com.example.ykdsummer.ai.tool.SteamUserTools;
-import com.example.ykdsummer.ai.tool.WeatherTools;
-import com.example.ykdsummer.ai.tool.ImageTools;
+import com.example.ykdsummer.ai.orchestration.ToolRegistry;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
-import com.example.ykdsummer.ai.tool.SpeechTools;
-import com.example.ykdsummer.ai.tool.VoiceSettingsTools;
-import com.example.ykdsummer.ai.tool.DocumentTools;
-import com.example.ykdsummer.ai.tool.ExternalToolSet;
-import com.example.ykdsummer.ai.tool.FileProductionTools;
-import com.example.ykdsummer.ai.tool.ConversationMemoryTools;
-import com.example.ykdsummer.ai.tool.AssetManagementTools;
-import com.example.ykdsummer.ai.tool.AmapTools;
-import com.example.ykdsummer.ai.tool.ImageTaskStatusTools;
-import com.example.ykdsummer.ai.tool.InformationToolSet;
-import com.example.ykdsummer.ai.tool.LocationSearchTools;
-import com.example.ykdsummer.ai.tool.WebSearchTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -46,7 +29,7 @@ import java.util.List;
  *
  * <p>由 {@link RoutingLlmGateway} 在检测到<strong>仅含文字</strong>时路由至此。
  * 它将 Java 内存中的 USER/ASSISTANT 历史转换为 Spring AI Message，并在最前面加入
- * 统一 system prompt。所有工具（search_web、generate_image 等）在此注册。</p>
+ * 统一 system prompt。所有工具通过 {@link ToolRegistry} 自动注册。</p>
  *
  * <p>含图片/文件的多模态请求路由至 {@link OpenAiResponsesGateway}（Responses API）。</p>
  */
@@ -57,187 +40,54 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
 
     private final ChatClient chatClient;
     private final AiProperties properties;
-    private final WeatherTools weatherTools;
-    private final ImageTools imageTools;
     private final ToolArtifactCollector artifacts;
-    private final SpeechTools speechTools;
-    private final VoiceSettingsTools voiceSettingsTools;
-    private final DocumentTools documentTools;
-    private final FileProductionTools fileProductionTools;
-    private final ConversationMemoryTools conversationMemoryTools;
-    private final AssetManagementTools assetManagementTools;
-    private final ImageTaskStatusTools imageTaskStatusTools;
     private final AiTraceLogger trace;
-    private final WebSearchTools webSearchTools;
-    private final EpicFreeGamesTools epicFreeGamesTools;
-    private final SteamUserTools steamUserTools;
-    private final QqUserTools qqUserTools;
-    private final BilibiliUserTools bilibiliUserTools;
-    private ExternalToolSet externalToolSet;
-    private InformationToolSet informationToolSet;
-    private AmapTools amapTools;
-    private LocationSearchTools locationSearchTools;
+    /** 生产环境通过 ToolRegistry 自动发现所有 @Tool Bean；测试环境通过构造函数传入。 */
+    private final ToolRegistry toolRegistry;
+    private final Object[] testToolBeans;
 
-    public SpringAiChatCompletionsGateway(
-            ChatModel chatModel,
-            AiProperties properties,
-            WeatherTools weatherTools,
-            WebSearchTools webSearchTools,
-            EpicFreeGamesTools epicFreeGamesTools,
-            SteamUserTools steamUserTools,
-            QqUserTools qqUserTools,
-            BilibiliUserTools bilibiliUserTools
-    ) {
-        this(chatModel, properties, weatherTools, null, null, null, null, null, null, null,
-                null, null, webSearchTools, epicFreeGamesTools, steamUserTools, qqUserTools,
-                bilibiliUserTools, AiTraceLogger.disabled());
-    }
-
-    /** 最小测试构造器：只注册天气 Tool。 */
-    public SpringAiChatCompletionsGateway(
-            ChatModel chatModel, AiProperties properties, WeatherTools weatherTools
-    ) {
-        this(chatModel, properties, weatherTools, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, AiTraceLogger.disabled());
-    }
-
+    /**
+     * 生产环境构造器：工具由 {@link ToolRegistry} 自动扫描注册。
+     * 注意：ToolRegistry 在 {@code ContextRefreshedEvent} 后才完成扫描，
+     * 因此 {@code toolRegistry.allToolBeans()} 在构造时不可用，需在 {@link #generate} 中懒调用。
+     */
     @Autowired
     public SpringAiChatCompletionsGateway(
             ChatModel chatModel,
             AiProperties properties,
-            WeatherTools weatherTools,
-            ImageTools imageTools,
-            ToolArtifactCollector artifacts,
-            SpeechTools speechTools,
-            VoiceSettingsTools voiceSettingsTools,
-            DocumentTools documentTools,
-            FileProductionTools fileProductionTools,
-            ConversationMemoryTools conversationMemoryTools,
-            AssetManagementTools assetManagementTools,
-            ImageTaskStatusTools imageTaskStatusTools,
-            WebSearchTools webSearchTools,
-            EpicFreeGamesTools epicFreeGamesTools,
-            SteamUserTools steamUserTools,
-            QqUserTools qqUserTools,
-            BilibiliUserTools bilibiliUserTools,
+            ToolRegistry toolRegistry,
+            @Autowired(required = false) ToolArtifactCollector artifactCollector,
+            @Autowired(required = false) AiTraceLogger trace
+    ) {
+        this.chatClient = ChatClient.create(chatModel);
+        this.properties = properties;
+        this.toolRegistry = toolRegistry;
+        this.testToolBeans = null;
+        this.artifacts = artifactCollector;
+        this.trace = trace != null ? trace : AiTraceLogger.disabled();
+    }
+
+    /**
+     * 测试环境构造器：工具通过 {@code toolBeans} 数组显式传入，不受 Spring 上下文限制。
+     */
+    SpringAiChatCompletionsGateway(
+            ChatModel chatModel,
+            AiProperties properties,
+            Object[] toolBeans,
+            ToolArtifactCollector artifactCollector,
             AiTraceLogger trace
     ) {
         this.chatClient = ChatClient.create(chatModel);
         this.properties = properties;
-        this.weatherTools = weatherTools;
-        this.imageTools = imageTools;
-        this.artifacts = artifacts;
-        this.speechTools = speechTools;
-        this.voiceSettingsTools = voiceSettingsTools;
-        this.documentTools = documentTools;
-        this.fileProductionTools = fileProductionTools;
-        this.conversationMemoryTools = conversationMemoryTools;
-        this.assetManagementTools = assetManagementTools;
-        this.imageTaskStatusTools = imageTaskStatusTools;
-        this.trace = trace;
-        this.webSearchTools = webSearchTools;
-        this.epicFreeGamesTools = epicFreeGamesTools;
-        this.steamUserTools = steamUserTools;
-        this.qqUserTools = qqUserTools;
-        this.bilibiliUserTools = bilibiliUserTools;
-    }
-
-    @Autowired(required = false)
-    void setExternalToolSet(ExternalToolSet externalToolSet) {
-        this.externalToolSet = externalToolSet;
-    }
-
-    @Autowired(required = false)
-    void setInformationToolSet(InformationToolSet informationToolSet) {
-        this.informationToolSet = informationToolSet;
-    }
-
-    @Autowired(required = false)
-    void setAmapTools(AmapTools amapTools) {
-        this.amapTools = amapTools;
-    }
-
-    @Autowired(required = false)
-    void setLocationSearchTools(LocationSearchTools locationSearchTools) {
-        this.locationSearchTools = locationSearchTools;
-    }
-
-    /** 兼容文件生产 Tool 上线前的测试构造器；正式 Spring Bean 会额外注册该 Tool。 */
-    public SpringAiChatCompletionsGateway(
-            ChatModel chatModel,
-            AiProperties properties,
-            WeatherTools weatherTools,
-            ImageTools imageTools,
-            ToolArtifactCollector artifacts,
-            SpeechTools speechTools,
-            VoiceSettingsTools voiceSettingsTools,
-            DocumentTools documentTools,
-            ConversationMemoryTools conversationMemoryTools,
-            AssetManagementTools assetManagementTools,
-            AiTraceLogger trace
-    ) {
-        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
-                documentTools, null, conversationMemoryTools, assetManagementTools, null,
-                null, null, null, null, null, trace);
-    }
-
-    /** 兼容图片任务状态 Tool 上线后的测试构造器；平台查询 Tool 在该构造器中不注册。 */
-    public SpringAiChatCompletionsGateway(
-            ChatModel chatModel, AiProperties properties, WeatherTools weatherTools,
-            ImageTools imageTools, ToolArtifactCollector artifacts, SpeechTools speechTools,
-            VoiceSettingsTools voiceSettingsTools, DocumentTools documentTools,
-            FileProductionTools fileProductionTools, ConversationMemoryTools conversationMemoryTools,
-            AssetManagementTools assetManagementTools, ImageTaskStatusTools imageTaskStatusTools,
-            AiTraceLogger trace
-    ) {
-        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
-                documentTools, fileProductionTools, conversationMemoryTools, assetManagementTools, imageTaskStatusTools,
-                null, null, null, null, null, trace);
-    }
-
-    /** 供现有单元测试和手动构造使用；正式 Spring Bean 会使用带 SpeechTools 的构造器。 */
-    public SpringAiChatCompletionsGateway(
-            ChatModel chatModel, AiProperties properties, WeatherTools weatherTools,
-            ImageTools imageTools, ToolArtifactCollector artifacts, AiTraceLogger trace
-    ) {
-        this(chatModel, properties, weatherTools, imageTools, artifacts, null, null, null, null, null,
-                null, null, null, null, null, null, null, trace);
-    }
-
-    /** 兼容 Phase 37 的测试构造器；生产 Bean 会额外注入 DocumentTools。 */
-    public SpringAiChatCompletionsGateway(
-            ChatModel chatModel, AiProperties properties, WeatherTools weatherTools,
-            ImageTools imageTools, ToolArtifactCollector artifacts, SpeechTools speechTools,
-            VoiceSettingsTools voiceSettingsTools, AiTraceLogger trace
-    ) {
-        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
-                null, null, null, null, null, null, null, null, null, null, trace);
-    }
-
-    /** 兼容已有测试构造器；生产 Bean 会额外注册 ConversationMemoryTools。 */
-    public SpringAiChatCompletionsGateway(
-            ChatModel chatModel, AiProperties properties, WeatherTools weatherTools,
-            ImageTools imageTools, ToolArtifactCollector artifacts, SpeechTools speechTools,
-            VoiceSettingsTools voiceSettingsTools, DocumentTools documentTools, AiTraceLogger trace
-    ) {
-        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
-                documentTools, null, null, null, null, null, null, null, null, null, trace);
-    }
-
-    /** 兼容 Phase 41 的测试构造器；生产 Bean 会额外注册 AssetManagementTools。 */
-    public SpringAiChatCompletionsGateway(
-            ChatModel chatModel, AiProperties properties, WeatherTools weatherTools,
-            ImageTools imageTools, ToolArtifactCollector artifacts, SpeechTools speechTools,
-            VoiceSettingsTools voiceSettingsTools, DocumentTools documentTools,
-            ConversationMemoryTools conversationMemoryTools, AiTraceLogger trace
-    ) {
-        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
-                documentTools, null, conversationMemoryTools, null, null, null, null, null, null, null, trace);
+        this.toolRegistry = null;
+        this.testToolBeans = toolBeans != null ? toolBeans : new Object[0];
+        this.artifacts = artifactCollector;
+        this.trace = trace != null ? trace : AiTraceLogger.disabled();
     }
 
     @Override
     public LlmGateway.ModelReply generate(List<ConversationMessage> history, String prompt) {
-        return generate("unknown", history, prompt);
+        return generate("unknown", history, prompt, null);
     }
 
     @Override
@@ -253,57 +103,10 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             if (artifacts != null) {
                 artifacts.begin(userId);
             }
-            var request = chatClient.prompt(buildPrompt(history, prompt, outputLimit(budget))).tools(weatherTools);
-            if (imageTools != null) {
-                request = request.tools(imageTools);
-            }
-            if (speechTools != null) {
-                request = request.tools(speechTools);
-            }
-            if (voiceSettingsTools != null) {
-                request = request.tools(voiceSettingsTools);
-            }
-            if (documentTools != null) {
-                request = request.tools(documentTools);
-            }
-            if (fileProductionTools != null) {
-                request = request.tools(fileProductionTools);
-            }
-            if (conversationMemoryTools != null) {
-                request = request.tools(conversationMemoryTools);
-            }
-            if (assetManagementTools != null) {
-                request = request.tools(assetManagementTools);
-            }
-            if (imageTaskStatusTools != null) {
-                request = request.tools(imageTaskStatusTools);
-            }
-            if (webSearchTools != null) {
-                request = request.tools(webSearchTools);
-            }
-            if (epicFreeGamesTools != null) {
-                request = request.tools(epicFreeGamesTools);
-            }
-            if (steamUserTools != null) {
-                request = request.tools(steamUserTools);
-            }
-            if (qqUserTools != null) {
-                request = request.tools(qqUserTools);
-            }
-            if (bilibiliUserTools != null) {
-                request = request.tools(bilibiliUserTools);
-            }
-            if (externalToolSet != null) {
-                request = request.tools(externalToolSet.toolBeans());
-            }
-            if (informationToolSet != null) {
-                request = request.tools(informationToolSet.toolBeans());
-            }
-            if (amapTools != null) {
-                request = request.tools(amapTools);
-            }
-            if (locationSearchTools != null) {
-                request = request.tools(locationSearchTools);
+            Object[] tools = resolveTools();
+            var request = chatClient.prompt(buildPrompt(history, prompt, outputLimit(budget)));
+            if (tools.length > 0) {
+                request = request.tools(tools);
             }
             ChatResponse response = request
                     .call()
@@ -336,6 +139,20 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                     : AiGatewayException.Kind.TEMPORARY_UNAVAILABLE;
             throw new AiGatewayException(kind, exception);
         }
+    }
+
+    /**
+     * 解析当前可用的工具列表：
+     * <ul>
+     *   <li>生产环境：从 {@link ToolRegistry} 懒加载（ContextRefreshedEvent 后可用）</li>
+     *   <li>测试环境：使用构造函数传入的 {@code testToolBeans}</li>
+     * </ul>
+     */
+    private Object[] resolveTools() {
+        if (toolRegistry != null) {
+            return toolRegistry.allToolBeans();
+        }
+        return testToolBeans;
     }
 
     Prompt buildPrompt(List<ConversationMessage> history, String prompt) {
