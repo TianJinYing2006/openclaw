@@ -111,6 +111,119 @@ public class ScheduleTaskTools {
     }
 
     /**
+     * 创建周期性提醒。支持每天或每周某天固定时间重复。
+     * <p>
+     * type 为 "DAILY"（每天重复）或 "WEEKLY"（每周某天重复）。<br>
+     * time 格式为 "HH:mm"，24 小时制，例如 "09:00" 表示上午 9 点，"18:30" 表示下午 6 点半。<br>
+     * dayOfWeek 仅在 type=WEEKLY 时必填，支持中文（周一/星期二等）和英文（MON/TUE 等）格式。<br>
+     * text 为提醒内容。
+     *
+     * @param type      重复类型：DAILY（每天）或 WEEKLY（每周）
+     * @param time      执行时间，格式 HH:mm，如 "09:00"、"18:30"
+     * @param dayOfWeek WEEKLY 类型时的星期几，如 "MON"/"周一"；DAILY 类型时置空
+     * @param text      提醒内容
+     * @return 创建结果描述
+     */
+    @Tool(description = "创建周期性提醒。支持每天或每周某天固定时间重复。" +
+            "type: DAILY(每天)/WEEKLY(每周X), " +
+            "time: HH:mm 格式如 09:00, " +
+            "dayOfWeek: WEEKLY 时需要，如 MON/TUE/WED/THU/FRI/SAT/SUN 或 周一/周二..., " +
+            "text: 提醒内容。示例：type=DAILY,time=09:00,text=记得打卡 → 每天9点提醒打卡。")
+    public String create_recurring_reminder(String type, String time, String dayOfWeek, String text) {
+        // 1. 校验重复类型
+        if (type == null || type.isBlank()) {
+            return "重复类型不能为空，请指定 DAILY（每天）或 WEEKLY（每周）";
+        }
+        String normalizedType = type.toUpperCase();
+        if (!"DAILY".equals(normalizedType) && !"WEEKLY".equals(normalizedType)) {
+            return "重复类型只支持 DAILY（每天）和 WEEKLY（每周），请重新指定";
+        }
+
+        // 2. 校验时间格式
+        if (time == null || !time.matches("\\d{2}:\\d{2}")) {
+            return "时间格式错误，请使用 HH:mm 格式，例如 09:00 或 18:30";
+        }
+        String[] timeParts = time.split(":");
+        int hour = Integer.parseInt(timeParts[0]);
+        int minute = Integer.parseInt(timeParts[1]);
+        if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+            return "时间超出有效范围（小时 0-23，分钟 0-59），请重新输入";
+        }
+
+        // 3. WEEKLY 类型需要 dayOfWeek
+        if ("WEEKLY".equals(normalizedType) && (dayOfWeek == null || dayOfWeek.isBlank())) {
+            return "每周提醒需要指定星期几，例如 MON、周一 等";
+        }
+
+        if (text == null || text.isBlank()) {
+            return "提醒内容不能为空";
+        }
+
+        // 4. 构建 CRON 表达式
+        String cronExpr;
+        if ("DAILY".equals(normalizedType)) {
+            cronExpr = String.format("0 %d %d * * ?", minute, hour);
+        } else {
+            String cronDay = resolveDayOfWeek(dayOfWeek);
+            if (cronDay == null) {
+                return "星期格式无法识别，请使用 MON/TUE/WED/THU/FRI/SAT/SUN 或 周一/周二/周三/周四/周五/周六/周日";
+            }
+            cronExpr = String.format("0 %d %d * * %s", minute, hour, cronDay);
+        }
+
+        // 5. 获取用户信息
+        String userId = AgentSessionContext.currentUserId();
+        String contextToken = AgentSessionContext.currentContextToken();
+        if ("anonymous".equals(userId)) {
+            return "无法获取用户信息，请稍后重试";
+        }
+
+        // 6. 构建处理器参数
+        String paramsJson;
+        try {
+            paramsJson = objectMapper.writeValueAsString(Map.of(
+                    "toUserId", userId,
+                    "contextToken", contextToken != null ? contextToken : "",
+                    "text", text
+            ));
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize reminder params", e);
+            return "创建提醒失败，请稍后重试";
+        }
+
+        // 7. 创建 CRON 任务，复用 reminderTaskHandler
+        try {
+            String taskName = "DAILY".equals(normalizedType)
+                    ? "每日提醒: " + truncate(text, 40)
+                    : "每周提醒: " + truncate(text, 40);
+
+            ScheduledTask task = taskScheduler.createTask(
+                    taskName,
+                    userId,
+                    TaskType.CRON,
+                    cronExpr,
+                    null,
+                    "reminderTaskHandler",
+                    paramsJson
+            );
+
+            log.info("Recurring reminder created: id={}, type={}, cron='{}', text='{}'",
+                    task.getId(), normalizedType, cronExpr, truncate(text, 60));
+
+            String desc = "DAILY".equals(normalizedType)
+                    ? "每天 " + time
+                    : "每周" + dayOfWeek + " " + time;
+
+            return "已创建周期性提醒【" + desc + "】，编号 " + task.getId() + "，内容：" + text;
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        } catch (Exception e) {
+            log.warn("Failed to create recurring reminder", e);
+            return "创建提醒失败，请稍后重试";
+        }
+    }
+
+    /**
      * 列出当前用户的所有定时提醒（含待执行、暂停、已完成和失败的）。
      *
      * @return 提醒列表文字描述
@@ -179,6 +292,41 @@ public class ScheduleTaskTools {
         log.info("Reminder cancelled: id={}, userId={}", taskId, anonymize(userId));
         String text = extractTextFromParams(task.getParams());
         return "已取消提醒 #" + taskId + (text.isBlank() ? "" : "：「" + text + "」");
+    }
+
+    /**
+     * 将星期字符串解析为 CRON 表达式支持的 day-of-week 值（MON-SUN）。
+     * <p>
+     * 支持中文（周一/星期一/周二...周日）和英文（MON/TUE...SUN）格式。
+     *
+     * @param day 星期字符串
+     * @return CRON day-of-week 值（MON/TUE/WED/THU/FRI/SAT/SUN），无法识别时返回 null
+     */
+    private static String resolveDayOfWeek(String day) {
+        if (day == null) return null;
+        String d = day.trim().toUpperCase();
+
+        // 英文格式
+        switch (d) {
+            case "MON": case "MON.": return "MON";
+            case "TUE": case "TUES": return "TUE";
+            case "WED": case "WED.": return "WED";
+            case "THU": case "THUR": case "THURS": return "THU";
+            case "FRI": case "FRI.": return "FRI";
+            case "SAT": case "SAT.": return "SAT";
+            case "SUN": case "SUN.": return "SUN";
+        }
+
+        // 中文格式（匹配中文字符）
+        if (d.contains("一")) return "MON";
+        if (d.contains("二")) return "TUE";
+        if (d.contains("三")) return "WED";
+        if (d.contains("四")) return "THU";
+        if (d.contains("五")) return "FRI";
+        if (d.contains("六")) return "SAT";
+        if (d.contains("日") || d.contains("天")) return "SUN";
+
+        return null;
     }
 
     private static String extractTextFromParams(String params) {
