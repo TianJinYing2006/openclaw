@@ -17,11 +17,12 @@ public class FashionAgentToolSet {
             ObjectProvider<FashionSemanticTools> semantic,
             ObjectProvider<FashionPersonTemplateTools> templates,
             ObjectProvider<FashionTryOnTools> tryOn,
-            ObjectProvider<FashionReferenceTools> references
+            ObjectProvider<FashionReferenceTools> references,
+            ObjectProvider<FashionOutfitRecommendationTools> recommendations
     ) {
         List<Object> values = new ArrayList<>();
         add(values, core); add(values, intake); add(values, previews); add(values, semantic);
-        add(values, templates); add(values, tryOn); add(values, references);
+        add(values, templates); add(values, tryOn); add(values, references); add(values, recommendations);
         this.tools = values.toArray();
     }
 

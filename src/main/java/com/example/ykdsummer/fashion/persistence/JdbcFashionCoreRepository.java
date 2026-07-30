@@ -21,9 +21,12 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -266,23 +269,51 @@ public class JdbcFashionCoreRepository implements FashionCoreRepository {
     }
 
     @Override
-    public Optional<FashionImageAsset> primaryWardrobeImage(String externalUserId, long wardrobeItemId) {
+    public Optional<WardrobeItem> findOwnedWardrobeItem(String externalUserId, long wardrobeItemId) {
         FashionUserScope scope = scopes.resolve(externalUserId);
-        return jdbc.query("""
+        return wardrobeItem(wardrobeItemId, scope.appUserId())
+                .filter(item -> "ACTIVE".equals(item.itemStatus()));
+    }
+
+    @Override
+    public Optional<FashionImageAsset> primaryWardrobeImage(String externalUserId, long wardrobeItemId) {
+        return Optional.ofNullable(primaryWardrobeImages(externalUserId, List.of(wardrobeItemId))
+                .get(wardrobeItemId));
+    }
+
+    @Override
+    public Map<Long, FashionImageAsset> primaryWardrobeImages(
+            String externalUserId, Collection<Long> wardrobeItemIds
+    ) {
+        FashionUserScope scope = scopes.resolve(externalUserId);
+        List<Long> ids = wardrobeItemIds == null ? List.of() : wardrobeItemIds.stream()
+                .filter(java.util.Objects::nonNull).filter(id -> id > 0).distinct().limit(1000).toList();
+        if (ids.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(scope.appUserId());
+        arguments.add(scope.externalUserId());
+        arguments.addAll(ids);
+        Map<Long, FashionImageAsset> images = new LinkedHashMap<>();
+        jdbc.query("""
                 SELECT asset.id, asset.asset_id, asset.version, asset.mime_type
+                    , item.id AS wardrobe_item_id
                 FROM fashion_wardrobe_items item
                 JOIN fashion_wardrobe_item_assets link
                     ON link.wardrobe_item_id = item.id AND link.is_primary = TRUE
                 JOIN asset_versions asset ON asset.id = link.asset_version_id
                 WHERE item.app_user_id = ?
-                  AND item.id = ?
+                  AND asset.external_user_id = ?
+                  AND item.id IN (%s)
                   AND item.item_status = 'ACTIVE'
                   AND asset.asset_kind = 'IMAGE'
-                ORDER BY link.created_at DESC
-                LIMIT 1
-                """, (rs, row) -> new FashionImageAsset(rs.getLong("id"), rs.getString("asset_id"),
-                rs.getInt("version"), rs.getString("mime_type")), scope.appUserId(), wardrobeItemId)
-                .stream().findFirst();
+                ORDER BY item.id, link.created_at DESC
+                """.formatted(placeholders), rs -> {
+            long itemId = rs.getLong("wardrobe_item_id");
+            images.putIfAbsent(itemId, new FashionImageAsset(rs.getLong("id"), rs.getString("asset_id"),
+                    rs.getInt("version"), rs.getString("mime_type")));
+        }, arguments.toArray());
+        return java.util.Collections.unmodifiableMap(images);
     }
 
     private void ensureProfile(long appUserId) {

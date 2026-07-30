@@ -1,8 +1,6 @@
 package com.example.ykdsummer.fashion.domain;
 
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /** Structured AND criteria for a single user's confirmed wardrobe. */
@@ -90,8 +88,7 @@ public record WardrobeSearchCriteria(
 
     private static boolean containsAll(List<String> actual, Set<String> expected) {
         if (expected.isEmpty()) return true;
-        Set<String> actualValues = actual == null ? Set.of() : actual.stream().map(WardrobeSearchCriteria::token)
-                .filter(value -> !value.isBlank()).collect(java.util.stream.Collectors.toSet());
+        Set<String> actualValues = FashionAttributeNormalizer.tokens(actual);
         return actualValues.containsAll(expected);
     }
 
@@ -112,72 +109,14 @@ public record WardrobeSearchCriteria(
     }
 
     private static Set<String> asSet(List<String> values) {
-        if (values == null || values.isEmpty()) return Set.of();
-        return values.stream().map(WardrobeSearchCriteria::token).filter(value -> !value.isBlank())
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return FashionAttributeNormalizer.tokens(values);
     }
 
     private static Set<String> values(Set<String> values) {
-        return values == null || values.isEmpty() ? Set.of() : values.stream().map(WardrobeSearchCriteria::token)
-                .filter(value -> !value.isBlank()).collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return FashionAttributeNormalizer.tokens(values);
     }
 
     private static String token(String value) {
-        String raw = value == null ? "" : value.replace('\u0000', ' ').strip()
-                .replace(" ", "").replace("-", "_").toUpperCase(Locale.ROOT);
-        return switch (raw) {
-            case "T恤", "短袖", "TEE", "TSHIRT" -> "T_SHIRT";
-            case "衬衫" -> "SHIRT";
-            case "针织衫", "毛衣" -> "KNITWEAR";
-            case "上装" -> "TOP";
-            case "外套", "夹克" -> "OUTERWEAR";
-            case "下装" -> "BOTTOM";
-            case "裤子", "长裤" -> "PANTS";
-            case "牛仔裤" -> "JEANS";
-            case "直筒裤" -> "STRAIGHT_PANTS";
-            case "裙子", "半身裙" -> "SKIRT";
-            case "连衣裙" -> "DRESS";
-            case "鞋", "鞋子" -> "SHOES";
-            case "包", "包袋" -> "BAG";
-            case "黑", "黑色" -> "BLACK";
-            case "白", "白色" -> "WHITE";
-            case "灰", "灰色", "GREY" -> "GRAY";
-            case "浅灰", "浅灰色", "LIGHTGRAY" -> "LIGHT_GRAY";
-            case "深灰", "深灰色", "DARKGRAY" -> "DARK_GRAY";
-            case "炭灰", "炭灰色", "CHARCOALGRAY" -> "CHARCOAL";
-            case "蓝灰", "蓝灰色", "BLUEGRAY" -> "BLUE_GRAY";
-            case "蓝", "蓝色" -> "BLUE";
-            case "深蓝", "深蓝色", "藏青", "藏青色", "NAVYBLUE", "DARK_BLUE" -> "NAVY";
-            case "牛仔蓝", "牛仔蓝色", "DENIMBLUE" -> "DENIM_BLUE";
-            case "红", "红色" -> "RED";
-            case "绿", "绿色" -> "GREEN";
-            case "黄", "黄色" -> "YELLOW";
-            case "棕", "棕色", "咖啡色" -> "BROWN";
-            case "卡其", "卡其色" -> "KHAKI";
-            case "驼色", "CAMELCOLOR" -> "CAMEL";
-            case "米白", "象牙白", "OFFWHITE" -> "OFF_WHITE";
-            case "简约" -> "MINIMAL";
-            case "通勤" -> "COMMUTE";
-            case "宽松" -> "RELAXED";
-            case "修身" -> "SLIM";
-            case "直筒" -> "STRAIGHT";
-            case "纯色" -> "SOLID";
-            case "条纹" -> "STRIPED";
-            case "格纹", "格子" -> "CHECKED";
-            case "春季" -> "SPRING";
-            case "夏季" -> "SUMMER";
-            case "秋季" -> "AUTUMN";
-            case "冬季" -> "WINTER";
-            case "面试" -> "INTERVIEW";
-            case "约会" -> "DATE";
-            case "日常" -> "DAILY";
-            case "旅行", "出行" -> "TRAVEL";
-            case "户外" -> "OUTDOOR";
-            case "正式", "正式场合" -> "FORMAL";
-            case "运动" -> "SPORT";
-            case "棉", "棉质" -> "COTTON";
-            case "牛仔", "丹宁" -> "DENIM";
-            default -> raw;
-        };
+        return FashionAttributeNormalizer.token(value);
     }
 }

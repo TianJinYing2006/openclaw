@@ -1,6 +1,6 @@
 # YKD Summer Project Handoff
 
-Last updated: 2026-07-28
+Last updated: 2026-07-31
 
 This file is the durable handoff for future Codex tasks. It intentionally contains no API keys, access tokens, passwords, QR login data, or other secrets.
 
@@ -13,6 +13,32 @@ Read PROJECT_HANDOFF.md first. Continue from the current project state and do no
 ```
 
 The file preserves project context, but it does not replace reading the relevant source files or the active runtime log for the task being performed.
+
+## 2026-07-31 Current Override
+
+This section is newer than historical status later in this file and takes precedence when the two conflict.
+
+- Active feature branch/worktree: `codex/fashion-reference-sample-pipeline` in
+  `C:\Users\14987\.codex\worktrees\0c35\YKD-summer`; do not touch `.codex-remote-attachments/`.
+- The WeChat Agent allowlist has been reduced from 81 to 35 tools. Feishu, finance, entertainment, generic web/document
+  tools and `search_fashion_products` are not exposed. The 35th tool is the aggregate
+  `recommend_outfits_from_wardrobe`.
+- The verified public sample contains 12 Looks and 24 TOP/BOTTOM cutouts. MySQL/OSS import and Qdrant indexing completed:
+  `REFERENCE_LOOK=12`, `REFERENCE_GARMENT=24`. Do not import the full 230 Looks yet.
+- V16 stores public Garment cutout assets. V17 adds durable outfit recommendation runs/options/items.
+- The evidence-based recommendation chain now has code for user-scoped anchors, batch Look hydration, deterministic
+  evidence scoring, duplicate removal, concrete missing-item analysis, persistent rank mapping, asynchronous no-person
+  outfit rendering, real-cutout fallback and iLink completion push.
+- Public Looks remain evidence only. Every returned outfit item must be an active item owned by the current user.
+- Qdrant failure falls back to MySQL structured candidates and lowers evidence confidence. Image-provider failure falls
+  back to a deterministic real-pixel outfit board.
+- `mvn -q -DskipTests compile`, the targeted recommendation/render/tool/context/iLink tests, and the full
+  `mvn -q test` suite have passed after tool integration. Test logs intentionally include Qdrant and image-provider
+  failure cases because those tests verify the MySQL and real-cutout fallback paths.
+- The explicit `PERSISTENCE_INTEGRATION=true` MySQL/Flyway verification for V17 is still pending. It needs a local
+  database credential environment and must not be reported as complete until it has run successfully.
+- Detailed current architecture is in `docs/features/FASHION_REFERENCE_LIBRARY.md`; implementation tracking is in
+  `task_plan.md`, `findings.md`, and `progress.md`.
 
 ## Project Baseline
 
@@ -160,9 +186,10 @@ Source changes do not update an already running JVM. After a code change:
 2. Build/rebuild the project in IntelliJ IDEA.
 3. Start `YkdSummerApplication` once with `--ilink.enabled=true`.
 4. Verify startup logs contain all of the following:
-   - Flyway schema version `15` or later.
+   - Flyway schema version `17` or later.
    - No `feishu_*` tools by default.
    - Reminder tools including `get_current_china_time` and `create_scheduled_agent_task`.
+   - Fashion aggregate tool `recommend_outfits_from_wardrobe`.
    - The configured `app.ai.max-agent-rounds=4` value.
 
 Important incident on 2026-07-28: PID `26188`, launched at 11:06, was still running code from before reminder and Feishu-offline changes. Its tool registry had Feishu tools and no reminder tools. Restarting the correct Java application is required before testing these additions.
@@ -178,7 +205,7 @@ mvn -q '-Dopenai.image.base-url=https://api.lk888.ai/v1' test
 The default suite skips `37` explicit opt-in live/integration tests as intended. The image base URL override is an existing test-environment
 expectation; it is not a production configuration instruction.
 
-Latest full validation has `282` tests, `0` failures and `0` errors (`41` explicit live/integration probes skipped by
+Historical validation before the 2026-07-31 recommendation changes had `282` tests, `0` failures and `0` errors (`41` explicit live/integration probes skipped by
 default). The opt-in MySQL workflow suite
 also passed candidate restart recovery, user isolation, duplicate submission rejection, cancellation idempotency and
 expiry filtering. Phase 3B validation reached Flyway schema `v15`; the tool registry contains `81` tools, including
@@ -226,11 +253,12 @@ Before commit/push, inspect the worktree carefully and include only intended cha
 
 ## Recommended Next Steps
 
-1. Restart the application and manually verify semantic wardrobe confirmation/cancellation from WeChat with a fresh chat context.
-2. Manually verify `create_scheduled_agent_task` from WeChat and add a compact admin reminder view.
-3. Continue the structured product catalog and wardrobe/product retrieval acceptance work.
-4. Build the outfit recommendation pipeline: scenario + weather + profile + wardrobe + candidate generation + scoring + explanation.
-5. Add recommendation metrics and candidate scoring before introducing reranking; keep `qwen3-rerank` optional until there is a measurable top-K baseline.
+1. Apply V17 and run the explicit `PERSISTENCE_INTEGRATION=true` MySQL/Flyway integration test.
+2. Use the existing 12 Looks/24 Garments for one real end-to-end recommendation; do not import all 230 Looks.
+3. Manually verify from WeChat: select a wardrobe item, receive 1-3 deterministic options, receive asynchronous boards,
+   then refer to “第一套/第二套” after an application restart.
+4. Keep RAGFlow, products, model training, feedback learning and
+   automatic multi-item virtual try-on out of this phase.
 
 ## Target Fashion Architecture
 

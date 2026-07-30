@@ -13,6 +13,7 @@ import com.example.ykdsummer.fashion.domain.WardrobeSearchCriteria;
 import com.example.ykdsummer.fashion.persistence.FashionCoreRepository;
 import com.example.ykdsummer.fashion.persistence.FashionSemanticIndexJobRepository;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,8 +74,14 @@ public class FashionCoreService {
     public List<WardrobeItem> activeWardrobeItems(String externalUserId, int limit) {
         return repository.activeWardrobeItems(externalUserId, limit);
     }
+    public Optional<WardrobeItem> ownedWardrobeItem(String externalUserId, long wardrobeItemId) {
+        return repository.findOwnedWardrobeItem(externalUserId, wardrobeItemId);
+    }
     public Optional<FashionImageAsset> primaryWardrobeImage(String externalUserId, long wardrobeItemId) {
         return repository.primaryWardrobeImage(externalUserId, wardrobeItemId);
+    }
+    public Map<Long, FashionImageAsset> primaryWardrobeImages(String externalUserId, java.util.Collection<Long> itemIds) {
+        return repository.primaryWardrobeImages(externalUserId, itemIds);
     }
 
     /** Personal wardrobes stay small enough for in-process structured filtering; product catalog search remains separate. */

@@ -71,7 +71,7 @@ public class FashionReferenceSemanticSearchService {
             int topK = Math.min(200, Math.max(bounded, bounded * properties.getCandidateMultiplier()));
             List<Document> hits = vectorStore.similaritySearch(SearchRequest.builder().query(cleaned).topK(topK)
                     .similarityThreshold(properties.getSimilarityThreshold())
-                    .filterExpression("scope == 'PUBLIC_REFERENCE' && entityType == 'REFERENCE_GARMENT'").build());
+                    .filterExpression(garmentFilter(effective)).build());
             Map<GarmentKey, Double> scores = new LinkedHashMap<>();
             hits.forEach(hit -> {
                 Long lookId = number(hit.getMetadata().get("referenceLookId"));
@@ -81,13 +81,18 @@ public class FashionReferenceSemanticSearchService {
                             hit.getScore() == null ? 0d : hit.getScore());
                 }
             });
-            return scores.entrySet().stream().map(entry -> repository.findById(entry.getKey().lookId())
-                            .filter(look -> "ACTIVE".equals(look.status()))
-                            .flatMap(look -> look.garments().stream()
-                                    .filter(garment -> garment.itemIndex() == entry.getKey().itemIndex())
-                                    .filter(effective::matches).findFirst()
-                                    .map(garment -> new SemanticReferenceGarmentMatch(look, garment, entry.getValue())))
-                            .orElse(null))
+            Map<Long, FashionReferenceLook> looks = repository.findActiveByIds(
+                    scores.keySet().stream().map(GarmentKey::lookId).distinct().toList()).stream()
+                    .collect(java.util.stream.Collectors.toMap(FashionReferenceLook::id, value -> value));
+            return scores.entrySet().stream().map(entry -> {
+                        FashionReferenceLook look = looks.get(entry.getKey().lookId());
+                        if (look == null) return null;
+                        return look.garments().stream()
+                                .filter(garment -> garment.itemIndex() == entry.getKey().itemIndex())
+                                .filter(effective::matches).findFirst()
+                                .map(garment -> new SemanticReferenceGarmentMatch(look, garment, entry.getValue()))
+                                .orElse(null);
+                    })
                     .filter(java.util.Objects::nonNull).limit(bounded).toList();
         } catch (RuntimeException failure) {
             log.warn("Public garment semantic search unavailable, using MySQL filters: {}", failure.toString());
@@ -105,6 +110,14 @@ public class FashionReferenceSemanticSearchService {
                         .filter(criteria::matches)
                         .map(garment -> new SemanticReferenceGarmentMatch(look, garment, -1d)))
                 .limit(limit).toList();
+    }
+    private static String garmentFilter(WardrobeSearchCriteria criteria) {
+        String base = "scope == 'PUBLIC_REFERENCE' && entityType == 'REFERENCE_GARMENT'";
+        if (criteria == null || criteria.categoryCodes().isEmpty()) return base;
+        if (criteria.categoryCodes().contains("TOP")) return base + " && categoryCode == 'TOP'";
+        if (criteria.categoryCodes().contains("BOTTOM")) return base + " && categoryCode == 'BOTTOM'";
+        if (criteria.categoryCodes().contains("OUTERWEAR")) return base + " && categoryCode == 'OUTERWEAR'";
+        return base;
     }
     private static Long number(Object value) {
         try { return value == null ? null : Long.parseLong(value.toString()); }

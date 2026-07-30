@@ -10,7 +10,9 @@ import com.example.ykdsummer.fashion.domain.FashionImageAsset;
 import com.example.ykdsummer.fashion.domain.WardrobeItem;
 import com.example.ykdsummer.fashion.domain.WardrobeItemDraft;
 import com.example.ykdsummer.fashion.identity.FashionUserScope;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Persistence port for the first Fashion vertical slice. */
@@ -26,5 +28,7 @@ public interface FashionCoreRepository {
     ClothingAnalysis recordAnalysis(String externalUserId, long assetVersionId, ClothingAnalysisDraft draft);
     List<WardrobeItem> activeWardrobeItems(String externalUserId, int limit);
     Optional<WardrobeItem> findWardrobeItemById(long wardrobeItemId);
+    Optional<WardrobeItem> findOwnedWardrobeItem(String externalUserId, long wardrobeItemId);
     Optional<FashionImageAsset> primaryWardrobeImage(String externalUserId, long wardrobeItemId);
+    Map<Long, FashionImageAsset> primaryWardrobeImages(String externalUserId, Collection<Long> wardrobeItemIds);
 }

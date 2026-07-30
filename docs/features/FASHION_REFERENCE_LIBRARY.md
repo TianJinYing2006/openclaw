@@ -2,8 +2,9 @@
 
 ## 1. 当前目标
 
-当前版本先把服装数据的“保存、标准化、索引、检索”主链打通，不批量导入尚未整理完成的采集目录，
-也不在这一阶段实现推荐打分、Rerank 或训练模型。第一波范围是男装的 `TOP`、`BOTTOM`、`OUTERWEAR`；鞋子先保留在原始标注 JSON，暂不进入单品库和向量库。
+当前版本先把服装数据的“保存、标准化、索引、检索”主链打通，并在已验证的小样本上实现基于搭配证据的
+确定性衣橱推荐，不批量导入尚未整理完成的采集目录，也不训练推荐模型。第一波范围是男装的
+`TOP`、`BOTTOM`、`OUTERWEAR`；鞋子先保留在原始标注 JSON，暂不进入单品库和向量库。
 
 ```text
 公共整套 Look 图片 + 标准化 Look JSON
@@ -38,6 +39,7 @@ MySQL 是业务事实源，OSS 是图片事实源，Qdrant 只是可重建的检
 - `search_wardrobe_semantic`：场景化、模糊描述或搭配语义，Qdrant 不可用时降级到 MySQL。
 - `show_wardrobe_items`：按相同条件返回个人衣橱图片。
 - `search_fashion_references`：只查询公共参考 Look，可同时叠加结构化条件。
+- `recommend_outfits_from_wardrobe`：选定一件个人衣服后，聚合完成召回、证据反查、衣橱匹配和排序。
 
 Agent 工具结果内部可以携带业务 ID 供下一步 Tool 调用，但微信回复不得显示数据库 ID、UUID、英文枚举或向量分数。
 
@@ -52,6 +54,17 @@ docker compose -f infra/qdrant/compose.yml up -d
 ```
 
 4. 启动 `YkdSummerApplication`。本地配置启用语义检索时，应用通过 Qdrant gRPC 6334 连接容器。
+
+推荐聚合 Tool 只有在 MySQL 持久化、服装语义检索和公共参考库均启用时注册。开发环境至少需要：
+
+```properties
+app.persistence.enabled=true
+app.fashion.semantic.enabled=true
+app.fashion.reference.enabled=true
+app.fashion.outfit-recommendation.enabled=true
+```
+
+`app.fashion.reference.import-enabled` 仍应保持 `false`；启用查询和推荐不等于再次执行数据导入。
 
 Docker 只负责运行 Qdrant 进程并把 6333/6334 映射到本机；Java 仍像连接 MySQL 一样通过端口连接它。
 Qdrant 数据使用 Docker volume 持久化，容器停止或 Java 重启不会自动丢失。
@@ -86,9 +99,40 @@ app.fashion.reference.cutout-image-directory=D:/小红书/wet/cleaned/images
 
 每一个已完成单品切图会记录独立的 OSS 资产、文件哈希、来源文件名、生成模型、耗时和状态。再次导入相同 Look 时，哈希不变的切图会复用已有 OSS 资产；切图文件暂时消失也不会把已确认的 `READY` 资产降级为 `PENDING`。
 
-## 6. 数据治理边界
+## 6. 基于搭配证据的推荐链
+
+```text
+用户选定个人衣橱单品
+  -> Qdrant 只召回同类公共 Garment 业务定位
+  -> MySQL 批量反查 Garment 所属公共 Look
+  -> 聚合同套 TOP/BOTTOM/OUTERWEAR 关系
+  -> 只在当前用户衣橱中匹配真实候选
+  -> 规则评分、组合去重和多样性排序
+  -> 持久化 1 至 3 套推荐快照
+  -> 后台生成无人物搭配图，失败则回退真实抠图拼接板
+  -> iLink 主动回传微信
+```
+
+推荐快照使用三张表：
+
+- `fashion_outfit_recommendation_runs`：一次请求及场景、天气和缺失单品结论。
+- `fashion_outfit_recommendation_options`：每套方案的排名、分项评分、证据摘要和异步渲染状态。
+- `fashion_outfit_recommendation_items`：方案中的真实用户衣橱单品，并固定当时使用的图片版本。
+
+评分由服务端确定性执行，默认考虑公共 Look 证据、场景、季节天气、颜色、风格、版型正式度、用户偏好和
+近期重复。属性缺失时该维度不扣分，剩余有效权重重新归一化；LLM 只负责理解请求和解释结果，不重新打分。
+如果没有公共证据，不推断用户缺什么；有证据但个人衣橱无法匹配时，才输出具体缺失单品。
+
+推荐和效果图解耦。每套效果图独立经历 `SUBMITTED -> PROCESSING -> SUCCEEDED/FALLBACK/FAILED`；
+应用重启会把中断的 `PROCESSING` 恢复为 `SUBMITTED`。图片供应商失败不删除推荐，系统改用用户真实抠图生成搭配板。
+默认适配器由 `app.fashion.outfit-recommendation.render-provider=image-edit` 选择；核心服务只依赖
+`OutfitRenderService` 接口，后续替换 VTON 或其他效果图供应商不需要修改推荐算法。
+最近一次推荐保存在 MySQL，短期聊天记忆清空或应用重启后，Agent 仍能可靠理解“第一套、第二套”。
+
+## 7. 数据治理边界
 
 - 标注契约见 `docs/features/FASHION_IMAGE_ANNOTATION_STANDARD.md`。
 - 个人衣橱允许用户修改名称和主观标签；公共素材的客观标注只能由平台流程更新。
 - 导入图片在正式环境发布前必须逐张核验来源和使用权；本地样本状态不能自动代表商业授权。
-- 后续推荐排序应从 MySQL 候选开始，叠加用户反馈、天气、场景和搭配规则；RAG/向量召回不能替代业务过滤。
+- 推荐排序从 MySQL 用户候选开始，Qdrant 只召回公共搭配证据；RAG/向量召回不能替代用户隔离、业务过滤和确定性评分。
+- 当前不上 RAGFlow、不导入全部 230 套、不接商品价格库存、不训练模型、不自动虚拟试衣，也不实现反馈学习。

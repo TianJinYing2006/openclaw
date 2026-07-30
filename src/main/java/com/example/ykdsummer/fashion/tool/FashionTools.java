@@ -55,7 +55,8 @@ public class FashionTools implements AiTool {
     @Tool(name = "search_wardrobe", description = "当用户询问个人衣橱、已有衣服，或要求按多个条件筛选时调用。"
             + "所有非空条件必须同时满足：类目、颜色、风格、版型、图案、季节、场景、材质。"
             + "categoryCode 可以传中文或标准代码，例如 牛仔裤/JEANS、外套/OUTERWEAR、裤子、鞋；"
-            + "颜色会匹配主色和次色。不得把用户没有提到的筛选条件擅自补上。")
+            + "颜色会匹配主色和次色。不得把用户没有提到的筛选条件擅自补上。"
+            + "结果末尾的内部单品映射只用于后续工具参数，回复用户时必须省略。")
     public String searchWardrobe(
             @ToolParam(required = false, description = "可选类目，例如 牛仔裤、外套、裤子、鞋，或 JEANS、JACKET、T_SHIRT；为空则不按类目筛选。") String categoryCode,
             @ToolParam(required = false, description = "可选颜色，例如 深蓝、白色、黑色；匹配主色或次色。") String color,
@@ -181,6 +182,14 @@ public class FashionTools implements AiTool {
         StringBuilder result = new StringBuilder(criteria == null || !criteria.hasFilters()
                 ? "已保存衣橱单品：\n" : "符合筛选条件的衣橱单品：\n");
         items.forEach(item -> result.append("- ").append(describeItem(item)).append('\n'));
+        result.append("""
+
+                [内部衣橱单品映射：只用于后续工具参数，严禁向用户展示]
+                """);
+        items.forEach(item -> result.append("- wardrobeItemId=").append(item.id())
+                .append(" | name=").append(safe(item.displayName()))
+                .append('\n'));
+        result.append("[/内部衣橱单品映射]");
         return result.toString().strip();
     }
 

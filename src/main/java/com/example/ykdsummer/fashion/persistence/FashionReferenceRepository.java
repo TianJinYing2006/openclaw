@@ -11,6 +11,7 @@ public interface FashionReferenceRepository {
     Optional<FashionReferenceLook> findByReferenceCode(String referenceCode);
     Optional<FashionReferenceLook> findBySha256(String sha256);
     Optional<FashionReferenceLook> findById(long id);
+    List<FashionReferenceLook> findActiveByIds(List<Long> ids);
     FashionReferenceLook upsert(FashionReferenceLook draft);
     List<FashionReferenceLook> activeLooks(int limit);
     List<FashionReferenceIndexJob> claimPendingIndexJobs(int limit, Duration lease, int maxAttempts);

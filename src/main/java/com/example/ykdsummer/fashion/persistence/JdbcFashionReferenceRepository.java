@@ -11,8 +11,10 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -56,6 +58,24 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
     }
 
     @Override
+    public List<FashionReferenceLook> findActiveByIds(List<Long> ids) {
+        List<Long> requested = ids == null ? List.of() : ids.stream()
+                .filter(java.util.Objects::nonNull).filter(id -> id > 0).distinct().limit(2000).toList();
+        if (requested.isEmpty()) return List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(requested.size(), "?"));
+        List<FashionReferenceLook> looks = jdbc.query(
+                "SELECT " + LOOK_COLUMNS + " FROM fashion_reference_looks WHERE reference_status = 'ACTIVE' AND id IN ("
+                        + placeholders + ")",
+                (rs, row) -> lookWithoutGarments(rs), requested.toArray());
+        Map<Long, List<FashionReferenceGarment>> garmentsByLook = garmentsByLook(requested);
+        Map<Long, FashionReferenceLook> byId = new LinkedHashMap<>();
+        for (FashionReferenceLook look : looks) {
+            byId.put(look.id(), withGarments(look, garmentsByLook.getOrDefault(look.id(), List.of())));
+        }
+        return requested.stream().map(byId::get).filter(java.util.Objects::nonNull).toList();
+    }
+
+    @Override
     public FashionReferenceLook upsert(FashionReferenceLook draft) {
         if (draft == null || draft.garments().isEmpty()) throw new IllegalArgumentException("reference garments are required");
         findBySha256(draft.sha256()).filter(existing -> !existing.referenceCode().equals(draft.referenceCode()))
@@ -96,10 +116,13 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
 
     @Override
     public List<FashionReferenceLook> activeLooks(int limit) {
-        return jdbc.query("SELECT " + LOOK_COLUMNS + " FROM fashion_reference_looks "
+        List<FashionReferenceLook> looks = jdbc.query("SELECT " + LOOK_COLUMNS + " FROM fashion_reference_looks "
                         + "WHERE reference_status = 'ACTIVE' ORDER BY updated_at DESC, id DESC LIMIT ?",
-                (rs, row) -> lookWithoutGarments(rs), Math.max(1, Math.min(limit, 2000))).stream()
-                .map(this::hydrate).toList();
+                (rs, row) -> lookWithoutGarments(rs), Math.max(1, Math.min(limit, 2000)));
+        Map<Long, List<FashionReferenceGarment>> garmentsByLook = garmentsByLook(
+                looks.stream().map(FashionReferenceLook::id).toList());
+        return looks.stream().map(look -> withGarments(look,
+                garmentsByLook.getOrDefault(look.id(), List.of()))).toList();
     }
 
     @Override
@@ -188,10 +211,14 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
     }
 
     private FashionReferenceLook hydrate(FashionReferenceLook look) {
+        return withGarments(look, garments(look.id()));
+    }
+
+    private FashionReferenceLook withGarments(FashionReferenceLook look, List<FashionReferenceGarment> garments) {
         return new FashionReferenceLook(look.id(), look.referenceCode(), look.displayName(), look.imageAssetId(),
                 look.imageAssetVersion(), look.imageMediaType(), look.sourceFileName(), look.sourceUrl(),
                 look.sourceSite(), look.usageRights(), look.sha256(), look.phash(), look.annotationSchemaVersion(),
-                look.annotationJson(), look.status(), garments(look.id()), look.createdAt(), look.updatedAt());
+                look.annotationJson(), look.status(), garments, look.createdAt(), look.updatedAt());
     }
 
     private List<FashionReferenceGarment> garments(long lookId) {
@@ -203,7 +230,32 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
                     cutout_asset_id, cutout_asset_version, cutout_asset_media_type, cutout_status,
                     cutout_source_path, cutout_sha256, cutout_model, cutout_duration_seconds, cutout_error
                 FROM fashion_reference_garments WHERE reference_look_id = ? ORDER BY item_index
-                """, (rs, row) -> new FashionReferenceGarment(rs.getLong("id"), rs.getLong("reference_look_id"),
+                """, (rs, row) -> garment(rs), lookId);
+    }
+
+    private Map<Long, List<FashionReferenceGarment>> garmentsByLook(List<Long> lookIds) {
+        if (lookIds == null || lookIds.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(lookIds.size(), "?"));
+        List<FashionReferenceGarment> garments = jdbc.query("""
+                SELECT id, reference_look_id, item_index, display_name, category_code, sub_category_code,
+                    target_gender, color_primary, color_secondary_json, accent_colors_json, style_tags_json,
+                    fit_code, pattern_code, silhouette_code, length_code, material_tags_json, season_tags_json,
+                    occasion_tags_json, formality_level, visibility_status, visible_ratio, confidence, attributes_json,
+                    cutout_asset_id, cutout_asset_version, cutout_asset_media_type, cutout_status,
+                    cutout_source_path, cutout_sha256, cutout_model, cutout_duration_seconds, cutout_error
+                FROM fashion_reference_garments WHERE reference_look_id IN (%s)
+                ORDER BY reference_look_id, item_index
+                """.formatted(placeholders), (rs, row) -> garment(rs), lookIds.toArray());
+        Map<Long, List<FashionReferenceGarment>> grouped = new LinkedHashMap<>();
+        for (FashionReferenceGarment garment : garments) {
+            grouped.computeIfAbsent(garment.referenceLookId(), ignored -> new ArrayList<>()).add(garment);
+        }
+        grouped.replaceAll((ignored, values) -> List.copyOf(values));
+        return grouped;
+    }
+
+    private FashionReferenceGarment garment(ResultSet rs) throws java.sql.SQLException {
+        return new FashionReferenceGarment(rs.getLong("id"), rs.getLong("reference_look_id"),
                 rs.getInt("item_index"), rs.getString("display_name"), rs.getString("category_code"),
                 rs.getString("sub_category_code"), rs.getString("target_gender"), rs.getString("color_primary"),
                 stringList(rs.getString("color_secondary_json")), stringList(rs.getString("accent_colors_json")),
@@ -216,7 +268,7 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
                 rs.getInt("cutout_asset_version"), rs.getString("cutout_asset_media_type"),
                 rs.getString("cutout_status"), rs.getString("cutout_source_path"), rs.getString("cutout_sha256"),
                 rs.getString("cutout_model"), rs.getBigDecimal("cutout_duration_seconds"),
-                rs.getString("cutout_error")), lookId);
+                rs.getString("cutout_error"));
     }
 
     private String jsonArray(List<String> values) {

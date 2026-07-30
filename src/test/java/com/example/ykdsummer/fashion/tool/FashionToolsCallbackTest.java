@@ -50,7 +50,8 @@ class FashionToolsCallbackTest {
                 """);
 
         assertThat(profile).contains("简约通勤", "300 - 800", "通勤");
-        assertThat(wardrobe).contains("藏青色牛仔裤", "简约").doesNotContain("JEANS", "#17");
+        assertThat(wardrobe).contains("藏青色牛仔裤", "简约", "wardrobeItemId=17")
+                .doesNotContain("JEANS", "#17");
         assertThat(added).contains("已加入个人衣橱", "已关联展示图").doesNotContain("img_top_1");
         verify(service).addWardrobeItemWithImage(eq("managed:instance-a:wechat-user"), any(), eq("img_top_1"), eq(2));
         ArgumentCaptor<WardrobeSearchCriteria> criteria = ArgumentCaptor.forClass(WardrobeSearchCriteria.class);
