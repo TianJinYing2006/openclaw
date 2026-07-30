@@ -40,12 +40,12 @@ public class FashionReferenceIndexService {
     public void execute(FashionReferenceIndexJob job) {
         try {
             Optional<FashionReferenceLook> look = repository.findById(job.referenceLookId());
+            vectorStore.delete(documents.allDocumentIds(job.referenceLookId(), 20));
             if ("DELETE".equals(job.operation()) || look.isEmpty() || !"ACTIVE".equals(look.get().status())) {
-                vectorStore.delete(List.of(documents.documentId(job.referenceLookId())));
                 repository.completeIndexJob(job.id(), "");
                 return;
             }
-            vectorStore.add(List.of(documents.document(look.get())));
+            vectorStore.add(documents.documents(look.get()));
             repository.completeIndexJob(job.id(), documents.contentHash(look.get()));
             log.info("Fashion public reference indexed look={}", job.referenceLookId());
         } catch (RuntimeException failure) {

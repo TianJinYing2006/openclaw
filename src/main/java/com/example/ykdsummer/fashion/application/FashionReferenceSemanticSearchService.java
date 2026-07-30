@@ -3,6 +3,7 @@ package com.example.ykdsummer.fashion.application;
 import com.example.ykdsummer.fashion.config.FashionSemanticProperties;
 import com.example.ykdsummer.fashion.domain.FashionReferenceLook;
 import com.example.ykdsummer.fashion.domain.SemanticReferenceMatch;
+import com.example.ykdsummer.fashion.domain.SemanticReferenceGarmentMatch;
 import com.example.ykdsummer.fashion.domain.WardrobeSearchCriteria;
 import com.example.ykdsummer.fashion.persistence.FashionReferenceRepository;
 import java.util.LinkedHashMap;
@@ -42,7 +43,7 @@ public class FashionReferenceSemanticSearchService {
             int topK = Math.min(100, Math.max(bounded, bounded * properties.getCandidateMultiplier()));
             List<Document> hits = vectorStore.similaritySearch(SearchRequest.builder().query(cleaned).topK(topK)
                     .similarityThreshold(properties.getSimilarityThreshold())
-                    .filterExpression("scope == 'PUBLIC_REFERENCE'").build());
+                    .filterExpression("scope == 'PUBLIC_REFERENCE' && entityType == 'REFERENCE_LOOK'").build());
             Map<Long, Double> scores = new LinkedHashMap<>();
             hits.forEach(hit -> {
                 Long id = number(hit.getMetadata().get("referenceLookId"));
@@ -58,12 +59,56 @@ public class FashionReferenceSemanticSearchService {
         }
     }
 
+    public List<SemanticReferenceGarmentMatch> searchGarments(
+            String query, WardrobeSearchCriteria criteria, int limit
+    ) {
+        int bounded = Math.max(1, Math.min(limit, 50));
+        WardrobeSearchCriteria effective = criteria == null
+                ? WardrobeSearchCriteria.from(null, null, List.of(), null, null, List.of(), List.of(), null) : criteria;
+        String cleaned = query == null ? "" : query.replace('\0', ' ').strip();
+        if (cleaned.isBlank()) return garmentFallback(effective, bounded);
+        try {
+            int topK = Math.min(200, Math.max(bounded, bounded * properties.getCandidateMultiplier()));
+            List<Document> hits = vectorStore.similaritySearch(SearchRequest.builder().query(cleaned).topK(topK)
+                    .similarityThreshold(properties.getSimilarityThreshold())
+                    .filterExpression("scope == 'PUBLIC_REFERENCE' && entityType == 'REFERENCE_GARMENT'").build());
+            Map<GarmentKey, Double> scores = new LinkedHashMap<>();
+            hits.forEach(hit -> {
+                Long lookId = number(hit.getMetadata().get("referenceLookId"));
+                Long itemIndex = number(hit.getMetadata().get("itemIndex"));
+                if (lookId != null && itemIndex != null) {
+                    scores.putIfAbsent(new GarmentKey(lookId, itemIndex.intValue()),
+                            hit.getScore() == null ? 0d : hit.getScore());
+                }
+            });
+            return scores.entrySet().stream().map(entry -> repository.findById(entry.getKey().lookId())
+                            .filter(look -> "ACTIVE".equals(look.status()))
+                            .flatMap(look -> look.garments().stream()
+                                    .filter(garment -> garment.itemIndex() == entry.getKey().itemIndex())
+                                    .filter(effective::matches).findFirst()
+                                    .map(garment -> new SemanticReferenceGarmentMatch(look, garment, entry.getValue())))
+                            .orElse(null))
+                    .filter(java.util.Objects::nonNull).limit(bounded).toList();
+        } catch (RuntimeException failure) {
+            log.warn("Public garment semantic search unavailable, using MySQL filters: {}", failure.toString());
+            return garmentFallback(effective, bounded);
+        }
+    }
+
     private List<SemanticReferenceMatch> fallback(WardrobeSearchCriteria criteria, int limit) {
         return repository.activeLooks(criteria.hasFilters() ? 2000 : limit).stream().filter(criteria::matches)
                 .limit(limit).map(look -> new SemanticReferenceMatch(look, -1d)).toList();
+    }
+    private List<SemanticReferenceGarmentMatch> garmentFallback(WardrobeSearchCriteria criteria, int limit) {
+        return repository.activeLooks(2000).stream()
+                .flatMap(look -> look.garments().stream()
+                        .filter(criteria::matches)
+                        .map(garment -> new SemanticReferenceGarmentMatch(look, garment, -1d)))
+                .limit(limit).toList();
     }
     private static Long number(Object value) {
         try { return value == null ? null : Long.parseLong(value.toString()); }
         catch (NumberFormatException ignored) { return null; }
     }
+    private record GarmentKey(long lookId, int itemIndex) { }
 }

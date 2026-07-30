@@ -2,6 +2,7 @@ package com.example.ykdsummer.fashion.application;
 
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
+import com.example.ykdsummer.fashion.config.FashionReferenceImportOptions;
 import com.example.ykdsummer.fashion.domain.FashionReferenceGarment;
 import com.example.ykdsummer.fashion.domain.FashionReferenceLook;
 import com.example.ykdsummer.fashion.persistence.FashionReferenceRepository;
@@ -39,9 +40,17 @@ public class FashionReferenceImportService {
     }
 
     public ImportReport importFile(Path annotationFile, Path imageDirectory, int limit, boolean publish) {
+        return importFile(annotationFile, imageDirectory, limit, publish, FashionReferenceImportOptions.defaults());
+    }
+
+    public ImportReport importFile(Path annotationFile, Path imageDirectory, int limit, boolean publish,
+            FashionReferenceImportOptions importOptions) {
         Path json = requireFile(annotationFile, "annotationFile");
         Path directory = imageDirectory == null ? null : imageDirectory.toAbsolutePath().normalize();
         if (directory == null || !Files.isDirectory(directory)) throw new IllegalArgumentException("imageDirectory is invalid");
+        FashionReferenceImportOptions options = importOptions == null
+                ? FashionReferenceImportOptions.defaults() : importOptions;
+        FashionReferenceCutoutCatalog cutouts = FashionReferenceCutoutCatalog.load(objectMapper, options);
         JsonNode root = read(json);
         JsonNode annotations = root.path("annotations");
         List<JsonNode> source = new ArrayList<>();
@@ -49,7 +58,8 @@ public class FashionReferenceImportService {
         int imported = 0;
         int skipped = 0;
         List<String> failures = new ArrayList<>();
-        for (JsonNode annotation : source) {
+        for (int sourceIndex = 0; sourceIndex < source.size(); sourceIndex++) {
+            JsonNode annotation = source.get(sourceIndex);
             if (imported >= Math.max(1, limit)) break;
             String imageId = text(annotation.path("imageId").asText(), 255);
             try {
@@ -78,7 +88,8 @@ public class FashionReferenceImportService {
                         .flatMap(value -> images.find(PUBLIC_ASSET_OWNER, value.imageAssetId(), value.imageAssetVersion()))
                         .orElseGet(() -> images.saveIncoming(PUBLIC_ASSET_OWNER,
                                 "公共穿搭参考：" + imageId, bytes, mediaType(imageFile)));
-                List<FashionReferenceGarment> garments = garments(garmentNodes);
+                List<FashionReferenceGarment> garments = garments(imageId, sourceIndex + 1, garmentNodes, options, cutouts,
+                        existing.orElse(null));
                 FashionReferenceLook look = new FashionReferenceLook(0L, imageId, lookName(garments),
                         stored.assetId(), stored.version(), mediaType(imageFile), imageId, "", "LOCAL_IMPORT",
                         publish ? "LOCAL_DEVELOPMENT_ONLY" : "UNVERIFIED", sha256, "", SUPPORTED_SCHEMA,
@@ -94,17 +105,24 @@ public class FashionReferenceImportService {
         return new ImportReport(imported, skipped, List.copyOf(failures));
     }
 
-    private List<FashionReferenceGarment> garments(JsonNode nodes) {
+    private List<FashionReferenceGarment> garments(String imageId, int sourceOrdinal, JsonNode nodes,
+            FashionReferenceImportOptions options, FashionReferenceCutoutCatalog cutouts,
+            FashionReferenceLook existingLook) {
         List<FashionReferenceGarment> values = new ArrayList<>();
         nodes.forEach(node -> {
             String displayName = text(node.path("displayName").asText(), 128);
             String category = code(node.path("categoryCode").asText(), "UNKNOWN");
             String subCategory = code(node.path("subCategoryCode").asText(), "UNKNOWN");
-            if (displayName.isBlank() || "UNKNOWN".equals(subCategory)) return;
+            if (displayName.isBlank() || "UNKNOWN".equals(subCategory) || !options.includes(category)) return;
             JsonNode colors = node.path("colors");
             JsonNode visibility = node.path("visibility");
             JsonNode confidence = node.path("confidence");
-            values.add(new FashionReferenceGarment(0L, 0L, Math.max(1, node.path("itemIndex").asInt(1)),
+            int itemIndex = Math.max(1, node.path("itemIndex").asInt(1));
+            FashionReferenceGarment existing = existingLook == null ? null : existingLook.garments().stream()
+                    .filter(value -> value.itemIndex() == itemIndex).findFirst().orElse(null);
+            CutoutAsset cutout = cutoutAsset(cutouts.find(imageId, itemIndex, sourceOrdinal, category),
+                    existing, displayName);
+            values.add(new FashionReferenceGarment(0L, 0L, itemIndex,
                     displayName, category, subCategory, code(node.path("targetGender").asText(), "UNISEX"),
                     code(colors.path("primaryCode").asText(), ""), strings(colors.path("secondaryCodes")),
                     strings(colors.path("accentCodes")), strings(node.path("styleCodes")),
@@ -114,10 +132,45 @@ public class FashionReferenceImportService {
                     strings(node.path("occasionCodes")), node.path("formalityLevel").asInt(0),
                     code(visibility.path("visibilityStatus").asText(), "UNKNOWN"),
                     decimal(visibility.path("visibleRatio").asDouble(0d)),
-                    decimal(confidence.path("overall").asDouble(0d)), node.toString()));
+                    decimal(confidence.path("overall").asDouble(0d)), node.toString(), cutout.assetId(),
+                    cutout.assetVersion(), cutout.mediaType(), cutout.status(), cutout.sourceFileName(),
+                    cutout.sha256(), cutout.model(), cutout.durationSeconds(), cutout.error()));
         });
         if (values.isEmpty()) throw new IllegalArgumentException("no valid garments");
         return List.copyOf(values);
+    }
+
+    private CutoutAsset cutoutAsset(FashionReferenceCutoutCatalog.Entry entry,
+            FashionReferenceGarment existing, String displayName) {
+        if (entry.outputFile() != null) {
+            try {
+                byte[] bytes = Files.readAllBytes(entry.outputFile());
+                String hash = sha256(bytes);
+                StoredImage stored = reusableCutout(existing, hash).orElseGet(() -> images.saveIncoming(
+                        PUBLIC_ASSET_OWNER, "Public garment cutout: " + displayName, bytes, mediaType(entry.outputFile())));
+                return new CutoutAsset(stored.assetId(), stored.version(), mediaType(entry.outputFile()), "READY",
+                        entry.outputFile().getFileName().toString(), hash, entry.model(), entry.durationSeconds(), "");
+            } catch (IOException failure) {
+                return new CutoutAsset("", 0, "image/png", "FAILED", entry.outputFileName(), "", entry.model(),
+                        entry.durationSeconds(), rootMessage(failure));
+            }
+        }
+        Optional<StoredImage> reusable = existing == null || !"READY".equals(existing.cutoutStatus())
+                ? Optional.empty() : images.find(PUBLIC_ASSET_OWNER, existing.cutoutAssetId(), existing.cutoutAssetVersion());
+        if (existing != null && reusable.isPresent()) {
+            return new CutoutAsset(existing.cutoutAssetId(), existing.cutoutAssetVersion(),
+                    existing.cutoutAssetMediaType(), "READY", existing.cutoutSourcePath(), existing.cutoutSha256(),
+                    existing.cutoutModel(), existing.cutoutDurationSeconds(), "");
+        }
+        return new CutoutAsset("", 0, "image/png", entry.status(), entry.outputFileName(), "", entry.model(),
+                entry.durationSeconds(), text(entry.error(), 512));
+    }
+
+    private Optional<StoredImage> reusableCutout(FashionReferenceGarment existing, String hash) {
+        if (existing == null || !"READY".equals(existing.cutoutStatus()) || !hash.equals(existing.cutoutSha256())) {
+            return Optional.empty();
+        }
+        return images.find(PUBLIC_ASSET_OWNER, existing.cutoutAssetId(), existing.cutoutAssetVersion());
     }
 
     private static Path safeImagePath(Path directory, String imageId) {
@@ -180,4 +233,8 @@ public class FashionReferenceImportService {
     }
 
     public record ImportReport(int imported, int skipped, List<String> failures) { }
+
+    private record CutoutAsset(String assetId, int assetVersion, String mediaType, String status,
+                               String sourceFileName, String sha256, String model,
+                               BigDecimal durationSeconds, String error) { }
 }

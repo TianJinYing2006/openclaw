@@ -25,7 +25,7 @@ public class FashionReferenceImportRunner {
     @EventListener(ApplicationReadyEvent.class)
     void importAfterStartup() {
         var report = importer.importFile(Path.of(properties.getAnnotationFile()), Path.of(properties.getImageDirectory()),
-                properties.getImportLimit(), properties.isPublishImported());
+                properties.getImportLimit(), properties.isPublishImported(), properties.importOptions());
         log.info("Fashion public reference import completed: imported={}, skipped={}, failures={}",
                 report.imported(), report.skipped(), report.failures().size());
         report.failures().stream().limit(10).forEach(value -> log.warn("Fashion reference import skipped: {}", value));

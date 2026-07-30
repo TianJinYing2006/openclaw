@@ -1,5 +1,6 @@
 package com.example.ykdsummer.fashion.config;
 
+import java.nio.file.Path;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -13,6 +14,10 @@ public class FashionReferenceProperties {
     private String imageDirectory = "";
     private int importLimit = 3;
     private boolean publishImported;
+    private String includedCategories = "TOP,BOTTOM,OUTERWEAR";
+    private String cutoutJobFile = "";
+    private String cutoutManifestFile = "";
+    private String cutoutImageDirectory = "";
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -26,5 +31,21 @@ public class FashionReferenceProperties {
     public void setImportLimit(int value) { importLimit = Math.max(1, Math.min(value, 1000)); }
     public boolean isPublishImported() { return publishImported; }
     public void setPublishImported(boolean value) { publishImported = value; }
+    public String getIncludedCategories() { return includedCategories; }
+    public void setIncludedCategories(String value) { includedCategories = safe(value); }
+    public String getCutoutJobFile() { return cutoutJobFile; }
+    public void setCutoutJobFile(String value) { cutoutJobFile = safe(value); }
+    public String getCutoutManifestFile() { return cutoutManifestFile; }
+    public void setCutoutManifestFile(String value) { cutoutManifestFile = safe(value); }
+    public String getCutoutImageDirectory() { return cutoutImageDirectory; }
+    public void setCutoutImageDirectory(String value) { cutoutImageDirectory = safe(value); }
+
+    public FashionReferenceImportOptions importOptions() {
+        return new FashionReferenceImportOptions(
+                FashionReferenceImportOptions.parseCategories(includedCategories),
+                path(cutoutJobFile), path(cutoutManifestFile), path(cutoutImageDirectory));
+    }
+
     private static String safe(String value) { return value == null ? "" : value.replace('\0', ' ').strip(); }
+    private static Path path(String value) { return value == null || value.isBlank() ? null : Path.of(value); }
 }

@@ -3,12 +3,12 @@
 ## 1. 当前目标
 
 当前版本先把服装数据的“保存、标准化、索引、检索”主链打通，不批量导入尚未整理完成的采集目录，
-也不在这一阶段实现推荐打分、Rerank 或训练模型。
+也不在这一阶段实现推荐打分、Rerank 或训练模型。第一波范围是男装的 `TOP`、`BOTTOM`、`OUTERWEAR`；鞋子先保留在原始标注 JSON，暂不进入单品库和向量库。
 
 ```text
-用户图片 / 公共标注图片
-  -> OSS 保存图片事实
-  -> MySQL 保存业务归属和标准化标签
+公共整套 Look 图片 + 标准化 Look JSON
+  -> OSS 保存整套图和已完成的单品切图
+  -> MySQL 保存 Look、Garment、完整标注和切图状态
   -> MySQL Outbox 记录待索引任务
   -> 百炼 text-embedding-v4 生成 1024 维文本向量
   -> Qdrant 保存可重建的向量与最小业务定位信息
@@ -72,8 +72,19 @@ app.fashion.reference.publish-imported=true
 启动一次并看到导入完成日志后，把 `import-enabled` 改回 `false`。导入按 `reference_code` 幂等更新，并按
 SHA-256 阻止相同图片换文件名后二次入库。只有 `ACTIVE` 素材会进入公共检索。
 
-当前本机已用三张样本验证 3 个 Look、9 个 Garment、OSS 读取、MySQL Outbox、Qdrant 索引和中文语义召回。
-`D:\创意` 的批量导入仍保持关闭，等待图片采集、授权和标注校验完成。
+当前已对真实标注和 `wet_001` 至 `wet_012` 的 24 张既有切图完成只读映射验证：每套 Look 生成 1 件上衣和 1 件下装；`SHOES` 仍保留在原始 JSON 中。真实 MySQL、OSS、Qdrant 集成导入还未启动。
+`D:\小红书\wet` 的批量导入仍保持关闭，等待图片采集、授权和标注校验完成。
+
+用于 12 套样本的真实导入配置必须显式提供切图状态来源；文件实际存在时优先于 JSONL 中陈旧的 `PENDING` 状态：
+
+```properties
+app.fashion.reference.included-categories=TOP,BOTTOM,OUTERWEAR
+app.fashion.reference.cutout-job-file=D:/小红书/wet/cleaned/jobs.jsonl
+app.fashion.reference.cutout-manifest-file=D:/小红书/wet/cleaned/manifest.jsonl
+app.fashion.reference.cutout-image-directory=D:/小红书/wet/cleaned/images
+```
+
+每一个已完成单品切图会记录独立的 OSS 资产、文件哈希、来源文件名、生成模型、耗时和状态。再次导入相同 Look 时，哈希不变的切图会复用已有 OSS 资产；切图文件暂时消失也不会把已确认的 `READY` 资产降级为 `PENDING`。
 
 ## 6. 数据治理边界
 

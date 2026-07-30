@@ -158,8 +158,10 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
                     reference_look_id, item_index, display_name, category_code, sub_category_code, target_gender,
                     color_primary, color_secondary_json, accent_colors_json, style_tags_json, fit_code, pattern_code,
                     silhouette_code, length_code, material_tags_json, season_tags_json, occasion_tags_json,
-                    formality_level, visibility_status, visible_ratio, confidence, attributes_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    formality_level, visibility_status, visible_ratio, confidence, attributes_json,
+                    cutout_asset_id, cutout_asset_version, cutout_asset_media_type, cutout_status,
+                    cutout_source_path, cutout_sha256, cutout_model, cutout_duration_seconds, cutout_error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, lookId, Math.max(1, garment.itemIndex()), text(garment.displayName(), 128),
                 code(garment.categoryCode(), "UNKNOWN"), code(garment.subCategoryCode(), "UNKNOWN"),
                 gender(garment.targetGender()), code(garment.colorPrimary(), ""), jsonArray(garment.secondaryColors()),
@@ -167,7 +169,12 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
                 code(garment.patternCode(), ""), code(garment.silhouetteCode(), ""), code(garment.lengthCode(), ""),
                 jsonArray(garment.materialTags()), jsonArray(garment.seasonTags()), jsonArray(garment.occasionTags()),
                 Math.max(0, Math.min(5, garment.formalityLevel())), code(garment.visibilityStatus(), "UNKNOWN"),
-                decimal(garment.visibleRatio()), decimal(garment.confidence()), jsonObject(garment.attributesJson()));
+                decimal(garment.visibleRatio()), decimal(garment.confidence()), jsonObject(garment.attributesJson()),
+                text(garment.cutoutAssetId(), 64), Math.max(0, garment.cutoutAssetVersion()),
+                text(defaulted(garment.cutoutAssetMediaType(), "image/png"), 64), cutoutStatus(garment.cutoutStatus()),
+                text(garment.cutoutSourcePath(), 1024), optionalHash(garment.cutoutSha256()),
+                text(garment.cutoutModel(), 128), nonNegative(garment.cutoutDurationSeconds()),
+                text(garment.cutoutError(), 512));
     }
 
     private FashionReferenceLook lookWithoutGarments(ResultSet rs) throws java.sql.SQLException {
@@ -192,7 +199,9 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
                 SELECT id, reference_look_id, item_index, display_name, category_code, sub_category_code,
                     target_gender, color_primary, color_secondary_json, accent_colors_json, style_tags_json,
                     fit_code, pattern_code, silhouette_code, length_code, material_tags_json, season_tags_json,
-                    occasion_tags_json, formality_level, visibility_status, visible_ratio, confidence, attributes_json
+                    occasion_tags_json, formality_level, visibility_status, visible_ratio, confidence, attributes_json,
+                    cutout_asset_id, cutout_asset_version, cutout_asset_media_type, cutout_status,
+                    cutout_source_path, cutout_sha256, cutout_model, cutout_duration_seconds, cutout_error
                 FROM fashion_reference_garments WHERE reference_look_id = ? ORDER BY item_index
                 """, (rs, row) -> new FashionReferenceGarment(rs.getLong("id"), rs.getLong("reference_look_id"),
                 rs.getInt("item_index"), rs.getString("display_name"), rs.getString("category_code"),
@@ -203,7 +212,11 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
                 stringList(rs.getString("material_tags_json")), stringList(rs.getString("season_tags_json")),
                 stringList(rs.getString("occasion_tags_json")), rs.getInt("formality_level"),
                 rs.getString("visibility_status"), rs.getBigDecimal("visible_ratio"), rs.getBigDecimal("confidence"),
-                rs.getString("attributes_json")), lookId);
+                rs.getString("attributes_json"), rs.getString("cutout_asset_id"),
+                rs.getInt("cutout_asset_version"), rs.getString("cutout_asset_media_type"),
+                rs.getString("cutout_status"), rs.getString("cutout_source_path"), rs.getString("cutout_sha256"),
+                rs.getString("cutout_model"), rs.getBigDecimal("cutout_duration_seconds"),
+                rs.getString("cutout_error")), lookId);
     }
 
     private String jsonArray(List<String> values) {
@@ -237,6 +250,13 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
         if (value == null) return java.math.BigDecimal.ZERO;
         return value.max(java.math.BigDecimal.ZERO).min(java.math.BigDecimal.ONE);
     }
+    private static java.math.BigDecimal nonNegative(java.math.BigDecimal value) {
+        return value == null ? java.math.BigDecimal.ZERO : value.max(java.math.BigDecimal.ZERO);
+    }
+    private static String cutoutStatus(String value) {
+        String status = code(value, "PENDING");
+        return switch (status) { case "READY", "FAILED", "SKIPPED" -> status; default -> "PENDING"; };
+    }
     private static String gender(String value) {
         String code = code(value, "UNISEX");
         return switch (code) { case "MENS", "WOMENS", "UNKNOWN" -> code; default -> "UNISEX"; };
@@ -252,6 +272,12 @@ public class JdbcFashionReferenceRepository implements FashionReferenceRepositor
     private static String hash(String value) {
         String cleaned = text(value, 64).toLowerCase(java.util.Locale.ROOT);
         if (!cleaned.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("sha256 is required");
+        return cleaned;
+    }
+    private static String optionalHash(String value) {
+        String cleaned = text(value, 64).toLowerCase(java.util.Locale.ROOT);
+        if (cleaned.isBlank()) return "";
+        if (!cleaned.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("invalid optional sha256");
         return cleaned;
     }
     private static String text(String value, int limit) {
