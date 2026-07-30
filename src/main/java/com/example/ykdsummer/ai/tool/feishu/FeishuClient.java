@@ -19,6 +19,7 @@ import com.lark.oapi.service.im.v1.model.CreateMessageResp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -33,6 +34,7 @@ import java.util.Map;
  * 提供文档和消息相关的便捷方法。</p>
  */
 @Component
+@ConditionalOnProperty(prefix = "app.feishu", name = "enabled", havingValue = "true")
 public class FeishuClient {
 
     private static final Logger log = LoggerFactory.getLogger(FeishuClient.class);

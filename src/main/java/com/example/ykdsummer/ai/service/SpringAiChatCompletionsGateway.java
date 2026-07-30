@@ -354,62 +354,11 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             if (imageTools != null) {
                 addToolCallbacks(callbacks, imageTools);
             }
-            if (speechTools != null) {
-                addToolCallbacks(callbacks, speechTools);
-            }
-            if (voiceSettingsTools != null) {
-                addToolCallbacks(callbacks, voiceSettingsTools);
-            }
-            if (documentTools != null) {
-                addToolCallbacks(callbacks, documentTools);
-            }
-            if (fileProductionTools != null) {
-                addToolCallbacks(callbacks, fileProductionTools);
-            }
-            if (conversationMemoryTools != null) {
-                addToolCallbacks(callbacks, conversationMemoryTools);
-            }
-            if (assetManagementTools != null) {
-                addToolCallbacks(callbacks, assetManagementTools);
-            }
-            if (imageTaskStatusTools != null) {
-                addToolCallbacks(callbacks, imageTaskStatusTools);
-            }
-            if (webSearchTools != null) {
-                addToolCallbacks(callbacks, webSearchTools);
-            }
-            if (epicFreeGamesTools != null) {
-                addToolCallbacks(callbacks, epicFreeGamesTools);
-            }
-            if (steamUserTools != null) {
-                addToolCallbacks(callbacks, steamUserTools);
-            }
-            if (qqUserTools != null) {
-                addToolCallbacks(callbacks, qqUserTools);
-            }
-            if (bilibiliUserTools != null) {
-                addToolCallbacks(callbacks, bilibiliUserTools);
-            }
-            if (phoneInfoTools != null) {
-                addToolCallbacks(callbacks, phoneInfoTools);
-            }
-            if (externalToolSet != null) {
-                addToolCallbacks(callbacks, externalToolSet.toolBeans());
-            }
-            if (informationToolSet != null) {
-                addToolCallbacks(callbacks, informationToolSet.toolBeans());
-            }
-            if (amapTools != null) {
-                addToolCallbacks(callbacks, amapTools);
-            }
-            if (locationSearchTools != null) {
-                addToolCallbacks(callbacks, locationSearchTools);
-            }
+            // 服装 Agent 只带主线能力。历史泛用 Tool 即使仍有 Bean，也不能进入模型上下文。
             if (fashionAgentToolSet != null) {
                 addToolCallbacks(callbacks, fashionAgentToolSet.toolBeans());
             } else {
                 if (fashionTools != null) addToolCallbacks(callbacks, fashionTools);
-                if (fashionCatalogTools != null) addToolCallbacks(callbacks, fashionCatalogTools);
                 if (fashionPersonTemplateTools != null) addToolCallbacks(callbacks, fashionPersonTemplateTools);
                 if (fashionTryOnTools != null) addToolCallbacks(callbacks, fashionTryOnTools);
                 if (fashionWardrobeIntakeTools != null) addToolCallbacks(callbacks, fashionWardrobeIntakeTools);

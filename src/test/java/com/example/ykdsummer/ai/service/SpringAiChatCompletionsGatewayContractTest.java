@@ -301,80 +301,19 @@ class SpringAiChatCompletionsGatewayContractTest {
                     .contains("\"tools\"")
                     .contains("get_current_weather")
                     .contains("generate_image")
-                    .contains("synthesize_speech")
-                    .contains("set_voice", "get_current_voice", "list_voice_options", "reset_voice")
                     .contains("get_current_image", "inspect_image", "create_image_revision", "restore_image_version")
-                    .contains("create_document", "get_current_document", "replace_document_content", "restore_document_version")
-                    .contains("produce_file")
-                    .contains("clear_current_memory")
-                    .contains("list_recent_assets", "select_asset", "describe_asset", "resend_asset")
-                    .contains("get_running_tasks", "check_image_task", "retry_last_image_task")
                     .contains("get_fashion_profile", "search_wardrobe", "add_wardrobe_item")
                     .contains("styleTags", "fitCode", "patternCode", "seasonTags", "occasionTags", "material")
                     .contains("save_person_tryon_template", "list_person_tryon_templates", "select_person_tryon_template")
                     .contains("analyze_wardrobe_photo", "update_wardrobe_candidate_labels", "submit_garment_cutout",
                             "retry_garment_cutout", "confirm_wardrobe_candidate")
+                    .doesNotContain("synthesize_speech", "set_voice", "create_document", "produce_file",
+                            "clear_current_memory", "list_recent_assets", "get_running_tasks", "search_web",
+                            "feishu_", "get_bilibili_user", "get_steam_user", "search_fashion_products")
                     .contains("城市名称")
                     .contains("\"role\":\"system\"")
-                    .contains("像朋友聊天一样自然、直接、简洁地回答")
+                    .contains("微信里的 AI 穿搭助手")
                     .contains("上一问", "上一答", "这次直接说重点");
-        } finally {
-            server.stop(0);
-        }
-    }
-
-    @Test
-    void canExecuteDocumentToolForPreviouslyImportedPdf() throws IOException {
-        AtomicInteger calls = new AtomicInteger();
-        List<String> requestBodies = new CopyOnWriteArrayList<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v1/chat/completions", exchange -> {
-            requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            if (calls.incrementAndGet() == 1) {
-                sendJson(exchange, """
-                        {
-                          "id":"chatcmpl_document_tool_request",
-                          "object":"chat.completion",
-                          "created":1,
-                          "model":"gpt-5.6-sol",
-                          "choices":[{"index":0,"message":{"role":"assistant","content":null,
-                            "tool_calls":[{"id":"call_current_document","type":"function","function":
-                              {"name":"get_current_document","arguments":"{}"}}]},"finish_reason":"tool_calls"}],
-                          "usage":{"prompt_tokens":20,"completion_tokens":8,"total_tokens":28}
-                        }
-                        """);
-            } else {
-                sendJson(exchange, """
-                        {
-                          "id":"chatcmpl_document_tool_result",
-                          "object":"chat.completion",
-                          "created":2,
-                          "model":"gpt-5.6-sol",
-                          "choices":[{"index":0,"message":{"role":"assistant","content":"这份 PDF 已读取，可以继续修改。"},"finish_reason":"stop"}],
-                          "usage":{"prompt_tokens":40,"completion_tokens":12,"total_tokens":52}
-                        }
-                        """);
-            }
-        });
-        server.start();
-
-        try {
-            ToolArtifactCollector collector = new ToolArtifactCollector();
-            LocalDocumentAssetStore store = new LocalDocumentAssetStore();
-            byte[] pdf = new DocumentRenderer().render("pdf", "PDF 唯一标记：工具链测试");
-            store.importUploaded("pdf-user", new com.example.ykdsummer.ai.model.AiFile(
-                    "tool-test.pdf", "application/pdf", pdf));
-            SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
-                    createModel(server), new AiProperties(), new WeatherTools(mock(WeatherService.class)),
-                    null, collector, null, null,
-                    new DocumentTools(store, new DocumentTextExtractor(), collector), AiTraceLogger.disabled());
-
-            LlmGateway.ModelReply reply = gateway.generate("pdf-user", List.of(), "请查看我刚上传的 PDF");
-
-            assertThat(reply.text()).contains("PDF 已读取");
-            assertThat(calls).hasValue(2);
-            assertThat(requestBodies.get(0)).contains("get_current_document");
-            assertThat(requestBodies.get(1)).contains("\"role\":\"tool\"", "当前文档", "PDF 唯一标记：工具链测试");
         } finally {
             server.stop(0);
         }

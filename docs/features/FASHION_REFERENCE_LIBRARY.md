@@ -72,8 +72,8 @@ app.fashion.reference.publish-imported=true
 启动一次并看到导入完成日志后，把 `import-enabled` 改回 `false`。导入按 `reference_code` 幂等更新，并按
 SHA-256 阻止相同图片换文件名后二次入库。只有 `ACTIVE` 素材会进入公共检索。
 
-当前已对真实标注和 `wet_001` 至 `wet_012` 的 24 张既有切图完成只读映射验证：每套 Look 生成 1 件上衣和 1 件下装；`SHOES` 仍保留在原始 JSON 中。真实 MySQL、OSS、Qdrant 集成导入还未启动。
-`D:\小红书\wet` 的批量导入仍保持关闭，等待图片采集、授权和标注校验完成。
+当前已对真实标注和 `wet_001` 至 `wet_012` 的 24 张既有切图完成真实集成导入：12 个 Look、12 件上衣、12 件下装已写入 MySQL/OSS，并在 Qdrant 写入 12 个 `REFERENCE_LOOK` 和 24 个 `REFERENCE_GARMENT` 文本向量；`SHOES` 仍保留在原始 JSON 中。
+`D:\小红书\wet` 的 230 套批量导入仍保持关闭，等待图片采集、授权和标注校验完成。
 
 用于 12 套样本的真实导入配置必须显式提供切图状态来源；文件实际存在时优先于 JSONL 中陈旧的 `PENDING` 状态：
 
