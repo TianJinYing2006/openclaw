@@ -2,6 +2,7 @@ package com.example.ykdsummer.bot;
 
 import com.example.ykdsummer.ai.config.ImageOpenAiClientProperties;
 import com.example.ykdsummer.ai.config.AiProperties;
+import com.example.ykdsummer.ai.orchestration.BoundedToolCallingManager;
 import com.example.ykdsummer.ai.service.LlmGateway;
 import com.example.ykdsummer.ai.service.RoutingLlmGateway;
 import com.example.ykdsummer.bot.config.ILinkProperties;
@@ -12,13 +13,20 @@ import com.example.ykdsummer.bot.service.ILinkBotService;
 import com.openai.client.OpenAIClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-@SpringBootTest(properties = "ilink.enabled=false", webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest(properties = {
+        "ilink.enabled=false",
+        "app.persistence.enabled=false",
+        "app.persistence.redis.enabled=false",
+        "app.fashion.semantic.enabled=false",
+        "app.fashion.reference.enabled=false"
+}, webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class ILinkApplicationContextTest {
 
     @Autowired
@@ -41,6 +49,9 @@ class ILinkApplicationContextTest {
 
     @Autowired
     private ChatModel springAiChatModel;
+
+    @Autowired
+    private ToolCallingManager toolCallingManager;
 
     @Autowired
     private LlmGateway llmGateway;
@@ -85,11 +96,18 @@ class ILinkApplicationContextTest {
         assertEquals("OpenAiChatModel", springAiChatModel.getClass().getSimpleName());
         assertEquals(RoutingLlmGateway.class, llmGateway.getClass());
         assertEquals(600, aiProperties.getMaxCompletionTokens());
+        assertEquals(4, aiProperties.getMaxAgentRounds());
         // 运行环境可以通过 AI_SYSTEM_PROMPT 覆盖默认提示词，因此不能假设值与源码常量完全相同。
         assertFalse(aiProperties.getSystemPrompt().isBlank());
         assertEquals(100, properties.getTextQueueCapacity());
         assertEquals(10, properties.getImageQueueCapacity());
         assertEquals(20, rateLimitProperties.limitFor("text"));
         assertEquals(2, rateLimitProperties.limitFor("video"));
+    }
+
+    @Test
+    void usesTheFourRoundAgentToolCallingGuard() {
+        assertEquals(BoundedToolCallingManager.class, toolCallingManager.getClass());
+        assertEquals(4, aiProperties.getMaxAgentRounds());
     }
 }

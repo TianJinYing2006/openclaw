@@ -9,14 +9,19 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -30,6 +35,7 @@ import org.springframework.stereotype.Service;
 public class OpenAiImageEditGateway implements AsyncImageEditGateway {
 
     private static final int MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+    private static final Logger log = LoggerFactory.getLogger(OpenAiImageEditGateway.class);
 
     private final ImageOpenAiClientProperties imageProperties;
     private final AiProperties aiProperties;
@@ -59,31 +65,56 @@ public class OpenAiImageEditGateway implements AsyncImageEditGateway {
 
     @Override
     public EditResult edit(String prompt, String referenceImageUrl) {
+        return edit(prompt, referenceImageUrl == null ? List.of() : List.of(referenceImageUrl));
+    }
+
+    @Override
+    public EditResult edit(String prompt, List<String> referenceImageUrls) {
+        return edit(prompt, referenceImageUrls, timeout());
+    }
+
+    @Override
+    public EditResult edit(String prompt, List<String> referenceImageUrls, Duration timeout) {
         if (!configured()) {
             return EditResult.error("图片编辑服务未配置");
         }
-        if (referenceImageUrl == null || referenceImageUrl.isBlank()) {
+        if (referenceImageUrls == null || referenceImageUrls.isEmpty()
+                || referenceImageUrls.stream().anyMatch(url -> url == null || url.isBlank())) {
             return EditResult.error("原图读取地址无效，无法修改图片");
         }
         try {
-            SourceImage source = downloadSource(referenceImageUrl);
+            Duration effectiveTimeout = effectiveTimeout(timeout);
+            List<SourceImage> sources = new ArrayList<>(referenceImageUrls.size());
+            for (String referenceImageUrl : referenceImageUrls) {
+                sources.add(downloadSource(referenceImageUrl, effectiveTimeout));
+            }
             HttpResponse<String> response = httpClient.send(
-                    buildEditRequest(prompt, source), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                    buildEditRequest(prompt, sources, effectiveTimeout), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 return EditResult.error(errorMessage(response.statusCode(), response.body()));
             }
-            return parseResult(response.body());
+            return parseResult(response.body(), effectiveTimeout);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return EditResult.error("图片编辑已取消");
-        } catch (IOException | IllegalArgumentException exception) {
+        } catch (IOException exception) {
+            log.warn("OpenAI-compatible image edit transport failed, providerHost={}, referenceCount={}, type={}",
+                    providerHost(), referenceImageUrls.size(), exception.getClass().getSimpleName());
+            return EditResult.error("图片编辑暂时没有响应，请稍后重试");
+        } catch (IllegalArgumentException exception) {
+            log.warn("OpenAI-compatible image edit request was invalid, providerHost={}, referenceCount={}",
+                    providerHost(), referenceImageUrls.size());
             return EditResult.error("图片编辑暂时没有响应，请稍后重试");
         }
     }
 
-    private SourceImage downloadSource(String referenceImageUrl) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(referenceImageUrl))
-                .timeout(timeout())
+    private SourceImage downloadSource(String referenceImageUrl, Duration timeout) throws IOException, InterruptedException {
+        URI sourceUri = URI.create(referenceImageUrl);
+        if ("data".equalsIgnoreCase(sourceUri.getScheme())) {
+            return dataSource(referenceImageUrl);
+        }
+        HttpRequest request = HttpRequest.newBuilder(sourceUri)
+                .timeout(timeout)
                 .header("Accept", "image/*")
                 .GET()
                 .build();
@@ -97,7 +128,29 @@ public class OpenAiImageEditGateway implements AsyncImageEditGateway {
         }
     }
 
-    private HttpRequest buildEditRequest(String prompt, SourceImage source) throws IOException {
+    /** Local fallback storage exposes short image data URLs; convert them to the same multipart bytes as OSS sources. */
+    private SourceImage dataSource(String value) throws IOException {
+        int comma = value.indexOf(',');
+        if (comma < 6) throw new IOException("invalid data image URL");
+        String header = value.substring(5, comma);
+        String payload = value.substring(comma + 1);
+        boolean base64 = header.toLowerCase(Locale.ROOT).contains(";base64");
+        String declaredMediaType = header.split(";", 2)[0];
+        try {
+            byte[] bytes = base64 ? Base64.getDecoder().decode(payload)
+                    : URLDecoder.decode(payload, StandardCharsets.UTF_8).getBytes(StandardCharsets.ISO_8859_1);
+            return valid(bytes) ? new SourceImage(bytes, mediaType(declaredMediaType))
+                    : throwInvalidDataUrl();
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("invalid data image URL", exception);
+        }
+    }
+
+    private static SourceImage throwInvalidDataUrl() throws IOException {
+        throw new IOException("invalid data image URL");
+    }
+
+    private HttpRequest buildEditRequest(String prompt, List<SourceImage> sources, Duration timeout) throws IOException {
         String boundary = "----YkdImageEdit" + UUID.randomUUID().toString().replace("-", "");
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         writeField(body, boundary, "model", aiProperties.getImageModel());
@@ -105,18 +158,22 @@ public class OpenAiImageEditGateway implements AsyncImageEditGateway {
         writeField(body, boundary, "size", aiProperties.getImageSize());
         writeField(body, boundary, "quality", aiProperties.getImageQuality());
         writeField(body, boundary, "response_format", "b64_json");
-        writeFile(body, boundary, "image", "source." + source.extension(), source.mediaType(), source.bytes());
+        for (int index = 0; index < sources.size(); index++) {
+            SourceImage source = sources.get(index);
+            writeFile(body, boundary, "image", "reference-" + (index + 1) + "." + source.extension(),
+                    source.mediaType(), source.bytes());
+        }
         body.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
 
         return HttpRequest.newBuilder(URI.create(baseUrl() + "/images/edits"))
-                .timeout(timeout())
+                .timeout(timeout)
                 .header("Authorization", "Bearer " + imageProperties.getApiKey())
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
                 .build();
     }
 
-    private EditResult parseResult(String body) {
+    private EditResult parseResult(String body, Duration timeout) {
         try {
             JsonNode first = objectMapper.readTree(body == null ? "{}" : body).path("data").path(0);
             String encoded = first.path("b64_json").asText("");
@@ -125,16 +182,16 @@ public class OpenAiImageEditGateway implements AsyncImageEditGateway {
                 return valid(bytes) ? EditResult.success(bytes, null) : EditResult.error("图片编辑返回了无效图片");
             }
             String url = first.path("url").asText("");
-            return url.isBlank() ? EditResult.error("图片编辑服务没有返回结果图片") : downloadResult(url);
+            return url.isBlank() ? EditResult.error("图片编辑服务没有返回结果图片") : downloadResult(url, timeout);
         } catch (IOException | IllegalArgumentException exception) {
             return EditResult.error("图片编辑返回了无法识别的数据");
         }
     }
 
-    private EditResult downloadResult(String url) {
+    private EditResult downloadResult(String url, Duration timeout) {
         try {
             HttpResponse<InputStream> response = httpClient.send(
-                    HttpRequest.newBuilder(URI.create(url)).timeout(timeout()).GET().build(),
+                    HttpRequest.newBuilder(URI.create(url)).timeout(timeout).GET().build(),
                     HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 return EditResult.error("图片编辑结果下载失败");
@@ -175,8 +232,20 @@ public class OpenAiImageEditGateway implements AsyncImageEditGateway {
         return normalized.endsWith("/v1") ? normalized : normalized + "/v1";
     }
 
+    private String providerHost() {
+        try {
+            return URI.create(baseUrl()).getHost();
+        } catch (IllegalArgumentException exception) {
+            return "invalid";
+        }
+    }
+
     private Duration timeout() {
         return aiProperties.getImageTimeout() == null ? Duration.ofSeconds(360) : aiProperties.getImageTimeout();
+    }
+
+    private Duration effectiveTimeout(Duration requested) {
+        return requested == null || requested.isNegative() || requested.isZero() ? timeout() : requested;
     }
 
     private static void writeField(ByteArrayOutputStream output, String boundary, String name, String value) throws IOException {

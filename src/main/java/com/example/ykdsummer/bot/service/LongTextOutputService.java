@@ -46,6 +46,20 @@ public class LongTextOutputService {
                 : Delivery.txt("查询结果.txt", text.getBytes(StandardCharsets.UTF_8), "已按 TXT 文件发送完整结果。"));
     }
 
+    /**
+     * Background jobs have no interactive turn to ask whether the recipient wants TXT, so long results
+     * are sent as a text file directly. Normal conversational replies keep the existing choice flow.
+     */
+    public Delivery background(String fileName, String text) {
+        String safeText = safe(text);
+        if (!properties.isEnabled() || codePointCount(safeText) <= properties.getThresholdCharacters()) {
+            return Delivery.text(safeText);
+        }
+        String name = safe(fileName);
+        return Delivery.txt(name.isBlank() ? "定时任务结果.txt" : name,
+                safeText.getBytes(StandardCharsets.UTF_8), "定时任务结果较长，已按 TXT 文件发送完整内容。");
+    }
+
     private static Selection selection(String input) {
         return switch (safe(input).toLowerCase(Locale.ROOT)) {
             case "1", "全文", "文本", "直接发", "直接发送", "发全文", "发文本" -> Selection.TEXT;

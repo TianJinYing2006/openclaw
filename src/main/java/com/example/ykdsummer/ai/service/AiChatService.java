@@ -7,6 +7,9 @@ import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.ConversationMessage;
+import com.example.ykdsummer.fashion.application.FashionAgentWorkflowContextProvider;
+import com.example.ykdsummer.fashion.application.FashionWardrobeDraftCommandHandler;
+import com.example.ykdsummer.fashion.tool.FashionWardrobeVisualCommandHandler;
 import com.example.ykdsummer.persistence.ConversationHistoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +37,7 @@ public class AiChatService {
     public static final String AUTH_ERROR_REPLY = "AI 服务认证失败，请联系管理员";
     public static final String UNAVAILABLE_REPLY = "AI 暂时没有响应，请稍后重试";
     public static final String EMPTY_REPLY = "暂时没有生成有效回答";
+    public static final String AGENT_ROUND_LIMIT_REPLY = "这个任务连续调用工具次数较多，已停止继续执行。你可以把需求拆得更具体一些再试。";
 
     private static final Logger log = LoggerFactory.getLogger(AiChatService.class);
 
@@ -43,6 +47,9 @@ public class AiChatService {
     private final AiUsageMeter usageMeter;
     private final TokenBudgetPolicy budgetPolicy;
     private volatile ConversationHistoryStore conversationHistory = ConversationHistoryStore.disabled();
+    private volatile FashionAgentWorkflowContextProvider fashionWorkflowContext;
+    private volatile FashionWardrobeDraftCommandHandler wardrobeDraftCommands;
+    private volatile FashionWardrobeVisualCommandHandler wardrobeVisualCommands;
     /** key 是 iLink fromUserId，value 是该微信用户自己的最近对话。 */
     private final Cache<String, UserConversation> conversations;
 
@@ -78,6 +85,25 @@ public class AiChatService {
     @Autowired(required = false)
     void setConversationHistory(ConversationHistoryStore conversationHistory) {
         this.conversationHistory = conversationHistory == null ? ConversationHistoryStore.disabled() : conversationHistory;
+    }
+
+    /**
+     * A narrow business guard for an explicit edit to the user's sole pending garment draft. It prevents a model
+     * response from claiming a revision was submitted without the durable fashion task actually being created.
+     */
+    @Autowired(required = false)
+    void setWardrobeDraftCommands(FashionWardrobeDraftCommandHandler wardrobeDraftCommands) {
+        this.wardrobeDraftCommands = wardrobeDraftCommands;
+    }
+
+    @Autowired(required = false)
+    void setFashionWorkflowContext(FashionAgentWorkflowContextProvider fashionWorkflowContext) {
+        this.fashionWorkflowContext = fashionWorkflowContext;
+    }
+
+    @Autowired(required = false)
+    void setWardrobeVisualCommands(FashionWardrobeVisualCommandHandler wardrobeVisualCommands) {
+        this.wardrobeVisualCommands = wardrobeVisualCommands;
     }
 
     /**
@@ -149,13 +175,21 @@ public class AiChatService {
          */
         synchronized (conversation) {
             try {
+                List<ConversationMessage> history = conversation.copyMessages();
+                if ((images == null || images.isEmpty()) && (files == null || files.isEmpty())) {
+                    AssistantAnswer visualReply = handleExplicitWardrobeVisualRequest(userId, memoryPrompt, history);
+                    if (visualReply != null) {
+                        rememberLocalTurn(conversation, userId, memoryPrompt, visualReply.text(), images, files);
+                        return visualReply;
+                    }
+                }
+                String effectiveModelPrompt = withFashionWorkflowContext(userId, modelPrompt);
                 /*
                  * Completion 与 Responses 请求都设置为 store=false，服务端不替我们保存上下文。
                  * 所以每次调用都复制最近历史，并连同本轮 prompt/images 重新发给模型。
                  */
-                List<ConversationMessage> history = conversation.copyMessages();
-                trace.request(userId, memoryPrompt, modelPrompt, history.size(), images, files);
-                AiRequestBudget budget = budgetPolicy.plan(history, modelPrompt, images, files);
+                trace.request(userId, memoryPrompt, effectiveModelPrompt, history.size(), images, files);
+                AiRequestBudget budget = budgetPolicy.plan(history, effectiveModelPrompt, images, files);
                 AiUsageMeter.Reservation reservation = usageMeter.reserve(userId, budget);
                 if (!reservation.allowed()) {
                     log.info("AI request rejected by budget, user={}, reason={}, taskClass={}",
@@ -168,7 +202,7 @@ public class AiChatService {
                 boolean settled = false;
                 long gatewayStartedAt = System.nanoTime();
                 try {
-                    reply = gateway.generate(userId, history, modelPrompt, images, files, budget);
+                    reply = gateway.generate(userId, history, effectiveModelPrompt, images, files, budget);
                     long durationMs = elapsedMillis(gatewayStartedAt);
                     usageMeter.complete(reservation, reply.protocol(), reply.model(), reply.usage(), durationMs);
                     trace.modelCompleted(userId, reply.protocol(), reply.model(), durationMs, reply.usage(), reply.text());
@@ -191,24 +225,30 @@ public class AiChatService {
                     }
                 }
                 // 只有模型成功返回后才把这一问一答写入历史，失败提示不会污染下一轮上下文。
-                ConversationMessage userMessage = new ConversationMessage(
-                        ConversationMessage.Role.USER, memoryText(memoryPrompt, images, files));
-                ConversationMessage assistantMessage = new ConversationMessage(ConversationMessage.Role.ASSISTANT, reply.text());
-                conversation.remember(userMessage, properties.getMaxMemoryMessages());
-                conversation.remember(assistantMessage, properties.getMaxMemoryMessages());
-                conversationHistory.appendTurn(userId, userMessage, assistantMessage);
+                rememberLocalTurn(conversation, userId, memoryPrompt, reply.text(), images, files);
                 return new AssistantAnswer(reply.text(), reply.artifacts());
             } catch (AiGatewayException exception) {
                 // AiTraceLogger already emitted the protocol, duration and sanitized user label for this failure.
                 log.debug("AI request mapped to user-safe reply, user={}, kind={}", anonymize(userId), exception.kind());
+                String fallback = handleWardrobeCommandFallback(userId, memoryPrompt, images, files);
+                if (fallback != null) {
+                    rememberLocalTurn(conversation, userId, memoryPrompt, fallback, images, files);
+                    return AssistantAnswer.text(fallback);
+                }
                 return AssistantAnswer.text(switch (exception.kind()) {
                     case AUTHENTICATION -> AUTH_ERROR_REPLY;
                     case EMPTY_RESPONSE -> EMPTY_REPLY;
                     case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
+                    case AGENT_ROUND_LIMIT -> AGENT_ROUND_LIMIT_REPLY;
                 });
             } catch (RuntimeException exception) {
                 log.debug("Unexpected AI failure mapped to user-safe reply, user={}, type={}",
                         anonymize(userId), exception.getClass().getSimpleName());
+                String fallback = handleWardrobeCommandFallback(userId, memoryPrompt, images, files);
+                if (fallback != null) {
+                    rememberLocalTurn(conversation, userId, memoryPrompt, fallback, images, files);
+                    return AssistantAnswer.text(fallback);
+                }
                 return AssistantAnswer.text(UNAVAILABLE_REPLY);
             }
         }
@@ -228,6 +268,57 @@ public class AiChatService {
 
     public boolean isEnabled() {
         return properties.isEnabled();
+    }
+
+    private String handleWardrobeCommandFallback(
+            String userId, String prompt, List<AiImage> images, List<AiFile> files
+    ) {
+        if ((images != null && !images.isEmpty()) || (files != null && !files.isEmpty())) return null;
+        FashionWardrobeDraftCommandHandler handler = wardrobeDraftCommands;
+        if (handler == null) return null;
+        try {
+            return handler.handle(userId, prompt).orElse(null);
+        } catch (RuntimeException failure) {
+            log.warn("Fashion wardrobe fallback could not be executed, user={}", anonymize(userId), failure);
+            return null;
+        }
+    }
+
+    private String withFashionWorkflowContext(String userId, String modelPrompt) {
+        FashionAgentWorkflowContextProvider provider = fashionWorkflowContext;
+        if (provider == null) return modelPrompt;
+        try {
+            String context = provider.contextFor(userId);
+            return context == null || context.isBlank() ? modelPrompt : modelPrompt + context;
+        } catch (RuntimeException failure) {
+            log.warn("Fashion workflow context could not be loaded, user={}", anonymize(userId), failure);
+            return modelPrompt;
+        }
+    }
+
+    private AssistantAnswer handleExplicitWardrobeVisualRequest(
+            String userId, String prompt, List<ConversationMessage> history
+    ) {
+        FashionWardrobeVisualCommandHandler handler = wardrobeVisualCommands;
+        if (handler == null) return null;
+        try {
+            return handler.handle(userId, prompt, history).orElse(null);
+        } catch (RuntimeException failure) {
+            log.warn("Explicit wardrobe image request could not be prepared, user={}", anonymize(userId), failure);
+            return null;
+        }
+    }
+
+    private void rememberLocalTurn(
+            UserConversation conversation, String userId, String memoryPrompt, String reply,
+            List<AiImage> images, List<AiFile> files
+    ) {
+        ConversationMessage userMessage = new ConversationMessage(
+                ConversationMessage.Role.USER, memoryText(memoryPrompt, images, files));
+        ConversationMessage assistantMessage = new ConversationMessage(ConversationMessage.Role.ASSISTANT, reply);
+        conversation.remember(userMessage, properties.getMaxMemoryMessages());
+        conversation.remember(assistantMessage, properties.getMaxMemoryMessages());
+        conversationHistory.appendTurn(userId, userMessage, assistantMessage);
     }
 
     public String model() {

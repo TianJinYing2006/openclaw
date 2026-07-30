@@ -1,10 +1,18 @@
 package com.example.ykdsummer.ai.config;
 
+import com.example.ykdsummer.ai.orchestration.BoundedToolCallingManager;
+import io.micrometer.observation.ObservationRegistry;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
+import org.springframework.ai.model.tool.DefaultToolCallingManager;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.tool.execution.ToolExecutionExceptionProcessor;
+import org.springframework.ai.tool.observation.ToolCallingObservationConvention;
+import org.springframework.ai.tool.resolution.ToolCallbackResolver;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
@@ -13,6 +21,28 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Configuration
 @EnableScheduling
 public class OpenAiClientConfiguration {
+
+    /**
+     * Rebuild Spring AI's default manager with the same resolver/exception/observation wiring, then add
+     * the request-scoped round guard. The guard counts model planning rounds, never individual tools.
+     */
+    @Bean
+    @Primary
+    public BoundedToolCallingManager boundedToolCallingManager(
+            ToolCallbackResolver toolCallbackResolver,
+            ToolExecutionExceptionProcessor toolExecutionExceptionProcessor,
+            ObjectProvider<ObservationRegistry> observationRegistry,
+            ObjectProvider<ToolCallingObservationConvention> observationConvention,
+            AiProperties aiProperties
+    ) {
+        DefaultToolCallingManager delegate = ToolCallingManager.builder()
+                .observationRegistry(observationRegistry.getIfUnique(() -> ObservationRegistry.NOOP))
+                .toolCallbackResolver(toolCallbackResolver)
+                .toolExecutionExceptionProcessor(toolExecutionExceptionProcessor)
+                .build();
+        observationConvention.ifAvailable(delegate::setObservationConvention);
+        return new BoundedToolCallingManager(delegate, aiProperties);
+    }
 
     @Bean
     @Primary

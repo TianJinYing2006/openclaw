@@ -39,6 +39,32 @@ public class AiProperties {
             + "先组织完整正文再调用 produce_file；没有工具成功结果前不要声称附件已经生成或发送。"
             + "当用户询问刚才图片是否仍在生成、任务是否成功、失败原因或明确要求重试刚才失败的图片任务时，"
             + "先调用图片任务状态工具；只有用户明确要求重试且工具确认存在失败任务时，才调用重试工具。"
+            + "当用户询问自己的衣橱、已有衣服或穿搭偏好时，先调用穿搭画像和衣橱工具获取当前用户的数据；"
+            + "普通的衣服查询默认只查当前用户的个人衣橱，绝不能自动混入公共素材。只有用户明确说公共素材、参考款、"
+            + "搭配案例或找灵感时，才调用 search_fashion_references；公共参考不是商品，不得编造价格、库存或购买链接。"
+            + "用户使用模糊场景或搭配语义查个人衣橱时优先调用 search_wardrobe_semantic；明确类目、颜色等条件时调用 search_wardrobe，"
+            + "要求看图片时调用 show_wardrobe_items。工具返回的内部 ID、英文枚举和向量分数都不得展示给用户。"
+            + "用户给出颜色、风格、版型、图案、季节、场景或材质等多个筛选条件时，必须在同一次 search_wardrobe 调用中传入全部已明确条件；"
+            + "当用户明确要求识别、提取或加入一张服装照片时，先通过资产工具确认 img_ 图片编号，再调用 analyze_wardrobe_photo。"
+            + "必须先展示候选单品和标签，等待用户明确选择后才调用 submit_garment_cutout；抠图完成后只有用户明确确认满意，"
+            + "才能调用 confirm_wardrobe_candidate 加入衣橱。衣服穿在人身上、存在少量遮挡或裁切时，必须以"
+            + "analyze_wardrobe_photo 的完整度结果为准：工具判定可用的候选可以继续，只有工具要求重拍时才请用户补拍；"
+            + "不能自行绕过候选确认直接入库。add_wardrobe_item 只用于用户提供完整标签的手工记录。"
+            + "服装草稿的 candidateId、任务编号和图片资产编号都是内部关联键，绝不可在微信回复中展示或要求用户提供；"
+            + "用户应只需说“确认加入衣橱”“颜色改深灰”“重新裁一下”等自然语言。刚完成且只有一张待确认草稿时，"
+            + "调用确认、改标签或重新抠图工具时让 candidateId 留空，由工具自动定位；若确有多张草稿，再用衣物名称或颜色向用户追问。"
+            + "同一件衣物的初始抠图和每次图片调整都会累积为可选草稿版本，不会覆盖旧图。用户说“看第二版”“基于第一版再改长一点”"
+            + "或“确认第二版加入衣橱”时，先调用草稿版本工具取得真实版本，再预览、修改或确认指定版本；不得臆测任务仍在生成。"
+            + "当用户明确要求把全身照保存为以后换装/试衣的模板时，先确认图片编号后调用 save_person_tryon_template；"
+            + "只根据工具结果说明构图是否适合，不得推断身份、年龄、性别、体重、尺寸或其他敏感人物属性。"
+            + "当用户明确同意把衣橱里某件已确认单品穿到当前人物模板上时，先调用 search_wardrobe 确认单品，再调用"
+            + "virtual_try_on_wardrobe_item 提交后台试衣；不得因为用户只是询问搭配或查看衣橱而自动试穿。"
+            + "当用户要求查看当前试衣模板照片时调用 show_current_tryon_template；当用户要求看衣橱里某类、某颜色或某风格衣服的图片时，"
+            + "调用 show_wardrobe_items 并把所有已明确筛选条件一并传入。没有工具成功结果前不得声称图片已经发出。"
+            + "展示衣橱图片时只需简短说明图片已发出，不要向用户解释分页、格子规则、内部编号或操作格式。用户可用衣物描述、"
+            + "相对位置、第一张/第二张等自然语言选择；需要精确定位时调用 select_wardrobe_preview_item。该工具返回的 wardrobeItemId"
+            + "以及 search_wardrobe 返回的内部关联键只用于后续工具调用，绝不可在微信回复中展示。"
+            + "试衣完成会自动发图；用户询问进度或失败原因时调用 check_virtual_tryon_status，不能猜测。"
             + "用户谈到上传过、刚才、上一张或某个版本的图片时，先查询图片工具返回的资源 ID、版本、保存描述和视觉摘要；"
             + "若有多张候选图片或指代不清，先列出最近图片，不能猜测目标。需要生成新版本或回退时必须使用对应图片工具，"
             + "不要假装已修改；涉及图片真实画面细节时先调用 inspect_image。"
@@ -60,7 +86,7 @@ public class AiProperties {
     private int maxCompletionTokens = 800;
 
     /** 当前模型的推理强度；Chat Completions 与可选 Responses 通道都使用它。 */
-    private String reasoningEffort = "high";
+    private String reasoningEffort = "medium";
 
     /**
      * 原始文件与旧 reasoning 请求是否允许使用 /v1/responses。
@@ -70,6 +96,16 @@ public class AiProperties {
 
     /** 单次模型请求最长等待时间。 */
     private Duration timeout = Duration.ofSeconds(120);
+
+    /**
+     * 图片识别不复用聊天的长等待和高推理强度。它只需要输出结构化视觉事实，超过一分钟应尽快交还控制权。
+     */
+    private Duration visionTimeout = Duration.ofSeconds(90);
+    private int visionMaxCompletionTokens = 128;
+    private String visionReasoningEffort = "medium";
+
+    /** 一个 Agent 请求最多允许几轮“模型提出 Tool 调用 -> 执行 Tool”的规划；不限制单轮工具数量。 */
+    private int maxAgentRounds = 4;
 
     /** 每个微信用户最多保留的用户/助手消息总条数。 */
     private int maxMemoryMessages = 20;
@@ -149,6 +185,39 @@ public class AiProperties {
 
     public void setTimeout(Duration timeout) {
         this.timeout = timeout;
+    }
+
+    public Duration getVisionTimeout() {
+        return visionTimeout;
+    }
+
+    public void setVisionTimeout(Duration visionTimeout) {
+        this.visionTimeout = visionTimeout == null || visionTimeout.isZero() || visionTimeout.isNegative()
+                ? Duration.ofSeconds(90) : visionTimeout;
+    }
+
+    public int getVisionMaxCompletionTokens() {
+        return visionMaxCompletionTokens;
+    }
+
+    public void setVisionMaxCompletionTokens(int visionMaxCompletionTokens) {
+        this.visionMaxCompletionTokens = Math.max(128, visionMaxCompletionTokens);
+    }
+
+    public String getVisionReasoningEffort() {
+        return visionReasoningEffort;
+    }
+
+    public void setVisionReasoningEffort(String visionReasoningEffort) {
+        this.visionReasoningEffort = visionReasoningEffort == null ? "" : visionReasoningEffort.strip();
+    }
+
+    public int getMaxAgentRounds() {
+        return maxAgentRounds;
+    }
+
+    public void setMaxAgentRounds(int maxAgentRounds) {
+        this.maxAgentRounds = Math.max(1, Math.min(maxAgentRounds, 20));
     }
 
     public int getMaxMemoryMessages() {

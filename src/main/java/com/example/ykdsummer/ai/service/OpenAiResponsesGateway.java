@@ -200,7 +200,7 @@ public class OpenAiResponsesGateway implements ResponsesGateway {
             input.add(ResponseInputItem.ofEasyInputMessage(current));
         }
 
-        // reasoning.effort 来自 app.ai.reasoning-effort，当前默认 high。
+        // reasoning.effort 来自 app.ai.reasoning-effort，当前默认 medium。
         Reasoning reasoning = Reasoning.builder()
                 .effort(ReasoningEffort.of(reasoningEffort))
                 .build();

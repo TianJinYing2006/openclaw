@@ -7,11 +7,18 @@ import com.example.ykdsummer.ai.service.ImageTaskStatusStore.ImageTask;
 import com.example.ykdsummer.ai.service.ImageTaskStatusStore.Operation;
 import com.example.ykdsummer.ai.service.ImageTaskStatusStore.Status;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
+import com.example.ykdsummer.reminder.domain.Reminder;
+import com.example.ykdsummer.reminder.domain.ReminderDelivery;
+import com.example.ykdsummer.reminder.domain.ReminderScheduleType;
+import com.example.ykdsummer.reminder.domain.ReminderStatus;
+import com.example.ykdsummer.reminder.persistence.JdbcILinkReplyContextPersistence;
+import com.example.ykdsummer.reminder.persistence.JdbcReminderRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
@@ -66,6 +73,9 @@ class PersistenceStoreIntegrationTest {
     void tearDown() {
         if (jdbc != null && userId != null) {
             jdbc.update("DELETE FROM ai_usage_events WHERE external_user_id = ?", userId);
+            jdbc.update("DELETE d FROM reminder_deliveries d JOIN reminders r ON r.id = d.reminder_id WHERE r.external_user_id = ?", userId);
+            jdbc.update("DELETE FROM reminders WHERE external_user_id = ?", userId);
+            jdbc.update("DELETE FROM ilink_reply_contexts WHERE external_user_id = ?", userId);
             jdbc.update("DELETE FROM asset_versions WHERE external_user_id = ?", userId);
             jdbc.update("DELETE e FROM task_events e JOIN async_tasks t ON t.task_id = e.task_id WHERE t.external_user_id = ?", userId);
             jdbc.update("DELETE FROM async_tasks WHERE external_user_id = ?", userId);
@@ -107,6 +117,38 @@ class PersistenceStoreIntegrationTest {
         assertEquals(platformUserId, jdbc.queryForObject("SELECT platform_user_id FROM async_tasks WHERE task_id = ?", Long.class, task.taskId()));
         assertEquals(managedInstanceId, jdbc.queryForObject("SELECT instance_id FROM asset_versions WHERE external_user_id = ? AND asset_id = ?", String.class, userId, "img_test_asset"));
         assertEquals("oss", jdbc.queryForObject("SELECT storage_provider FROM asset_versions WHERE external_user_id = ? AND asset_id = ?", String.class, userId, "doc_test_asset"));
+    }
+
+    @Test
+    void persistsReminderDefinitionDeliveryAndReplyContext() {
+        TransactionTemplate transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        JdbcReminderRepository reminders = new JdbcReminderRepository(jdbc, transactions);
+        Instant scheduledFor = Instant.now().minusSeconds(5);
+        Reminder reminder = new Reminder(UUID.randomUUID().toString(), userId, "查询杭州天气",
+                com.example.ykdsummer.reminder.domain.ReminderExecutionMode.AGENT, "查询杭州天气",
+                ReminderScheduleType.ONCE, ZoneId.of("Asia/Shanghai").getId(), null, null, scheduledFor,
+                null, ReminderStatus.ACTIVE, Instant.now());
+
+        reminders.create(reminder);
+        assertEquals(1, reminders.listForUser(userId, 10).size());
+        List<Reminder> due = reminders.activeDue(Instant.now(), 10);
+        assertEquals(1, due.size());
+        reminders.materializeDueReminder(due.getFirst(), null);
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM reminder_deliveries WHERE reminder_id = ?", Integer.class,
+                reminder.id()));
+        List<ReminderDelivery> deliveries = reminders.claimDueDeliveries(Instant.now(), 10);
+        assertEquals(1, deliveries.size());
+        assertEquals(com.example.ykdsummer.reminder.domain.ReminderExecutionMode.AGENT,
+                deliveries.getFirst().executionMode());
+        assertEquals("查询杭州天气", deliveries.getFirst().taskPrompt());
+        assertEquals(1, reminders.beginDeliveryAttempt(deliveries.getFirst().id()));
+        reminders.markSent(deliveries.getFirst().id(), Instant.now());
+        assertEquals("SENT", jdbc.queryForObject("SELECT status FROM reminder_deliveries WHERE id = ?", String.class,
+                deliveries.getFirst().id()));
+
+        JdbcILinkReplyContextPersistence contexts = new JdbcILinkReplyContextPersistence(jdbc);
+        contexts.save(userId, "test-context-token");
+        assertEquals("test-context-token", contexts.find(userId).orElseThrow());
     }
 
     @Test

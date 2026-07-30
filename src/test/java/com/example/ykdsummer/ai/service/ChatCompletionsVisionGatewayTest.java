@@ -42,7 +42,10 @@ class ChatCompletionsVisionGatewayTest {
             AiProperties properties = new AiProperties();
             properties.setModel("qwen3.7-plus");
             properties.setMaxCompletionTokens(64);
+            properties.setVisionMaxCompletionTokens(256);
+            properties.setReasoningEffort("high");
             properties.setTimeout(Duration.ofSeconds(5));
+            properties.setVisionTimeout(Duration.ofSeconds(5));
             ChatCompletionsVisionGateway gateway = new ChatCompletionsVisionGateway(
                     HttpClient.newHttpClient(), new ObjectMapper(), connection, properties);
 
@@ -52,10 +55,43 @@ class ChatCompletionsVisionGatewayTest {
             assertThat(authorization.get()).isEqualTo("Bearer test-key");
             JsonNode request = new ObjectMapper().readTree(requestBody.get());
             assertThat(request.path("model").asText()).isEqualTo("qwen3.7-plus");
+            assertThat(request.path("max_tokens").asInt()).isEqualTo(256);
+            assertThat(request.path("reasoning_effort").asText()).isEqualTo("medium");
             assertThat(request.path("messages").path(0).path("content").path(1).path("type").asText())
                     .isEqualTo("image_url");
             assertThat(request.path("messages").path(0).path("content").path(1).path("image_url").path("url").asText())
                     .isEqualTo("data:image/png;base64,AQID");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void sendsRemoteImageUrlWithoutInliningOssBytes() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ChatCompletionsConnectionProperties connection = new ChatCompletionsConnectionProperties();
+            connection.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
+            connection.setApiKey("test-key");
+            ChatCompletionsVisionGateway gateway = new ChatCompletionsVisionGateway(
+                    HttpClient.newHttpClient(), new ObjectMapper(), connection, new AiProperties());
+
+            assertThat(gateway.inspect("inspect", "https://oss.example.test/private/image.jpg?signature=test")).isEqualTo("ok");
+
+            JsonNode request = new ObjectMapper().readTree(requestBody.get());
+            assertThat(request.path("messages").path(0).path("content").path(1).path("image_url").path("url").asText())
+                    .isEqualTo("https://oss.example.test/private/image.jpg?signature=test");
+            assertThat(requestBody.get()).doesNotContain("data:image");
         } finally {
             server.stop(0);
         }

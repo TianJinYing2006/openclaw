@@ -5,12 +5,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
  * 飞书文档工具集。支持搜索、读取、创建和追加云文档内容。
  */
 @Component
+@ConditionalOnProperty(prefix = "app.feishu.tools", name = "enabled", havingValue = "true")
 public class FeishuDocTools {
 
     private static final Logger log = LoggerFactory.getLogger(FeishuDocTools.class);

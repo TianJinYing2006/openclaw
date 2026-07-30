@@ -285,6 +285,27 @@ public class ILinkBotService {
         runtimeState.messageSent();
     }
 
+    /** Sends a background image using a previously observed, valid iLink reply context. */
+    public void sendImage(String toUserId, String contextToken, byte[] imageBytes) {
+        ILinkBot currentBot = requireRunningBot();
+        requireText(toUserId, "toUserId");
+        requireText(contextToken, "contextToken");
+        if (imageBytes == null || imageBytes.length == 0) throw new IllegalArgumentException("imageBytes cannot be blank");
+        currentBot.sendImage(toUserId, contextToken, imageBytes);
+        runtimeState.messageSent();
+    }
+
+    /** Sends a background file using a previously observed, valid iLink reply context. */
+    public void sendFile(String toUserId, String contextToken, String fileName, byte[] bytes) {
+        ILinkBot currentBot = requireRunningBot();
+        requireText(toUserId, "toUserId");
+        requireText(contextToken, "contextToken");
+        requireText(fileName, "fileName");
+        if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("bytes cannot be blank");
+        currentBot.sendFile(toUserId, contextToken, fileName, bytes);
+        runtimeState.messageSent();
+    }
+
     /** 供后台图片任务在完成后主动推送结果，仍使用该用户最近一次有效微信会话上下文。 */
     public void sendGeneratedImage(String toUserId, String contextToken, String taskId, byte[] imageBytes) {
         ILinkBot currentBot = requireRunningBot();
@@ -450,6 +471,13 @@ public class ILinkBotService {
                 if (imageReply.followUpText() != null && !imageReply.followUpText().isBlank()) {
                     runningBot.replyText(message, imageReply.followUpText());
                 }
+            } else if (reply instanceof ILinkReply.ImageBatch imageBatch) {
+                for (byte[] image : imageBatch.images()) {
+                    runningBot.sendImage(message.fromUserId(), message.contextToken(), image);
+                }
+                if (!imageBatch.followUpText().isBlank()) {
+                    runningBot.replyText(message, imageBatch.followUpText());
+                }
             } else if (reply instanceof ILinkReply.AudioFile audioReply) {
                 // TTS 已在上一层完成：只发送 MP3 文件，不额外发送文字答案。
                 runningBot.sendFile(message.fromUserId(), message.contextToken(), audioReply.fileName(), audioReply.bytes());
@@ -486,7 +514,8 @@ public class ILinkBotService {
      */
     private void sendMediaFailureNotice(ILinkBot runningBot, WeixinMessage message, ILinkReply reply) {
         if (runningBot == null || !(reply instanceof ILinkReply.DocumentFile
-                || reply instanceof ILinkReply.AudioFile || reply instanceof ILinkReply.Image)) {
+                || reply instanceof ILinkReply.AudioFile || reply instanceof ILinkReply.Image
+                || reply instanceof ILinkReply.ImageBatch)) {
             return;
         }
         String type = reply instanceof ILinkReply.DocumentFile ? "文件"
@@ -504,6 +533,7 @@ public class ILinkBotService {
         if (reply instanceof ILinkReply.DocumentFile) return "document";
         if (reply instanceof ILinkReply.AudioFile) return "audio";
         if (reply instanceof ILinkReply.Image) return "image";
+        if (reply instanceof ILinkReply.ImageBatch) return "image_batch";
         if (reply instanceof ILinkReply.Text) return "text";
         return "unknown";
     }
@@ -512,6 +542,7 @@ public class ILinkBotService {
         if (reply instanceof ILinkReply.DocumentFile document) return document.bytes().length;
         if (reply instanceof ILinkReply.AudioFile audio) return audio.bytes().length;
         if (reply instanceof ILinkReply.Image image) return image.bytes().length;
+        if (reply instanceof ILinkReply.ImageBatch images) return images.images().stream().mapToInt(bytes -> bytes.length).sum();
         return 0;
     }
 

@@ -54,7 +54,12 @@ public class ChatCompletionsVisionGateway implements VisionChatGateway {
         if (image == null || image.bytes().length == 0) {
             throw new IllegalArgumentException("Image inspection requires non-empty image bytes");
         }
-        return request(List.of(), prompt, List.of(image), null).text();
+        return request(List.of(), prompt, List.of(image), null, true).text();
+    }
+
+    /** Sends a short-lived HTTPS reference so the provider can fetch an OSS object directly. */
+    public String inspect(String prompt, String imageUrl) {
+        return request(List.of(), prompt, List.of(), externalImageUrl(imageUrl), null, true).text();
     }
 
     /**
@@ -71,7 +76,7 @@ public class ChatCompletionsVisionGateway implements VisionChatGateway {
         if (images == null || images.isEmpty()) {
             throw new IllegalArgumentException("Vision chat completion requires at least one image");
         }
-        Completion completion = request(history, prompt, images, budget);
+        Completion completion = request(history, prompt, images, budget, false);
         return new LlmGateway.ModelReply(
                 completion.text(), completion.model(), List.of(), completion.usage(), "chat-completions-vision");
     }
@@ -80,7 +85,19 @@ public class ChatCompletionsVisionGateway implements VisionChatGateway {
             List<ConversationMessage> history,
             String prompt,
             List<AiImage> images,
-            AiRequestBudget budget
+            AiRequestBudget budget,
+            boolean inspection
+    ) {
+        return request(history, prompt, images, null, budget, inspection);
+    }
+
+    private Completion request(
+            List<ConversationMessage> history,
+            String prompt,
+            List<AiImage> images,
+            String remoteImageUrl,
+            AiRequestBudget budget,
+            boolean inspection
     ) {
         String apiKey = connection.getApiKey();
         if (apiKey == null || apiKey.isBlank() || "not-configured".equals(apiKey)) {
@@ -88,11 +105,11 @@ public class ChatCompletionsVisionGateway implements VisionChatGateway {
         }
         try {
             HttpRequest request = HttpRequest.newBuilder(chatCompletionsUri(connection.getBaseUrl()))
-                    .timeout(properties.getTimeout())
+                    .timeout(inspection ? properties.getVisionTimeout() : properties.getTimeout())
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(
-                            objectMapper.writeValueAsString(requestBody(history, prompt, images, budget)), StandardCharsets.UTF_8))
+                            objectMapper.writeValueAsString(requestBody(history, prompt, images, remoteImageUrl, budget, inspection)), StandardCharsets.UTF_8))
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -124,14 +141,19 @@ public class ChatCompletionsVisionGateway implements VisionChatGateway {
             List<ConversationMessage> history,
             String prompt,
             List<AiImage> images,
-            AiRequestBudget budget
+            String remoteImageUrl,
+            AiRequestBudget budget,
+            boolean inspection
     ) {
         var root = objectMapper.createObjectNode();
         root.put("model", properties.getModel());
-        int maxTokens = budget == null ? properties.getMaxCompletionTokens() : budget.maxOutputTokens();
+        int maxTokens = budget == null
+                ? (inspection ? properties.getVisionMaxCompletionTokens() : properties.getMaxCompletionTokens())
+                : budget.maxOutputTokens();
         if (maxTokens > 0) root.put("max_tokens", maxTokens);
-        if (properties.getReasoningEffort() != null && !properties.getReasoningEffort().isBlank()) {
-            root.put("reasoning_effort", properties.getReasoningEffort().strip());
+        String reasoningEffort = inspection ? properties.getVisionReasoningEffort() : properties.getReasoningEffort();
+        if (reasoningEffort != null && !reasoningEffort.isBlank()) {
+            root.put("reasoning_effort", reasoningEffort.strip());
         }
         var messages = root.putArray("messages");
         for (ConversationMessage previous : history == null ? List.<ConversationMessage>of() : history) {
@@ -144,6 +166,10 @@ public class ChatCompletionsVisionGateway implements VisionChatGateway {
         message.put("role", "user");
         var content = message.putArray("content");
         content.addObject().put("type", "text").put("text", prompt == null || prompt.isBlank() ? "请描述图片内容。" : prompt);
+        if (remoteImageUrl != null) {
+            content.addObject().put("type", "image_url").putObject("image_url")
+                    .put("url", remoteImageUrl).put("detail", "low");
+        }
         for (AiImage image : images) {
             if (image == null || image.bytes().length == 0) continue;
             var imageUrl = content.addObject().put("type", "image_url").putObject("image_url");
@@ -198,6 +224,20 @@ public class ChatCompletionsVisionGateway implements VisionChatGateway {
         normalized = normalized.endsWith("/") ? normalized.substring(0, normalized.length() - 1) : normalized;
         if (!normalized.endsWith("/v1")) normalized += "/v1";
         return URI.create(normalized + "/chat/completions");
+    }
+
+    private static String externalImageUrl(String value) {
+        String clean = value == null ? "" : value.strip();
+        try {
+            URI uri = URI.create(clean);
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+            if ((!"https".equals(scheme) && !"http".equals(scheme)) || uri.getHost() == null || uri.getHost().isBlank()) {
+                throw new IllegalArgumentException("Remote image URL must be HTTP(S)");
+            }
+            return uri.toString();
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("Remote image URL must be HTTP(S)", exception);
+        }
     }
 
     private record Completion(String text, String model, AiModelUsage usage) { }

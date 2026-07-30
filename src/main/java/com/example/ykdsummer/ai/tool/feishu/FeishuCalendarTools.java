@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Component;
  * 供 Spring AI Function Calling 自动调用。</p>
  */
 @Component
+@ConditionalOnProperty(prefix = "app.feishu.tools", name = "enabled", havingValue = "true")
 public class FeishuCalendarTools {
 
     private static final Logger log = LoggerFactory.getLogger(FeishuCalendarTools.class);

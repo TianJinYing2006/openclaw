@@ -53,6 +53,28 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
+        <!-- Persistent semantic retrieval for the Fashion wardrobe. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-qdrant-store</artifactId>
+        </dependency>
+        <!-- Qdrant's Java client publishes its gRPC stack as runtime dependencies,
+             while the dedicated Fashion client configuration uses those types directly. -->
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty-shaded</artifactId>
+            <version>1.65.1</version>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-protobuf</artifactId>
+            <version>1.65.1</version>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-stub</artifactId>
+            <version>1.65.1</version>
+        </dependency>
 
         <!-- Health endpoint and bounded in-memory conversation cache. -->
         <dependency>

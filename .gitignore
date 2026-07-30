@@ -23,7 +23,7 @@ pnpm-debug.log*
 !.env.example
 application-local.properties
 secret.properties
-ilink/
+/ilink/
 .ilink/
 .documents/
 .ai-assets/
@@ -43,3 +43,6 @@ replay_pid*
 task_plan.md
 findings.md
 progress.md
+
+# Local datasets
+/tianchi/

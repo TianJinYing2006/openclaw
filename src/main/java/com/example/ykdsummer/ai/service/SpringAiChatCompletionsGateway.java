@@ -1,6 +1,9 @@
 package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
+import com.example.ykdsummer.ai.orchestration.AgentRoundLimitExceededException;
+import com.example.ykdsummer.ai.orchestration.BoundedToolCallingManager;
+import com.example.ykdsummer.ai.orchestration.ScheduledAgentExecutionContext;
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import com.example.ykdsummer.ai.tool.BilibiliUserTools;
@@ -23,6 +26,14 @@ import com.example.ykdsummer.ai.tool.InformationToolSet;
 import com.example.ykdsummer.ai.tool.LocationSearchTools;
 import com.example.ykdsummer.ai.tool.WebSearchTools;
 import com.example.ykdsummer.ai.tool.PhoneInfoTools;
+import com.example.ykdsummer.fashion.tool.FashionTools;
+import com.example.ykdsummer.fashion.tool.FashionAgentToolSet;
+import com.example.ykdsummer.fashion.tool.FashionCatalogTools;
+import com.example.ykdsummer.fashion.tool.FashionPersonTemplateTools;
+import com.example.ykdsummer.fashion.tool.FashionTryOnTools;
+import com.example.ykdsummer.fashion.tool.FashionWardrobeIntakeTools;
+import com.example.ykdsummer.reminder.tool.ReminderTools;
+import com.example.ykdsummer.reminder.tool.ChinaTimeTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -82,6 +93,15 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private InformationToolSet informationToolSet;
     private AmapTools amapTools;
     private LocationSearchTools locationSearchTools;
+    private FashionTools fashionTools;
+    private FashionCatalogTools fashionCatalogTools;
+    private FashionPersonTemplateTools fashionPersonTemplateTools;
+    private FashionTryOnTools fashionTryOnTools;
+    private FashionWardrobeIntakeTools fashionWardrobeIntakeTools;
+    private FashionAgentToolSet fashionAgentToolSet;
+    private ReminderTools reminderTools;
+    private ChinaTimeTools chinaTimeTools;
+    private BoundedToolCallingManager agentRoundManager;
     private RealtimeEvidenceAugmenter realtimeEvidenceAugmenter;
     private volatile UsageEventRecorder usageEvents = UsageEventRecorder.disabled();
 
@@ -177,6 +197,51 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     @Autowired(required = false)
     void setPhoneInfoTools(PhoneInfoTools phoneInfoTools) {
         this.phoneInfoTools = phoneInfoTools;
+    }
+
+    @Autowired(required = false)
+    void setFashionTools(FashionTools fashionTools) {
+        this.fashionTools = fashionTools;
+    }
+
+    @Autowired(required = false)
+    void setFashionCatalogTools(FashionCatalogTools fashionCatalogTools) {
+        this.fashionCatalogTools = fashionCatalogTools;
+    }
+
+    @Autowired(required = false)
+    void setFashionPersonTemplateTools(FashionPersonTemplateTools fashionPersonTemplateTools) {
+        this.fashionPersonTemplateTools = fashionPersonTemplateTools;
+    }
+
+    @Autowired(required = false)
+    void setFashionTryOnTools(FashionTryOnTools fashionTryOnTools) {
+        this.fashionTryOnTools = fashionTryOnTools;
+    }
+
+    @Autowired(required = false)
+    void setFashionWardrobeIntakeTools(FashionWardrobeIntakeTools fashionWardrobeIntakeTools) {
+        this.fashionWardrobeIntakeTools = fashionWardrobeIntakeTools;
+    }
+
+    @Autowired(required = false)
+    void setFashionAgentToolSet(FashionAgentToolSet fashionAgentToolSet) {
+        this.fashionAgentToolSet = fashionAgentToolSet;
+    }
+
+    @Autowired(required = false)
+    void setReminderTools(ReminderTools reminderTools) {
+        this.reminderTools = reminderTools;
+    }
+
+    @Autowired(required = false)
+    void setChinaTimeTools(ChinaTimeTools chinaTimeTools) {
+        this.chinaTimeTools = chinaTimeTools;
+    }
+
+    @Autowired(required = false)
+    void setAgentRoundManager(BoundedToolCallingManager agentRoundManager) {
+        this.agentRoundManager = agentRoundManager;
     }
 
     @Autowired(required = false)
@@ -283,6 +348,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             }
             List<ToolCallback> callbacks = new ArrayList<>();
             addToolCallbacks(callbacks, weatherTools);
+            if (chinaTimeTools != null) {
+                addToolCallbacks(callbacks, chinaTimeTools);
+            }
             if (imageTools != null) {
                 addToolCallbacks(callbacks, imageTools);
             }
@@ -337,6 +405,18 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             if (locationSearchTools != null) {
                 addToolCallbacks(callbacks, locationSearchTools);
             }
+            if (fashionAgentToolSet != null) {
+                addToolCallbacks(callbacks, fashionAgentToolSet.toolBeans());
+            } else {
+                if (fashionTools != null) addToolCallbacks(callbacks, fashionTools);
+                if (fashionCatalogTools != null) addToolCallbacks(callbacks, fashionCatalogTools);
+                if (fashionPersonTemplateTools != null) addToolCallbacks(callbacks, fashionPersonTemplateTools);
+                if (fashionTryOnTools != null) addToolCallbacks(callbacks, fashionTryOnTools);
+                if (fashionWardrobeIntakeTools != null) addToolCallbacks(callbacks, fashionWardrobeIntakeTools);
+            }
+            if (reminderTools != null && !ScheduledAgentExecutionContext.active()) {
+                addToolCallbacks(callbacks, reminderTools);
+            }
             trace.toolCatalog(callbacks.stream().map(callback -> callback.getToolDefinition().name()).toList());
             log.debug(
                     "Spring AI chat completion request, configuredModel={}, reasoningEffort={}, toolCount={}",
@@ -372,6 +452,10 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         } catch (AiGatewayException exception) {
             if (artifacts != null) artifacts.discard();
             throw exception;
+        } catch (AgentRoundLimitExceededException exception) {
+            if (artifacts != null) artifacts.discard();
+            trace.failure("Chat Completions (/v1/chat/completions)", exception);
+            throw new AiGatewayException(AiGatewayException.Kind.AGENT_ROUND_LIMIT, exception);
         } catch (RuntimeException exception) {
             if (artifacts != null) artifacts.discard();
             trace.failure("Chat Completions (/v1/chat/completions)", exception);
@@ -381,6 +465,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             throw new AiGatewayException(kind, exception);
         } finally {
             AgentSessionContext.clear();
+            if (agentRoundManager != null) {
+                agentRoundManager.clearRequest();
+            }
         }
     }
 

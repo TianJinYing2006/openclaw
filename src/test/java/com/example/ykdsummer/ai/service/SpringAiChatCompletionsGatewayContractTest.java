@@ -1,6 +1,7 @@
 package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
+import com.example.ykdsummer.ai.orchestration.ScheduledAgentExecutionContext;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import com.example.ykdsummer.ai.tool.WeatherTools;
 import com.example.ykdsummer.ai.tool.ImageTools;
@@ -18,6 +19,15 @@ import com.example.ykdsummer.bot.file.LocalDocumentAssetStore;
 import com.example.ykdsummer.bot.audio.TextToSpeechService;
 import com.example.ykdsummer.bot.audio.TtsVoiceSelectionService;
 import com.example.ykdsummer.bot.file.FileSessionService;
+import com.example.ykdsummer.fashion.application.FashionCoreService;
+import com.example.ykdsummer.fashion.application.FashionPersonTemplateService;
+import com.example.ykdsummer.fashion.application.FashionWardrobeIngestionService;
+import com.example.ykdsummer.fashion.tool.FashionPersonTemplateTools;
+import com.example.ykdsummer.fashion.tool.FashionTools;
+import com.example.ykdsummer.fashion.tool.FashionWardrobeIntakeTools;
+import com.example.ykdsummer.reminder.application.ReminderService;
+import com.example.ykdsummer.reminder.tool.ChinaTimeTools;
+import com.example.ykdsummer.reminder.tool.ReminderTools;
 import com.example.ykdsummer.weather.WeatherInfo;
 import com.example.ykdsummer.weather.WeatherService;
 import com.sun.net.httpserver.HttpExchange;
@@ -43,6 +53,40 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SpringAiChatCompletionsGatewayContractTest {
+
+    @Test
+    void scheduledAgentTaskDoesNotReceiveReminderManagementTools() throws IOException {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            sendJson(exchange, """
+                    {"id":"scheduled-task","object":"chat.completion","created":1,"model":"gpt-5.6-sol",
+                    "choices":[{"index":0,"message":{"role":"assistant","content":"已完成。"},"finish_reason":"stop"}],
+                    "usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}
+                    """);
+        });
+        server.start();
+
+        try {
+            ToolArtifactCollector collector = new ToolArtifactCollector();
+            SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
+                    createModel(server), new AiProperties(), new WeatherTools(mock(WeatherService.class)),
+                    null, collector, AiTraceLogger.disabled());
+            gateway.setReminderTools(new ReminderTools(mock(ReminderService.class), collector, AiTraceLogger.disabled()));
+            gateway.setChinaTimeTools(new ChinaTimeTools(AiTraceLogger.disabled()));
+
+            try (ScheduledAgentExecutionContext.Scope ignored = ScheduledAgentExecutionContext.enter()) {
+                assertThat(gateway.generate("user", List.of(), "现在执行定时任务").text()).isEqualTo("已完成。");
+            }
+
+            assertThat(requestBody.get()).contains("get_current_weather", "get_current_china_time");
+            assertThat(requestBody.get()).doesNotContain("create_wechat_reminder", "create_scheduled_agent_task",
+                    "list_wechat_reminders", "cancel_wechat_reminder");
+        } finally {
+            server.stop(0);
+        }
+    }
 
     @Test
     void imageToolCallReportsTaskSubmissionWithoutReturningAnAttachment() throws IOException {
@@ -230,6 +274,11 @@ class SpringAiChatCompletionsGatewayContractTest {
                     new ImageTaskStatusTools(taskStore, imageTools, collector),
                     AiTraceLogger.disabled()
             );
+            gateway.setFashionTools(new FashionTools(mock(FashionCoreService.class), collector, AiTraceLogger.disabled()));
+            gateway.setFashionPersonTemplateTools(new FashionPersonTemplateTools(
+                    mock(FashionPersonTemplateService.class), collector, AiTraceLogger.disabled()));
+            gateway.setFashionWardrobeIntakeTools(new FashionWardrobeIntakeTools(
+                    mock(FashionWardrobeIngestionService.class), collector, AiTraceLogger.disabled()));
 
             LlmGateway.ModelReply reply = gateway.generate(
                     "chat-user",
@@ -260,6 +309,11 @@ class SpringAiChatCompletionsGatewayContractTest {
                     .contains("clear_current_memory")
                     .contains("list_recent_assets", "select_asset", "describe_asset", "resend_asset")
                     .contains("get_running_tasks", "check_image_task", "retry_last_image_task")
+                    .contains("get_fashion_profile", "search_wardrobe", "add_wardrobe_item")
+                    .contains("styleTags", "fitCode", "patternCode", "seasonTags", "occasionTags", "material")
+                    .contains("save_person_tryon_template", "list_person_tryon_templates", "select_person_tryon_template")
+                    .contains("analyze_wardrobe_photo", "update_wardrobe_candidate_labels", "submit_garment_cutout",
+                            "retry_garment_cutout", "confirm_wardrobe_candidate")
                     .contains("城市名称")
                     .contains("\"role\":\"system\"")
                     .contains("像朋友聊天一样自然、直接、简洁地回答")

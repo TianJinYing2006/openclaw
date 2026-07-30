@@ -169,6 +169,20 @@ class ILinkReplyServiceTest {
     }
 
     @Test
+    void multipleAgentImagesBecomeAnIndependentWechatImageBatch() {
+        when(fileInstructionService.process("user", "展示衣橱", null))
+                .thenReturn(com.example.ykdsummer.bot.file.FileInstructionService.Result.images(
+                        "已发两页衣橱图", List.of(new byte[]{1}, new byte[]{2})));
+
+        ILinkReply reply = replyService.createReply(message("user"), List.of(text("展示衣橱")), status());
+
+        assertThat(reply).isInstanceOf(ILinkReply.ImageBatch.class);
+        ILinkReply.ImageBatch batch = (ILinkReply.ImageBatch) reply;
+        assertThat(batch.images()).containsExactly(new byte[]{1}, new byte[]{2});
+        assertThat(batch.followUpText()).isEqualTo("已发两页衣橱图");
+    }
+
+    @Test
     void schedulerDoesNotGuessImageIntentBeforeTheAgentPlans() {
         assertThat(replyService.isImageGenerationMessage(List.of(text("生图：一只小猫")))).isFalse();
         assertThat(replyService.isImageGenerationMessage(List.of(text("你好")))).isFalse();

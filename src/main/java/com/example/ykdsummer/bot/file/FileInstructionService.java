@@ -94,15 +94,17 @@ public class FileInstructionService {
                 .filter(artifact -> artifact.type() == AiArtifact.Type.DOCUMENT && artifact.bytes() != null)
                 .findFirst()
                 .map(artifact -> Result.file(answer.text(), artifact.fileName(), artifact.bytes()))
-                .orElseGet(() -> answer.artifacts().stream()
-                        .filter(artifact -> artifact.type() == AiArtifact.Type.IMAGE && artifact.bytes() != null)
-                        .findFirst()
-                        .map(artifact -> Result.image(answer.text(), artifact.bytes()))
-                        .orElseGet(() -> answer.artifacts().stream()
-                                .filter(artifact -> artifact.type() == AiArtifact.Type.AUDIO && artifact.bytes() != null)
-                                .findFirst()
-                                .map(artifact -> Result.audio(answer.text(), artifact.fileName(), artifact.bytes()))
-                                .orElseGet(() -> Result.text(answer.text()))));
+                .orElseGet(() -> {
+                    List<byte[]> images = answer.artifacts().stream()
+                            .filter(artifact -> artifact.type() == AiArtifact.Type.IMAGE && artifact.bytes() != null)
+                            .map(AiArtifact::bytes).toList();
+                    if (!images.isEmpty()) return Result.images(answer.text(), images);
+                    return answer.artifacts().stream()
+                            .filter(artifact -> artifact.type() == AiArtifact.Type.AUDIO && artifact.bytes() != null)
+                            .findFirst()
+                            .map(artifact -> Result.audio(answer.text(), artifact.fileName(), artifact.bytes()))
+                            .orElseGet(() -> Result.text(answer.text()));
+                });
     }
 
     /**
@@ -140,7 +142,11 @@ public class FileInstructionService {
     private record PromptInput(String modelPrompt, List<AiFile> files) { }
 
     public record Result(String text, String fileName, byte[] bytes, byte[] imageBytes,
-                         String audioFileName, byte[] audioBytes) {
+                         String audioFileName, byte[] audioBytes, List<byte[]> imagePages) {
+        public Result(String text, String fileName, byte[] bytes, byte[] imageBytes,
+                      String audioFileName, byte[] audioBytes) {
+            this(text, fileName, bytes, imageBytes, audioFileName, audioBytes, List.of());
+        }
         public Result(String text, String fileName, byte[] bytes) {
             this(text, fileName, bytes, null, null, null);
         }
@@ -149,19 +155,28 @@ public class FileInstructionService {
             bytes = bytes == null ? null : bytes.clone();
             imageBytes = imageBytes == null ? null : imageBytes.clone();
             audioBytes = audioBytes == null ? null : audioBytes.clone();
+            imagePages = imagePages == null ? List.of() : imagePages.stream()
+                    .filter(value -> value != null && value.length > 0).map(byte[]::clone).toList();
         }
 
         public static Result text(String value) { return new Result(value, null, null); }
         public static Result file(String text, String fileName, byte[] bytes) { return new Result(text, fileName, bytes); }
         /** 兼容旧调用：没有附加说明时只发送文件。 */
         public static Result file(String fileName, byte[] bytes) { return new Result("", fileName, bytes); }
-        public static Result image(String text, byte[] imageBytes) { return new Result(text, null, null, imageBytes, null, null); }
+        public static Result image(String text, byte[] imageBytes) { return images(text, List.of(imageBytes)); }
+        public static Result images(String text, List<byte[]> imagePages) {
+            List<byte[]> values = imagePages == null ? List.of() : imagePages.stream()
+                    .filter(value -> value != null && value.length > 0).map(byte[]::clone).toList();
+            return new Result(text, null, null, values.isEmpty() ? null : values.getFirst(), null, null, values);
+        }
         public static Result audio(String text, String fileName, byte[] audioBytes) { return new Result(text, null, null, null, fileName, audioBytes); }
         public boolean hasFile() { return fileName != null && bytes != null; }
         public boolean hasImage() { return imageBytes != null; }
+        public boolean hasImagePages() { return !imagePages.isEmpty(); }
         public boolean hasAudio() { return audioFileName != null && audioBytes != null; }
         @Override public byte[] bytes() { return bytes == null ? null : bytes.clone(); }
         @Override public byte[] imageBytes() { return imageBytes == null ? null : imageBytes.clone(); }
         @Override public byte[] audioBytes() { return audioBytes == null ? null : audioBytes.clone(); }
+        @Override public List<byte[]> imagePages() { return imagePages.stream().map(byte[]::clone).toList(); }
     }
 }

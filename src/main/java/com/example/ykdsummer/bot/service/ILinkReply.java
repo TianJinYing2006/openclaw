@@ -1,11 +1,13 @@
 package com.example.ykdsummer.bot.service;
 
+import java.util.List;
+
 /**
  * 本项目内部的统一回复结果。{@link ILinkReplyService} 只负责产生这个结果，
  * {@link ILinkBotService} 再根据实际类型选择 SDK 的 replyText 或 sendImage。
  */
-public sealed interface ILinkReply permits ILinkReply.Text, ILinkReply.Image, ILinkReply.AudioFile,
-        ILinkReply.DocumentFile {
+public sealed interface ILinkReply permits ILinkReply.Text, ILinkReply.Image, ILinkReply.ImageBatch,
+        ILinkReply.AudioFile, ILinkReply.DocumentFile {
     /** 最终通过 iLink sendmessage 发送的文字。 */
     record Text(String value) implements ILinkReply { }
     /**
@@ -15,6 +17,18 @@ public sealed interface ILinkReply permits ILinkReply.Text, ILinkReply.Image, IL
         public Image { bytes = bytes.clone(); }
         public Image(byte[] bytes) { this(bytes, ""); }
         @Override public byte[] bytes() { return bytes.clone(); }
+    }
+
+    /** Sends a bounded sequence of independent WeChat images, then one explanatory text reply. */
+    record ImageBatch(List<byte[]> images, String followUpText) implements ILinkReply {
+        public ImageBatch {
+            images = images == null ? List.of() : images.stream()
+                    .filter(bytes -> bytes != null && bytes.length > 0)
+                    .map(byte[]::clone)
+                    .toList();
+            followUpText = followUpText == null ? "" : followUpText;
+        }
+        @Override public List<byte[]> images() { return images.stream().map(byte[]::clone).toList(); }
     }
 
     /**

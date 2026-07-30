@@ -244,6 +244,11 @@ public class ILinkReplyService {
     }
 
     private ILinkReply toReply(FileInstructionService.Result result, String userId) {
+        if (result.hasImagePages()) {
+            return result.imagePages().size() == 1
+                    ? new ILinkReply.Image(result.imagePages().getFirst(), result.text())
+                    : new ILinkReply.ImageBatch(result.imagePages(), result.text());
+        }
         if (result.hasImage()) {
             return new ILinkReply.Image(result.imageBytes(), result.text());
         }
@@ -258,6 +263,11 @@ public class ILinkReplyService {
     }
 
     private ILinkReply toReply(AiChatService.AssistantAnswer answer, String userId) {
+        List<byte[]> images = answer.artifacts().stream()
+                .filter(artifact -> artifact.type() == com.example.ykdsummer.ai.model.AiArtifact.Type.IMAGE
+                        && artifact.bytes() != null && artifact.bytes().length > 0)
+                .map(com.example.ykdsummer.ai.model.AiArtifact::bytes).toList();
+        if (images.size() > 1) return new ILinkReply.ImageBatch(images, answer.text());
         return answer.artifacts().stream()
                 .filter(artifact -> artifact.bytes() != null)
                 .findFirst()

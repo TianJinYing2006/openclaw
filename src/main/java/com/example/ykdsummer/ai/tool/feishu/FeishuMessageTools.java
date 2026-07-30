@@ -5,12 +5,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
  * 飞书消息工具集。支持发送文本消息给用户或群聊。
  */
 @Component
+@ConditionalOnProperty(prefix = "app.feishu.tools", name = "enabled", havingValue = "true")
 public class FeishuMessageTools {
 
     private static final Logger log = LoggerFactory.getLogger(FeishuMessageTools.class);
