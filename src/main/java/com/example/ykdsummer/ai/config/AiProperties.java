@@ -88,6 +88,9 @@ public class AiProperties {
     /** 异步图生图任务的状态查询间隔；网络偶发失败不会立刻判定任务失败。 */
     private Duration imagePollInterval = Duration.ofSeconds(3);
 
+    /** 穿搭多 Agent 管道专用快速模型（如 qwen3.7-flash）；留空则回退到主模型。 */
+    private String fashionModel = "";
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -102,6 +105,14 @@ public class AiProperties {
 
     public void setModel(String model) {
         this.model = model;
+    }
+
+    public String getFashionModel() {
+        return fashionModel;
+    }
+
+    public void setFashionModel(String fashionModel) {
+        this.fashionModel = fashionModel;
     }
 
     public String getSystemPrompt() {

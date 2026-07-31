@@ -25,7 +25,7 @@ public class CoordinatorAgent {
 
     private static final Logger log = LoggerFactory.getLogger(CoordinatorAgent.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
-    private static final int MAX_TOKENS = 600;
+    private static final int MAX_TOKENS = 1500;
 
     private final AgentLlmCaller llmCaller;
     private final ObjectMapper objectMapper;

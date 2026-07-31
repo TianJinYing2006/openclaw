@@ -118,24 +118,46 @@ public class AgentLlmCaller {
      * 实际调用 LLM，返回原始文本。
      */
     private String callLlm(String systemPrompt, String userMessage, int maxTokens) {
+        // 穿搭管道优先使用专用快速模型（app.ai.fashion-model），未配置时回退主模型
+        String model = (aiProperties.getFashionModel() == null || aiProperties.getFashionModel().isBlank())
+                ? aiProperties.getModel()
+                : aiProperties.getFashionModel();
+        log.info("Agent LLM call start: model={}, maxTokens={}, systemChars={}, userChars={}",
+                model, maxTokens, systemPrompt.length(), userMessage.length());
         Prompt prompt = new Prompt(
                 List.of(
                         new SystemMessage(systemPrompt),
                         new UserMessage(userMessage)
                 ),
                 OpenAiChatOptions.builder()
-                        .model(aiProperties.getModel())
+                        .model(model)
                         .maxCompletionTokens(Math.max(1, maxTokens))
                         .store(false)
+                        // qwen3 系列默认开启 thinking 模式，思考内容占用 tokens 且 content 为空；
+                        // fashion 管道是结构化 JSON 输出，关闭思考可大幅提速并保证有返回值
+                        .extraBody(java.util.Map.of("enable_thinking", false))
                         .build()
         );
 
+        long callStart = System.currentTimeMillis();
         ChatResponse response = chatModel.call(prompt);
+        long callElapsed = System.currentTimeMillis() - callStart;
         if (response == null || response.getResult() == null
                 || response.getResult().getOutput() == null) {
+            log.warn("Agent LLM call returned empty response after {}ms", callElapsed);
             return "";
         }
         String text = response.getResult().getOutput().getText();
+        // 记录 token 消耗（计费按实际生成 tokens，maxTokens 只是上限）
+        org.springframework.ai.chat.metadata.Usage usage = response.getMetadata() == null
+                ? null : response.getMetadata().getUsage();
+        if (usage != null) {
+            log.info("Agent LLM tokens: prompt={}, completion={}, total={} ({}ms)",
+                    usage.getPromptTokens(), usage.getCompletionTokens(),
+                    usage.getTotalTokens(), callElapsed);
+        } else {
+            log.info("Agent LLM call done in {}ms (usage unavailable)", callElapsed);
+        }
         return text == null ? "" : text.strip();
     }
 
