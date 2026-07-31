@@ -49,18 +49,32 @@ public class FashionSchemaInitializer {
 
     @PostConstruct
     public void initialize() {
+        // trigram 分词器不支持重建，每次启动先 DROP 再 CREATE，保证结构一致
+        dropFts5TableIfExists();
         createFts5Table();
         loadSeedData();
     }
 
     /**
-     * 创建 FTS5 虚拟表。FTS5 是 SQLite 内置的全文检索引擎，
-     * 支持中文分词（通过 simple tokenizer + 空格分词）。
+     * 删除旧 FTS5 表。tokenizer 变更时（如 unicode61 → trigram）必须重建，
+     * 否则 CREATE VIRTUAL TABLE IF NOT EXISTS 会复用旧结构。
+     */
+    private void dropFts5TableIfExists() {
+        try {
+            jdbcTemplate.execute("DROP TABLE IF EXISTS fashion_seed_fts");
+        } catch (Exception e) {
+            log.error("Failed to drop FTS5 table: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 创建 FTS5 虚拟表。使用 trigram 分词器，支持中文子词检索
+     * （如查询"短袖"可命中"韩系宽松短袖T恤"）。
      */
     private void createFts5Table() {
         try {
             jdbcTemplate.execute("""
-                    CREATE VIRTUAL TABLE IF NOT EXISTS fashion_seed_fts USING fts5(
+                    CREATE VIRTUAL TABLE fashion_seed_fts USING fts5(
                         id UNINDEXED,
                         content,
                         source UNINDEXED,
@@ -73,10 +87,10 @@ public class FashionSchemaInitializer {
                         scene,
                         season,
                         color_scheme,
-                        tokenize='unicode61'
+                        tokenize='trigram'
                     )
                     """);
-            log.info("FTS5 table 'fashion_seed_fts' created");
+            log.info("FTS5 table 'fashion_seed_fts' created (trigram tokenizer)");
         } catch (Exception e) {
             log.error("Failed to create FTS5 table: {}", e.getMessage());
         }

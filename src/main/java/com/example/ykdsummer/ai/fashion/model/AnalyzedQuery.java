@@ -24,24 +24,30 @@ public record AnalyzedQuery(String originalQuery, List<String> decomposedQueries
 
         /** 关键词匹配兜底时使用的默认参数。 */
         public static QueryParams fallback(String userInput) {
-            String scene = "daily";
+            String scene = "DAILY";
             String lower = userInput.toLowerCase();
-            if (lower.contains("婚礼") || lower.contains("结婚")) scene = "wedding";
-            else if (lower.contains("约会") || lower.contains("相亲")) scene = "date";
-            else if (lower.contains("上班") || lower.contains("通勤") || lower.contains("工作")) scene = "work";
-            else if (lower.contains("海边") || lower.contains("海滩") || lower.contains("游泳")) scene = "beach";
-            else if (lower.contains("运动") || lower.contains("健身") || lower.contains("跑步")) scene = "sport";
-            else if (lower.contains("旅行") || lower.contains("旅游")) scene = "travel";
+            if (lower.contains("婚礼") || lower.contains("结婚") || lower.contains("晚宴") || lower.contains("正式")) {
+                scene = "FORMAL_EVENT";
+            } else if (lower.contains("上班") || lower.contains("通勤") || lower.contains("工作") || lower.contains("开会")) {
+                scene = "WORKPLACE";
+            } else if (lower.contains("上学") || lower.contains("校园") || lower.contains("学生")) {
+                scene = "SCHOOL";
+            } else if (lower.contains("海边") || lower.contains("海滩") || lower.contains("度假") || lower.contains("游泳")) {
+                scene = "OUTDOOR";
+            } else if (lower.contains("运动") || lower.contains("健身") || lower.contains("跑步") || lower.contains("爬山")) {
+                scene = "OUTDOOR";
+            } else if (lower.contains("旅行") || lower.contains("旅游") || lower.contains("出差")) {
+                scene = "TRAVEL";
+            }
 
-            String season = "summer";
-            if (lower.contains("冬天") || lower.contains("冬季")) season = "winter";
-            else if (lower.contains("春天") || lower.contains("春季")) season = "spring";
-            else if (lower.contains("秋天") || lower.contains("秋季")) season = "autumn";
+            String season = "SUMMER";
+            if (lower.contains("冬天") || lower.contains("冬季")) season = "WINTER";
+            else if (lower.contains("春天") || lower.contains("春季")) season = "SPRING";
+            else if (lower.contains("秋天") || lower.contains("秋季")) season = "AUTUMN";
 
             int formality = 2;
-            if ("wedding".equals(scene)) formality = 4;
-            else if ("work".equals(scene)) formality = 3;
-            else if ("date".equals(scene)) formality = 3;
+            if ("FORMAL_EVENT".equals(scene)) formality = 4;
+            else if ("WORKPLACE".equals(scene)) formality = 3;
 
             return new QueryParams(scene, season, formality, "unknown", "");
         }
@@ -55,10 +61,16 @@ public record AnalyzedQuery(String originalQuery, List<String> decomposedQueries
 
     /** 关键词兜底分析，当 LLM 调用失败时使用。 */
     public static AnalyzedQuery fallback(String userInput) {
-        return new AnalyzedQuery(
-                userInput,
-                List.of(userInput),
-                QueryParams.fallback(userInput)
-        );
+        QueryParams params = QueryParams.fallback(userInput);
+        // 中英混合子查询：原始输入 + 场景/季节枚举，保证 FTS5 枚举 token 可命中
+        List<String> queries = new java.util.ArrayList<>();
+        queries.add(userInput);
+        if (params.scene() != null && !params.scene().isBlank()) {
+            queries.add(params.scene());
+        }
+        if (params.season() != null && !params.season().isBlank()) {
+            queries.add(params.season());
+        }
+        return new AnalyzedQuery(userInput, List.copyOf(queries), params);
     }
 }
