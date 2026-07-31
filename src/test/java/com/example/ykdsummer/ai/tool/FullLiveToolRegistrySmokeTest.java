@@ -122,8 +122,6 @@ class FullLiveToolRegistrySmokeTest {
         call("geocode", "北京市海淀区中关村");
         call("get_phone_info", "13800138000");
         call("get_qq_user", "10000");
-        call("get_bilibili_user", "2");
-        call("get_bilibili_live_room_info", "3");
         call("get_steam_user", "76561197960287930");
         call("get_epic_free_games");
         call("query_today_in_history", 7, 24);

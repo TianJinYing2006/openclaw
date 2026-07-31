@@ -28,7 +28,7 @@ public class RealtimeEvidenceProperties {
     private int maxCombinedResultCharacters = 2_400;
     private Duration cacheTtl = Duration.ofSeconds(30);
     private long maxCacheEntries = 500;
-    private Set<String> eligibleTools = defaultEligibleTools();
+    private Set<String> eligibleTools = Set.of();
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -68,15 +68,4 @@ public class RealtimeEvidenceProperties {
         return toolName != null && eligibleTools.contains(toolName.strip().toLowerCase(Locale.ROOT));
     }
 
-    private static Set<String> defaultEligibleTools() {
-        return Set.of(
-                "convert_currency",
-                "get_bilibili_live_room_info",
-                "search_scenic_spot",
-                "search_recipe",
-                "get_recipe_detail",
-                "query_today_in_history",
-                "get_horoscope"
-        );
-    }
 }

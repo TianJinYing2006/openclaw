@@ -310,5 +310,4 @@ DataLen = WAV 原始字节数
 
 OpenAI 官方资料：
 
-- [GPT-5.6 Sol 模型输入输出能力](https://developers.openai.com/api/docs/models/gpt-5.6-sol)
 - [Responses API 图片与视觉输入](https://developers.openai.com/api/docs/guides/images-vision)

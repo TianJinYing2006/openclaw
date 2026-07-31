@@ -6,7 +6,6 @@ import com.example.ykdsummer.ai.orchestration.BoundedToolCallingManager;
 import com.example.ykdsummer.ai.orchestration.ScheduledAgentExecutionContext;
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.ConversationMessage;
-import com.example.ykdsummer.ai.tool.BilibiliUserTools;
 import com.example.ykdsummer.ai.tool.EpicFreeGamesTools;
 import com.example.ykdsummer.ai.tool.QqUserTools;
 import com.example.ykdsummer.ai.tool.SteamUserTools;
@@ -16,13 +15,11 @@ import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
 import com.example.ykdsummer.ai.tool.SpeechTools;
 import com.example.ykdsummer.ai.tool.VoiceSettingsTools;
 import com.example.ykdsummer.ai.tool.DocumentTools;
-import com.example.ykdsummer.ai.tool.ExternalToolSet;
 import com.example.ykdsummer.ai.tool.FileProductionTools;
 import com.example.ykdsummer.ai.tool.ConversationMemoryTools;
 import com.example.ykdsummer.ai.tool.AssetManagementTools;
 import com.example.ykdsummer.ai.tool.AmapTools;
 import com.example.ykdsummer.ai.tool.ImageTaskStatusTools;
-import com.example.ykdsummer.ai.tool.InformationToolSet;
 import com.example.ykdsummer.ai.tool.LocationSearchTools;
 import com.example.ykdsummer.ai.tool.WebSearchTools;
 import com.example.ykdsummer.ai.tool.PhoneInfoTools;
@@ -87,10 +84,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private final EpicFreeGamesTools epicFreeGamesTools;
     private final SteamUserTools steamUserTools;
     private final QqUserTools qqUserTools;
-    private final BilibiliUserTools bilibiliUserTools;
     private PhoneInfoTools phoneInfoTools;
-    private ExternalToolSet externalToolSet;
-    private InformationToolSet informationToolSet;
     private AmapTools amapTools;
     private LocationSearchTools locationSearchTools;
     private FashionTools fashionTools;
@@ -104,21 +98,6 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private BoundedToolCallingManager agentRoundManager;
     private RealtimeEvidenceAugmenter realtimeEvidenceAugmenter;
     private volatile UsageEventRecorder usageEvents = UsageEventRecorder.disabled();
-
-    public SpringAiChatCompletionsGateway(
-            ChatModel chatModel,
-            AiProperties properties,
-            WeatherTools weatherTools,
-            WebSearchTools webSearchTools,
-            EpicFreeGamesTools epicFreeGamesTools,
-            SteamUserTools steamUserTools,
-            QqUserTools qqUserTools,
-            BilibiliUserTools bilibiliUserTools
-    ) {
-        this(chatModel, properties, weatherTools, null, null, null, null, null, null, null,
-                null, null, webSearchTools, epicFreeGamesTools, steamUserTools, qqUserTools,
-                bilibiliUserTools, AiTraceLogger.disabled());
-    }
 
     /** 最小测试构造器：只注册天气 Tool。 */
     public SpringAiChatCompletionsGateway(
@@ -146,7 +125,6 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             EpicFreeGamesTools epicFreeGamesTools,
             SteamUserTools steamUserTools,
             QqUserTools qqUserTools,
-            BilibiliUserTools bilibiliUserTools,
             AiTraceLogger trace
     ) {
         this.chatClient = ChatClient.create(chatModel);
@@ -166,7 +144,6 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         this.epicFreeGamesTools = epicFreeGamesTools;
         this.steamUserTools = steamUserTools;
         this.qqUserTools = qqUserTools;
-        this.bilibiliUserTools = bilibiliUserTools;
         log.info(
                 "Spring AI chat gateway initialized, configuredModel={}, reasoningEffort={}",
                 properties.getModel(),
@@ -174,14 +151,33 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         );
     }
 
-    @Autowired(required = false)
-    void setExternalToolSet(ExternalToolSet externalToolSet) {
-        this.externalToolSet = externalToolSet;
-    }
-
-    @Autowired(required = false)
-    void setInformationToolSet(InformationToolSet informationToolSet) {
-        this.informationToolSet = informationToolSet;
+    /**
+     * Keeps older test-only constructor chains source-compatible after a retired external-tool slot
+     * was removed from the production dependency graph.
+     */
+    private SpringAiChatCompletionsGateway(
+            ChatModel chatModel,
+            AiProperties properties,
+            WeatherTools weatherTools,
+            ImageTools imageTools,
+            ToolArtifactCollector artifacts,
+            SpeechTools speechTools,
+            VoiceSettingsTools voiceSettingsTools,
+            DocumentTools documentTools,
+            FileProductionTools fileProductionTools,
+            ConversationMemoryTools conversationMemoryTools,
+            AssetManagementTools assetManagementTools,
+            ImageTaskStatusTools imageTaskStatusTools,
+            WebSearchTools webSearchTools,
+            EpicFreeGamesTools epicFreeGamesTools,
+            SteamUserTools steamUserTools,
+            QqUserTools qqUserTools,
+            Object ignoredRetiredTool,
+            AiTraceLogger trace
+    ) {
+        this(chatModel, properties, weatherTools, imageTools, artifacts, speechTools, voiceSettingsTools,
+                documentTools, fileProductionTools, conversationMemoryTools, assetManagementTools,
+                imageTaskStatusTools, webSearchTools, epicFreeGamesTools, steamUserTools, qqUserTools, trace);
     }
 
     @Autowired(required = false)

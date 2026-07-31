@@ -93,7 +93,7 @@
             <version>1.0.0</version>
         </dependency>
 
-        <!-- Official OpenAI-compatible Java client. MooseCloud exposes the Responses API. -->
+        <!-- OpenAI-compatible Java client used by the optional Responses integration. -->
         <dependency>
             <groupId>com.openai</groupId>
             <artifactId>openai-java</artifactId>
@@ -149,12 +149,6 @@
             <version>1.14.1</version>
         </dependency>
 
-        <!-- Feishu (Lark) Open Platform SDK: 文档、消息、Bitable 等 API -->
-        <dependency>
-            <groupId>com.larksuite.oapi</groupId>
-            <artifactId>oapi-sdk</artifactId>
-            <version>2.5.2</version>
-        </dependency>
         <!-- Optional operational persistence: enabled only through app.persistence.enabled. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
