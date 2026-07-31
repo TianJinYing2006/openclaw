@@ -40,12 +40,15 @@ public class FashionAgentService {
      * @return 格式化的穿搭推荐文案
      */
     @Tool(name = "fashion_consultant",
-          description = "穿搭推荐：根据场景、风格、季节推荐穿搭方案。" +
-                        "当用户询问穿什么、搭配建议、场合着装时调用此工具。" +
-                        "例如：'今天去海边穿什么'、'参加婚礼怎么穿'、'约会穿搭推荐'")
+          description = "AI穿搭推荐入口。用户询问穿什么、怎么搭、帮我配一身、衣服搭配建议、场合着装、" +
+                        "海边/婚礼/通勤/约会/旅行/面试等穿搭方案时调用。输入保留用户原话，" +
+                        "工具会完成需求分析、穿搭知识检索、多Agent评审并返回适合微信阅读的最终文案。")
     public String consult(
             @ToolParam(description = "用户的穿搭需求描述") String userInput
     ) {
+        if (userInput == null || userInput.isBlank()) {
+            return "你可以告诉我今天的场景，比如通勤、约会、海边、婚礼或面试，我来给你搭一套。";
+        }
         String userId = AgentSessionContext.currentUserId();
         log.info("Fashion consult request from user {}: {}", userId, userInput);
 
