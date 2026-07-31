@@ -7,7 +7,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -19,22 +21,22 @@ import java.util.concurrent.Executors;
  *
  * <p>编排流程：
  * <pre>
- * Step 1: QueryAnalyzer 分析需求
- * Step 2: FashionKnowledgeService RAG 检索（一次查询，全局共享）
- * Step 3: Stylist 生成方案（串行，必须先有方案）
- * Step 4: Critic ∥ Trend 并行评审（fork/join）
- * Step 5: Coordinator 综合裁决
+ * Step 1: QueryAnalyzer 分析需求        → 失败则关键词兜底
+ * Step 2: FashionKnowledgeService RAG   → 失败则空知识
+ * Step 3: Stylist 生成方案（串行）       → 失败则安全兜底
+ * Step 4: Critic ∥ Trend 并行评审       → 各自失败互不影响
+ * Step 5: Coordinator 综合裁决          → 失败则降级 Stylist 首选
  * </pre>
  *
- * <p>降级策略：
- * <ul>
- *   <li>QueryAnalyzer 失败 → 关键词兜底</li>
- *   <li>RAG 失败 → 空知识列表，Agent 依赖自身知识</li>
- *   <li>Stylist 失败 → 安全兜底方案</li>
- *   <li>Critic 失败 → 空评审，Coordinator 自行判断</li>
- *   <li>Trend 失败 → 中性趋势分，不影响流程</li>
- *   <li>Coordinator 失败 → 降级到 Stylist 首选方案</li>
- * </ul>
+ * <p>全链路降级链：
+ * <pre>
+ * QueryAnalyzer失败 → 关键词兜底
+ * RAG失败 → 空知识上下文
+ * Stylist失败 → FashionResult 安全兜底方案
+ * Critic失败 → 空评审
+ * Trend失败 → 中性趋势数据
+ * Coordinator失败 → Stylist首选方案
+ * </pre>
  */
 @Component
 public class AgentCoordinator {
@@ -72,58 +74,115 @@ public class AgentCoordinator {
      * @return 穿搭推荐结果
      */
     public FashionResult process(FashionRequest request) {
-        long startTime = System.currentTimeMillis();
+        long pipelineStart = System.currentTimeMillis();
+        Map<String, Long> timings = new LinkedHashMap<>();
         log.info("Fashion pipeline started for user: {}", request.userId());
 
-        // Step 1: 查询分析
-        AnalyzedQuery query = queryAnalyzer.analyze(request.userInput());
-        log.info("Step 1 done: QueryAnalyzer");
+        // ── Step 1: 查询分析 ──
+        long step = System.currentTimeMillis();
+        AnalyzedQuery query;
+        try {
+            query = queryAnalyzer.analyze(request.userInput());
+        } catch (Exception e) {
+            log.warn("Step 1 QueryAnalyzer exception, using keyword fallback: {}", e.getMessage());
+            query = AnalyzedQuery.fallback(request.userInput());
+        }
+        timings.put("query_analyze", System.currentTimeMillis() - step);
+        log.info("Step 1 done: scene={}, season={} ({}ms)",
+                query.params() != null ? query.params().scene() : "null",
+                query.params() != null ? query.params().season() : "null",
+                timings.get("query_analyze"));
 
-        // Step 2: RAG 知识检索（一次查询，全局共享）
-        List<RetrievedChunk> chunks = knowledgeService.retrieve(query);
+        // ── Step 2: RAG 知识检索 ──
+        step = System.currentTimeMillis();
+        List<RetrievedChunk> chunks;
+        try {
+            chunks = knowledgeService.retrieve(query);
+        } catch (Exception e) {
+            log.warn("Step 2 RAG exception, using empty context: {}", e.getMessage());
+            chunks = List.of();
+        }
         String ragContext = knowledgeService.formatContext(chunks);
-        log.info("Step 2 done: RAG retrieved {} chunks", chunks.size());
+        timings.put("rag_retrieve", System.currentTimeMillis() - step);
+        log.info("Step 2 done: {} chunks ({}ms)", chunks.size(), timings.get("rag_retrieve"));
 
-        // Step 3: Stylist 生成方案（串行，必须先有方案）
-        StylistOutput stylist = shouldUseMockStylist(request)
-                ? mockStylistOutput(query)
-                : stylistAgent.execute(request, ragContext, query);
-        log.info("Step 3 done: Stylist generated {} suggestions",
-                stylist != null && !stylist.isEmpty() ? stylist.suggestions().size() : 0);
+        // ── Step 3: Stylist 生成方案（串行） ──
+        step = System.currentTimeMillis();
+        StylistOutput stylist;
+        try {
+            stylist = shouldUseMockStylist(request)
+                    ? mockStylistOutput(query)
+                    : stylistAgent.execute(request, ragContext, query);
+        } catch (Exception e) {
+            log.warn("Step 3 Stylist exception: {}", e.getMessage());
+            stylist = null;
+        }
+        timings.put("stylist", System.currentTimeMillis() - step);
+        log.info("Step 3 done: {} suggestions ({}ms)",
+                stylist != null && !stylist.isEmpty() ? stylist.suggestions().size() : 0,
+                timings.get("stylist"));
 
         if (stylist == null || stylist.isEmpty()) {
             log.error("Stylist failed, returning safety fallback");
-            return FashionResult.safetyFallback(
-                    query.params() != null ? query.params().scene() : "DAILY", query);
+            timings.put("total", System.currentTimeMillis() - pipelineStart);
+            logTimings(timings);
+            String scene = query.params() != null ? query.params().scene() : "DAILY";
+            return FashionResult.safetyFallback(scene, query);
         }
 
-        // Step 4: Critic ∥ Trend 并行评审
+        // ── Step 4: Critic ∥ Trend 并行评审 ──
+        step = System.currentTimeMillis();
+        final StylistOutput finalStylist = stylist;
+        final AnalyzedQuery finalQuery = query;
+
         CompletableFuture<CriticOutput> criticFuture = CompletableFuture.supplyAsync(
-                () -> criticAgent.execute(stylist, query), parallelExecutor);
+                () -> {
+                    try {
+                        return criticAgent.execute(finalStylist, finalQuery);
+                    } catch (Exception e) {
+                        log.warn("Critic exception: {}", e.getMessage());
+                        return CriticOutput.empty();
+                    }
+                }, parallelExecutor);
 
         CompletableFuture<TrendOutput> trendFuture = CompletableFuture.supplyAsync(
-                () -> trendAgent.execute(stylist, query), parallelExecutor);
+                () -> {
+                    try {
+                        return trendAgent.execute(finalStylist, finalQuery);
+                    } catch (Exception e) {
+                        log.warn("Trend exception: {}", e.getMessage());
+                        return TrendOutput.neutral();
+                    }
+                }, parallelExecutor);
 
         CriticOutput critic = criticFuture.exceptionally(e -> {
-            log.warn("Critic failed, using empty fallback: {}", e.getMessage());
+            log.warn("Critic failed: {}", e.getMessage());
             return CriticOutput.empty();
         }).join();
 
         TrendOutput trend = trendFuture.exceptionally(e -> {
-            log.warn("Trend failed, using neutral fallback: {}", e.getMessage());
+            log.warn("Trend failed: {}", e.getMessage());
             return TrendOutput.neutral();
         }).join();
 
-        log.info("Step 4 done: Critic ({} reviews) + Trend ({} analyses) parallel complete",
+        timings.put("parallel_review", System.currentTimeMillis() - step);
+        log.info("Step 4 done: Critic={} reviews, Trend={} analyses ({}ms)",
                 critic.reviews() != null ? critic.reviews().size() : 0,
-                trend.trendAnalysis() != null ? trend.trendAnalysis().size() : 0);
+                trend.trendAnalysis() != null ? trend.trendAnalysis().size() : 0,
+                timings.get("parallel_review"));
 
-        // Step 5: Coordinator 综合裁决
-        CoordinatorOutput coordinator = coordinatorAgent.execute(
-                request, stylist, critic, trend, ragContext);
-
-        long elapsed = System.currentTimeMillis() - startTime;
-        log.info("Step 5 done: Coordinator. Pipeline completed in {}ms", elapsed);
+        // ── Step 5: Coordinator 综合裁决 ──
+        step = System.currentTimeMillis();
+        CoordinatorOutput coordinator;
+        try {
+            coordinator = coordinatorAgent.execute(request, stylist, critic, trend, ragContext);
+        } catch (Exception e) {
+            log.warn("Step 5 Coordinator exception: {}", e.getMessage());
+            coordinator = null;
+        }
+        timings.put("coordinator", System.currentTimeMillis() - step);
+        timings.put("total", System.currentTimeMillis() - pipelineStart);
+        logTimings(timings);
 
         // Coordinator 失败 → 降级到 Stylist 首选方案
         if (coordinator == null) {
@@ -272,5 +331,13 @@ public class AgentCoordinator {
                 false, coordOutput, stylist, critic, trend, ragContext, query,
                 errorMessage, true
         );
+    }
+
+    private void logTimings(Map<String, Long> timings) {
+        StringBuilder sb = new StringBuilder("Pipeline timings:");
+        for (Map.Entry<String, Long> entry : timings.entrySet()) {
+            sb.append(String.format(" %s=%dms", entry.getKey(), entry.getValue()));
+        }
+        log.info(sb.toString());
     }
 }
