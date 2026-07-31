@@ -11,6 +11,7 @@ import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.session.ILinkSessionStore;
 import com.example.ykdsummer.bot.video.ILinkVideoDownloader;
+import com.example.ykdsummer.common.concurrent.GracefulExecutorShutdown;
 import io.github.morningwn.client.ILinkBot;
 import io.github.morningwn.client.ILinkClient;
 import io.github.morningwn.client.ILinkClientConfig;
@@ -25,11 +26,13 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Objects;
+import java.time.Duration;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -102,6 +105,7 @@ public class ILinkBotService {
     private volatile ILinkClient lowLevelClient;
     /** When the administrator site is enabled, managed instances own their own SDK clients instead. */
     private volatile boolean managedInstanceMode;
+    private final AtomicBoolean stopping = new AtomicBoolean();
 
     public ILinkBotService(
             ILinkProperties settings,
@@ -197,6 +201,7 @@ public class ILinkBotService {
         }
 
         runtimeState.starting();
+        stopping.set(false);
         try {
             // 这是 SDK 自己的网络配置对象，本项目只把 application.properties 中的值交给它。
             ILinkClientConfig clientConfig = ILinkClientConfig.builder()
@@ -236,11 +241,11 @@ public class ILinkBotService {
     /** Spring 应用停止时自动调用，关闭 SDK，避免后台线程和连接泄漏。 */
     @PreDestroy
     public void stop() {
-        for (ExecutorService executor : textReplyExecutors) {
-            executor.shutdownNow();
-        }
-        imageReplyExecutor.shutdownNow();
-        videoReplyExecutor.shutdownNow();
+        stopping.set(true);
+        List<ExecutorService> executors = new java.util.ArrayList<>(java.util.Arrays.asList(textReplyExecutors));
+        executors.add(imageReplyExecutor);
+        executors.add(videoReplyExecutor);
+        GracefulExecutorShutdown.shutdown("ilink-reply", Duration.ofSeconds(30), log, executors);
         closeSdkClients();
     }
 
@@ -343,7 +348,8 @@ public class ILinkBotService {
      */
     void handleInboundMessage(WeixinMessage message) {
         // 这里只处理普通用户消息；系统事件、状态通知等协议消息直接忽略。
-        if (message == null || !Objects.equals(message.messageType(), ProtocolValues.MESSAGE_TYPE_USER)) {
+        if (stopping.get() || message == null
+                || !Objects.equals(message.messageType(), ProtocolValues.MESSAGE_TYPE_USER)) {
             return;
         }
 

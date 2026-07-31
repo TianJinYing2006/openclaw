@@ -2,6 +2,7 @@ package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.RealtimeEvidenceProperties;
 import com.example.ykdsummer.ai.tool.WebSearchTools;
+import com.example.ykdsummer.common.concurrent.GracefulExecutorShutdown;
 import com.example.ykdsummer.persistence.RedisOperationalStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +25,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -37,6 +40,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class RealtimeEvidenceAugmenter {
+    private static final Logger log = LoggerFactory.getLogger(RealtimeEvidenceAugmenter.class);
 
     private final RealtimeEvidenceProperties properties;
     private final WebSearchTools webSearchTools;
@@ -214,7 +218,7 @@ public class RealtimeEvidenceAugmenter {
 
     @PreDestroy
     void shutdown() {
-        executor.shutdownNow();
+        GracefulExecutorShutdown.shutdown("realtime-evidence", Duration.ofSeconds(30), log, executor);
     }
 
     private static ExecutorService newExecutor(RealtimeEvidenceProperties properties) {

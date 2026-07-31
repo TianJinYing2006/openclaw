@@ -1,16 +1,21 @@
 package com.example.ykdsummer.ai.tool;
 
 import com.example.ykdsummer.ai.config.ImageTaskExecutionProperties;
+import com.example.ykdsummer.common.concurrent.GracefulExecutorShutdown;
 import jakarta.annotation.PreDestroy;
+import java.time.Duration;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /** Process-local, bounded executor for asynchronous image generation and revision work. */
 @Component
 public class BoundedImageTaskRunner implements ImageTaskRunner {
+    private static final Logger log = LoggerFactory.getLogger(BoundedImageTaskRunner.class);
 
     private final ThreadPoolExecutor executor;
 
@@ -46,6 +51,6 @@ public class BoundedImageTaskRunner implements ImageTaskRunner {
 
     @PreDestroy
     void stop() {
-        executor.shutdownNow();
+        GracefulExecutorShutdown.shutdown("ai-image-background", Duration.ofSeconds(30), log, executor);
     }
 }

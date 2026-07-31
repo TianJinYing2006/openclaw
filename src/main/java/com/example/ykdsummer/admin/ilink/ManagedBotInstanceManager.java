@@ -12,6 +12,7 @@ import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
 import com.example.ykdsummer.bot.service.ILinkMessageRateLimiter;
 import com.example.ykdsummer.bot.service.ILinkReply;
 import com.example.ykdsummer.bot.service.ILinkReplyService;
+import com.example.ykdsummer.common.concurrent.GracefulExecutorShutdown;
 import com.example.ykdsummer.persistence.ManagedInstanceScope;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -37,6 +38,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationRunner;
@@ -65,6 +67,7 @@ public class ManagedBotInstanceManager implements ApplicationRunner {
             .expireAfterAccess(Duration.ofHours(2))
             .build();
     private final ExecutorService[] replyExecutors;
+    private final AtomicBoolean closing = new AtomicBoolean();
 
     public ManagedBotInstanceManager(
             AdminPlatformService platform,
@@ -95,6 +98,7 @@ public class ManagedBotInstanceManager implements ApplicationRunner {
 
     @Override
     public void run(org.springframework.boot.ApplicationArguments arguments) {
+        closing.set(false);
         if (!ilinkProperties.isEnabled()) {
             log.info("Managed iLink instances are configured but ilink.enabled=false");
             return;
@@ -138,7 +142,7 @@ public class ManagedBotInstanceManager implements ApplicationRunner {
 
     /** Returns true only when the completed image belongs to a currently managed conversation. */
     public boolean sendCompletedImage(ImageTaskCompletionEvent event) {
-        if (event == null || event.imageBytes().length == 0) return false;
+        if (closing.get() || event == null || event.imageBytes().length == 0) return false;
         ReplyTarget target = replyTargets.getIfPresent(event.userId());
         String instanceId = target == null ? ManagedInstanceScope.parse(event.userId()).instanceId() : target.instanceId();
         String contextToken = target == null ? replyContexts.find(event.userId()).orElse(null) : target.contextToken();
@@ -156,6 +160,7 @@ public class ManagedBotInstanceManager implements ApplicationRunner {
 
     /** Sends a durable background notification to a user of the matching managed bot instance. */
     public boolean sendText(String scopedUserId, String contextToken, String text) {
+        if (closing.get()) return false;
         ManagedInstanceScope scope = ManagedInstanceScope.parse(scopedUserId);
         if (!scope.managed() || contextToken == null || contextToken.isBlank() || text == null || text.isBlank()) {
             return false;
@@ -174,6 +179,7 @@ public class ManagedBotInstanceManager implements ApplicationRunner {
 
     /** Sends a background image only through the managed bot that owns the scoped user. */
     public boolean sendImage(String scopedUserId, String contextToken, byte[] bytes) {
+        if (closing.get()) return false;
         ManagedInstanceScope scope = ManagedInstanceScope.parse(scopedUserId);
         if (!scope.managed() || contextToken == null || contextToken.isBlank() || bytes == null || bytes.length == 0) {
             return false;
@@ -192,6 +198,7 @@ public class ManagedBotInstanceManager implements ApplicationRunner {
 
     /** Sends a background file only through the managed bot that owns the scoped user. */
     public boolean sendFile(String scopedUserId, String contextToken, String fileName, byte[] bytes) {
+        if (closing.get()) return false;
         ManagedInstanceScope scope = ManagedInstanceScope.parse(scopedUserId);
         if (!scope.managed() || contextToken == null || contextToken.isBlank()
                 || fileName == null || fileName.isBlank() || bytes == null || bytes.length == 0) {
@@ -241,9 +248,11 @@ public class ManagedBotInstanceManager implements ApplicationRunner {
 
     @PreDestroy
     public void close() {
+        if (!closing.compareAndSet(false, true)) return;
+        GracefulExecutorShutdown.shutdown("managed-ilink-reply", Duration.ofSeconds(30), log,
+                java.util.Arrays.asList(replyExecutors));
         runners.values().forEach(ManagedRunner::close);
         runners.clear();
-        for (ExecutorService executor : replyExecutors) executor.shutdownNow();
     }
 
     private ExecutorService executorFor(String scopedUserId) {
@@ -303,7 +312,8 @@ public class ManagedBotInstanceManager implements ApplicationRunner {
         }
 
         private void handle(WeixinMessage message) {
-            if (message == null || !Objects.equals(message.messageType(), ProtocolValues.MESSAGE_TYPE_USER)) return;
+            if (closing.get() || message == null
+                    || !Objects.equals(message.messageType(), ProtocolValues.MESSAGE_TYPE_USER)) return;
             if (!claimInboundMessage(message)) return;
             if (message.createTimeMs() != null && message.createTimeMs() < startedAtMs - 120_000) {
                 return;

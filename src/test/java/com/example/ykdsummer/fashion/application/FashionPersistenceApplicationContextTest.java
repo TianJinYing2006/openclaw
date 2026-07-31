@@ -44,6 +44,7 @@ class FashionPersistenceApplicationContextTest {
 
         assertThat(names).contains("search_wardrobe", "search_wardrobe_semantic", "show_wardrobe_items",
                 "search_fashion_references", "recommend_outfits_from_wardrobe");
+        assertThat(names).hasSize(35);
         assertThat(names).doesNotHaveDuplicates();
     }
 }

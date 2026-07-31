@@ -7,12 +7,14 @@ import com.example.ykdsummer.ai.service.AiChatService;
 import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
 import com.example.ykdsummer.bot.service.ILinkBotService;
 import com.example.ykdsummer.bot.service.LongTextOutputService;
+import com.example.ykdsummer.common.concurrent.GracefulExecutorShutdown;
 import com.example.ykdsummer.persistence.ManagedInstanceScope;
 import com.example.ykdsummer.reminder.application.ReminderService;
 import com.example.ykdsummer.reminder.config.ReminderProperties;
 import com.example.ykdsummer.reminder.domain.ReminderDelivery;
 import com.example.ykdsummer.reminder.domain.ReminderExecutionMode;
 import jakarta.annotation.PreDestroy;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -196,7 +198,9 @@ public class WechatReminderDispatcher {
     }
 
     @PreDestroy
-    void shutdown() { workers.shutdownNow(); }
+    void shutdown() {
+        GracefulExecutorShutdown.shutdown("wechat-reminder", Duration.ofSeconds(30), log, workers);
+    }
 
     private static ThreadFactory daemonFactory() {
         AtomicLong sequence = new AtomicLong();

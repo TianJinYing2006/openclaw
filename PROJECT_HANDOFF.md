@@ -6,7 +6,7 @@ This file is the durable handoff for future Codex tasks. It intentionally contai
 
 ## How To Continue In A New Task
 
-Open the same project folder `D:\YKD-summer`, then begin the new task with:
+For continued integration work, open `D:\YKD-summer-integration`, then begin the new task with:
 
 ```text
 Read PROJECT_HANDOFF.md first. Continue from the current project state and do not discard existing uncommitted work.
@@ -18,8 +18,12 @@ The file preserves project context, but it does not replace reading the relevant
 
 This section is newer than historical status later in this file and takes precedence when the two conflict.
 
-- Active feature branch/worktree: `codex/fashion-reference-sample-pipeline` in
-  `C:\Users\14987\.codex\worktrees\0c35\YKD-summer`; do not touch `.codex-remote-attachments/`.
+- Canonical integration branch/worktree: `codex/ilink-integration` in `D:\YKD-summer-integration`.
+- `D:\YKD-summer` remains the protected `master` worktree. Do not merge or push `master` during feature integration.
+- The Codex worktree under `C:\Users\14987\.codex\worktrees` may contain local attachments; do not track or move
+  `.codex-remote-attachments/`.
+- `codex/fashion-reference-sample-pipeline` remains a pushed rollback checkpoint for the 12-Look data and outfit
+  recommendation implementation. New consolidation work belongs on `codex/ilink-integration`; do not push `master`.
 - The WeChat Agent allowlist has been reduced from 81 to 35 tools. Feishu, finance, entertainment, generic web/document
   tools and `search_fashion_products` are not exposed. The 35th tool is the aggregate
   `recommend_outfits_from_wardrobe`.
@@ -29,6 +33,10 @@ This section is newer than historical status later in this file and takes preced
 - The evidence-based recommendation chain now has code for user-scoped anchors, batch Look hydration, deterministic
   evidence scoring, duplicate removal, concrete missing-item analysis, persistent rank mapping, asynchronous no-person
   outfit rendering, real-cutout fallback and iLink completion push.
+- The 2026-07-30 member-branch deltas were re-audited. Existing Agent loop, bounded image work, Tool tracing,
+  asynchronous completion and recurring reminders were retained in their current stronger forms. The `zx` graceful
+  shutdown idea was adapted into a shared Spring lifecycle utility; duplicate SQLite/MyBatis stores, schedulers,
+  generic Skill routers, Feishu tools and dataset files were not merged.
 - Public Looks remain evidence only. Every returned outfit item must be an active item owned by the current user.
 - Qdrant failure falls back to MySQL structured candidates and lowers evidence confidence. Image-provider failure falls
   back to a deterministic real-pixel outfit board.
