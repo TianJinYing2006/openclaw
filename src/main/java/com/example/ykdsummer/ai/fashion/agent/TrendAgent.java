@@ -8,6 +8,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Trend Agent（趋势分析师）。
@@ -20,7 +24,7 @@ public class TrendAgent {
 
     private static final Logger log = LoggerFactory.getLogger(TrendAgent.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
-    private static final int MAX_TOKENS = 400;
+    private static final int MAX_TOKENS = 650;
 
     private final AgentLlmCaller llmCaller;
     private final ObjectMapper objectMapper;
@@ -55,9 +59,10 @@ public class TrendAgent {
 
         if (output == null) {
             log.warn("Trend Agent returned null, using neutral fallback");
-            return TrendOutput.neutral();
+            return TrendOutput.neutralFor(stylist);
         }
 
+        output = normalizeOutput(output, stylist);
         log.info("Trend Agent analyzed {} suggestions", output.trendAnalysis() != null ? output.trendAnalysis().size() : 0);
         return output;
     }
@@ -76,5 +81,56 @@ public class TrendAgent {
         }
 
         return sb.toString();
+    }
+
+    private TrendOutput normalizeOutput(TrendOutput output, StylistOutput stylist) {
+        if (output == null || output.trendAnalysis() == null) {
+            return TrendOutput.neutralFor(stylist);
+        }
+
+        Map<Integer, TrendOutput.TrendReview> bySuggestionId = new LinkedHashMap<>();
+        for (TrendOutput.TrendReview review : output.trendAnalysis()) {
+            if (review != null && review.suggestionId() > 0) {
+                bySuggestionId.put(review.suggestionId(), review);
+            }
+        }
+
+        List<TrendOutput.TrendReview> normalized = new ArrayList<>();
+        for (StylistOutput.OutfitSuggestion suggestion : stylist.suggestions()) {
+            TrendOutput.TrendReview review = bySuggestionId.get(suggestion.id());
+            normalized.add(review != null
+                    ? normalizeReview(review)
+                    : TrendOutput.neutralReview(suggestion.id()));
+        }
+        return new TrendOutput(normalized);
+    }
+
+    private TrendOutput.TrendReview normalizeReview(TrendOutput.TrendReview review) {
+        return new TrendOutput.TrendReview(
+                review.suggestionId(),
+                clampScore(review.trendScore()),
+                hasText(review.seasonalMatch()) ? review.seasonalMatch() : "基本匹配",
+                nonEmpty(review.trendingElements(), "基础流行元素待确认"),
+                nonEmpty(review.datedElements(), "无明显过时元素"),
+                hasText(review.searchSummary()) ? review.searchSummary() : "趋势分析摘要缺失，按中性依据处理。"
+        );
+    }
+
+    private int clampScore(int score) {
+        if (score == 0) {
+            return 3;
+        }
+        return Math.max(1, Math.min(5, score));
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private List<String> nonEmpty(List<String> values, String fallback) {
+        if (values == null || values.isEmpty()) {
+            return List.of(fallback);
+        }
+        return values;
     }
 }

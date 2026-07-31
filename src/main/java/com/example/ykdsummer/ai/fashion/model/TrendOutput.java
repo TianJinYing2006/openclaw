@@ -15,6 +15,27 @@ public record TrendOutput(List<TrendReview> trendAnalysis) {
         return new TrendOutput(List.of());
     }
 
+    /** 针对已有 Stylist 方案生成中性趋势评审，用于 Trend 调用失败或结果缺项时的降级。 */
+    public static TrendOutput neutralFor(StylistOutput stylist) {
+        if (stylist == null || stylist.isEmpty()) {
+            return neutral();
+        }
+        return new TrendOutput(stylist.suggestions().stream()
+                .map(suggestion -> neutralReview(suggestion.id()))
+                .toList());
+    }
+
+    public static TrendReview neutralReview(int suggestionId) {
+        return new TrendReview(
+                suggestionId,
+                3,
+                "基本匹配",
+                List.of("基础流行元素待确认"),
+                List.of("无明显过时元素"),
+                "趋势分析不可用，按中性趋势分处理。"
+        );
+    }
+
     public boolean isEmpty() {
         return trendAnalysis == null || trendAnalysis.isEmpty();
     }

@@ -8,6 +8,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Coordinator Agent（首席搭配师，最终裁决）。
@@ -65,6 +68,7 @@ public class CoordinatorAgent {
             return null;
         }
 
+        output = normalizeOutput(output, stylist);
         log.info("Coordinator Agent selected suggestion {}",
                 output.finalRecommendation() != null
                         ? output.finalRecommendation().selectedSuggestionId() : "null");
@@ -108,5 +112,55 @@ public class CoordinatorAgent {
         sb.append("\n\n").append(ragContext);
 
         return sb.toString();
+    }
+
+    private CoordinatorOutput normalizeOutput(CoordinatorOutput output, StylistOutput stylist) {
+        Map<Integer, StylistOutput.OutfitSuggestion> suggestionsById = new LinkedHashMap<>();
+        for (StylistOutput.OutfitSuggestion suggestion : stylist.suggestions()) {
+            suggestionsById.put(suggestion.id(), suggestion);
+        }
+
+        int selectedId = output.finalRecommendation() != null
+                ? output.finalRecommendation().selectedSuggestionId()
+                : 0;
+        if (!suggestionsById.containsKey(selectedId)) {
+            selectedId = stylist.suggestions().get(0).id();
+        }
+
+        StylistOutput.OutfitSuggestion selected = suggestionsById.get(selectedId);
+        StylistOutput.Outfit selectedOutfit = selected.outfit();
+
+        CoordinatorOutput.RefinedOutfit refined = output.refinedOutfit();
+        CoordinatorOutput.RefinedOutfit normalizedRefined = new CoordinatorOutput.RefinedOutfit(
+                chooseText(refined != null ? refined.top() : null,
+                        selectedOutfit != null ? selectedOutfit.top() : ""),
+                chooseText(refined != null ? refined.bottom() : null,
+                        selectedOutfit != null ? selectedOutfit.bottom() : ""),
+                chooseText(refined != null ? refined.shoes() : null,
+                        selectedOutfit != null ? selectedOutfit.shoes() : ""),
+                chooseText(refined != null ? refined.accessories() : null,
+                        selectedOutfit != null ? selectedOutfit.accessories() : "")
+        );
+
+        CoordinatorOutput.FinalRecommendation current = output.finalRecommendation();
+        CoordinatorOutput.FinalRecommendation normalizedRecommendation = new CoordinatorOutput.FinalRecommendation(
+                selectedId,
+                chooseText(current != null ? current.selectionReasoning() : null,
+                        "按体型、场合、风格和趋势优先级选择该方案。"),
+                current != null && current.eliminationNotes() != null
+                        ? current.eliminationNotes()
+                        : Map.of()
+        );
+
+        return new CoordinatorOutput(
+                normalizedRecommendation,
+                normalizedRefined,
+                chooseText(output.finalReasoning(), selected.reasoning()),
+                output.practicalTips() != null ? output.practicalTips() : List.of()
+        );
+    }
+
+    private String chooseText(String value, String fallback) {
+        return value != null && !value.isBlank() ? value : fallback;
     }
 }
