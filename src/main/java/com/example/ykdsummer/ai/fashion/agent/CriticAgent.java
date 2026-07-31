@@ -20,15 +20,14 @@ public class CriticAgent {
 
     private static final Logger log = LoggerFactory.getLogger(CriticAgent.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
-    private static final int MAX_TOKENS = 400;
+    private static final int MAX_TOKENS = 1200;
 
     private final AgentLlmCaller llmCaller;
     private final ObjectMapper objectMapper;
 
-    public CriticAgent(AgentLlmCaller llmCaller) {
+    public CriticAgent(AgentLlmCaller llmCaller, ObjectMapper objectMapper) {
         this.llmCaller = llmCaller;
-        this.objectMapper = new ObjectMapper()
-                .configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -56,6 +55,19 @@ public class CriticAgent {
         if (output == null) {
             log.warn("Critic Agent returned null, using empty fallback");
             return CriticOutput.empty();
+        }
+
+        // suggestionId 一致性校验
+        if (output.reviews() != null) {
+            java.util.Set<Integer> expectedIds = stylist.suggestions().stream()
+                    .map(s -> s.id())
+                    .collect(java.util.stream.Collectors.toSet());
+            for (CriticOutput.Critique critique : output.reviews()) {
+                if (!expectedIds.contains(critique.suggestionId())) {
+                    log.warn("Critic returned unexpected suggestionId: {}, expected one of {}",
+                            critique.suggestionId(), expectedIds);
+                }
+            }
         }
 
         log.info("Critic Agent reviewed {} suggestions", output.reviews() != null ? output.reviews().size() : 0);

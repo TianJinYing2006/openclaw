@@ -20,7 +20,7 @@ public class StylistAgent {
 
     private static final Logger log = LoggerFactory.getLogger(StylistAgent.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
-    private static final int MAX_TOKENS = 800;
+    private static final int MAX_TOKENS = 2000;
 
     private final AgentLlmCaller llmCaller;
 
@@ -50,6 +50,19 @@ public class StylistAgent {
         if (output == null || output.isEmpty()) {
             log.warn("Stylist Agent returned empty result");
             return StylistOutput.empty();
+        }
+
+        // 输出质量校验
+        if (output.suggestions().size() < 3) {
+            log.warn("Stylist generated only {} suggestions, expected 3", output.suggestions().size());
+        }
+        long distinctStyles = output.suggestions().stream()
+                .map(StylistOutput.OutfitSuggestion::styleLabel)
+                .distinct()
+                .count();
+        if (distinctStyles < output.suggestions().size()) {
+            log.warn("Stylist generated duplicate style labels: {}",
+                    output.suggestions().stream().map(StylistOutput.OutfitSuggestion::styleLabel).toList());
         }
 
         log.info("Stylist Agent generated {} suggestions", output.suggestions().size());
