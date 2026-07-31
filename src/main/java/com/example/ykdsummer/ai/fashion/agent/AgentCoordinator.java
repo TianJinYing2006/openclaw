@@ -91,7 +91,7 @@ public class AgentCoordinator {
         if (stylist == null || stylist.isEmpty()) {
             log.error("Stylist failed, returning safety fallback");
             return FashionResult.safetyFallback(
-                    query.params() != null ? query.params().scene() : "daily", query);
+                    query.params() != null ? query.params().scene() : "DAILY", query);
         }
 
         // Step 4: Critic ∥ Trend 并行评审

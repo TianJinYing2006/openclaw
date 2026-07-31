@@ -10,27 +10,42 @@ public final class AgentPrompts {
 
     /** QueryAnalyzer：将用户模糊需求分解为结构化参数。 */
     public static final String QUERY_ANALYZER = """
-            你是穿搭需求分析器。分析用户的穿搭需求，提取结构化参数。
+            你是穿搭需求分析器。分析用户的穿搭需求，提取结构化参数，用于知识库检索。
 
             输出严格 JSON，格式如下：
             {
               "originalQuery": "用户原始问题",
               "decomposedQueries": ["子查询1", "子查询2"],
               "params": {
-                "scene": "wedding|date|work|sport|beach|travel|daily",
-                "season": "spring|summer|autumn|winter",
+                "scene": "WORKPLACE|COMMUTE|FORMAL_EVENT|SCHOOL|TRAVEL|OUTDOOR|DAILY",
+                "season": "SPRING|SUMMER|AUTUMN|WINTER",
                 "formality": 1到5的整数,
                 "gender": "male|female|unknown",
                 "styleHint": "风格提示词，如 优雅/休闲/街头/浪漫"
               }
             }
 
-            规则：
-            - scene 根据关键词判断：婚礼/结婚→wedding，约会/相亲→date，上班/通勤→work，海边/海滩→beach，运动/健身→sport，旅行/旅游→travel，其他→daily
-            - season 根据用户提到的季节或当前月份推断
-            - formality: 日常=1-2, 约会/通勤=3, 婚礼/正式场合=4-5
-            - decomposedQueries 生成 1-3 个用于知识检索的子查询
-            - 只输出 JSON，不要任何额外文字
+            场景映射规则（scene 只能取枚举值）：
+            - 婚礼/结婚/正式晚宴 → FORMAL_EVENT
+            - 上班/通勤/办公/开会 → WORKPLACE（必要时也考虑 COMMUTE）
+            - 上学/校园 → SCHOOL
+            - 旅行/旅游/出差 → TRAVEL
+            - 运动/健身/跑步/爬山/户外 → OUTDOOR
+            - 海边/海滩/度假 → OUTDOOR
+            - 其他日常 → DAILY
+
+            season 规则：只能取 SPRING|SUMMER|AUTUMN|WINTER，根据用户提到季节或当前月份推断。
+
+            styleHint 规则：从 优雅/休闲/街头/浪漫/甜美/商务/通勤/复古/学院/极简/性感 中选最贴切的 1-2 个词，用斜杠分隔；无法判断则留空。
+
+            decomposedQueries 规则：生成 2-3 个用于知识检索的子查询，每个子查询要**中英混合**：
+            - 优先包含与场景/风格对应的英文标签词（如 SUMMER、WORKPLACE、ELEGANT、CASUAL）
+            - 同时包含中文关键词（如"海边"、"通勤"、"白色"、"连衣裙"）
+            - 示例：用户说"去海边穿什么" → ["SUMMER 海边", "OUTDOOR 度假", "白色 连衣裙"]
+            - 示例：用户说"上班穿什么" → ["WORKPLACE 通勤", "SUMMER 衬衫", "COMMUTE 西装"]
+
+            formality: 日常=1-2, 约会/通勤=3, 婚礼/正式场合=4-5
+            只输出 JSON，不要任何额外文字
             """;
 
     /** Stylist Agent：创意型形象顾问，生成 3 套穿搭方案。 */

@@ -105,12 +105,12 @@ public class FashionResponseFormatter {
     private String sceneDisplayName(String scene) {
         if (scene == null) return "日常";
         return switch (scene) {
-            case "wedding" -> "婚礼";
-            case "date" -> "约会";
-            case "work" -> "通勤";
-            case "beach" -> "海边";
-            case "sport" -> "运动";
-            case "travel" -> "旅行";
+            case "FORMAL_EVENT" -> "正式场合";
+            case "WORKPLACE", "COMMUTE" -> "通勤";
+            case "SCHOOL" -> "校园";
+            case "TRAVEL" -> "旅行";
+            case "OUTDOOR" -> "户外";
+            case "DAILY" -> "日常";
             default -> "日常";
         };
     }

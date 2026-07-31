@@ -54,26 +54,45 @@ public class FashionKnowledgeService {
         }
 
         try {
-            // 构建 FTS5 查询：用子查询 + 场景关键词拼接
-            String ftsQuery = buildFtsQuery(query);
-            if (ftsQuery.isBlank()) {
+            // 构建 FTS5 查询：MATCH 长词（含英文枚举）+ LIKE 兜底短中文词
+            FtsPlan plan = buildFtsPlan(query);
+            if (plan.matchQuery().isBlank() && plan.likeTerms().isEmpty()) {
                 log.warn("Empty FTS query, returning empty results");
                 return List.of();
             }
 
-            log.info("FTS5 query: {}", ftsQuery);
+            log.info("FTS5 query: {} (like fallback: {})",
+                    plan.matchQuery().isBlank() ? "<none>" : plan.matchQuery(),
+                    plan.likeTerms());
 
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+            StringBuilder sql = new StringBuilder(
                     "SELECT id, content, source, summary, top, bottom, shoes, accessories, " +
-                    "style, scene, season, color_scheme, rank FROM fashion_seed_fts " +
-                    "WHERE fashion_seed_fts MATCH ? ORDER BY rank LIMIT ?",
-                    ftsQuery, TOP_K
-            );
+                    "style, scene, season, color_scheme, " +
+                    "bm25(fashion_seed_fts, 1, 1, 1, 1, 1, 1, 1, 1, 8, 8, 8, 1) AS rank " +
+                    "FROM fashion_seed_fts WHERE");
+
+            List<Object> params = new ArrayList<>();
+            if (!plan.matchQuery().isBlank()) {
+                sql.append(" fashion_seed_fts MATCH ?");
+                params.add(plan.matchQuery());
+            } else {
+                sql.append(" 1=0");
+            }
+            // trigram 无法匹配 1-2 字符短词，用 content LIKE 补充召回
+            for (String like : plan.likeTerms()) {
+                sql.append(" OR content LIKE ?");
+                params.add("%" + like + "%");
+            }
+            sql.append(" ORDER BY rank LIMIT ?");
+            params.add(TOP_K);
+
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), params.toArray());
 
             List<RetrievedChunk> chunks = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 SeedEntry entry = mapToEntry(row);
-                double score = 1.0 / (1.0 + getDouble(row, "rank"));
+                // bm25 返回负值，越相关越负；取绝对值避免除零，转为 0~1 分数
+                double score = 1.0 / (1.0 + Math.abs(getDouble(row, "rank")));
                 chunks.add(new RetrievedChunk(entry, score));
             }
 
@@ -86,54 +105,81 @@ public class FashionKnowledgeService {
         }
     }
 
-    /**
-     * 构建 FTS5 MATCH 查询字符串。
-     * 将子查询和场景参数拼接为 OR 查询。
-     */
-    private String buildFtsQuery(AnalyzedQuery query) {
-        List<String> terms = new ArrayList<>();
+    /** FTS 检索计划：MATCH 查询串 + LIKE 兜底短词列表。 */
+    private record FtsPlan(String matchQuery, List<String> likeTerms) {}
 
-        // 添加子查询（分词后取关键词）
+    /**
+     * 构建 FTS 检索计划。
+     *
+     * <p>双路召回：
+     * <ul>
+     *   <li>长词（≥3字符，含中英混合）→ MATCH 查询：中文短语加引号、英文枚举做 token 匹配</li>
+     *   <li>短词（1-2 字符中文/英文）→ trigram 无法索引，转 content LIKE 兜底</li>
+     * </ul>
+     * 场景/风格/季节枚举经 {@link FashionTagMapper} 映射后因 bm25 列权重
+     * （style/scene/season 为 8）排在最前。
+     */
+    private FtsPlan buildFtsPlan(AnalyzedQuery query) {
+        List<String> rawTerms = new ArrayList<>();
+
+        // 中文子查询（分词后取关键词）
         if (query.decomposedQueries() != null) {
             for (String sub : query.decomposedQueries()) {
                 if (sub != null && !sub.isBlank()) {
-                    terms.add(escapeFts(sub));
+                    rawTerms.add(sub);
                 }
             }
         }
 
-        // 添加场景参数
-        if (query.params() != null) {
-            if (query.params().scene() != null && !query.params().scene().isBlank()) {
-                terms.add(escapeFts(query.params().scene()));
-            }
-            if (query.params().season() != null && !query.params().season().isBlank()) {
-                terms.add(escapeFts(query.params().season()));
-            }
-            if (query.params().styleHint() != null && !query.params().styleHint().isBlank()) {
-                terms.add(escapeFts(query.params().styleHint()));
-            }
-        }
-
-        // 添加原始查询
+        // 原始查询短语
         if (query.originalQuery() != null && !query.originalQuery().isBlank()) {
-            terms.add(escapeFts(query.originalQuery()));
+            rawTerms.add(query.originalQuery());
         }
 
-        if (terms.isEmpty()) return "";
+        if (query.params() != null) {
+            // LLM 场景 → 数据枚举 token
+            for (String scene : FashionTagMapper.mapScene(query.params().scene())) {
+                rawTerms.add(scene);
+            }
+            // 风格提示 → 数据枚举 token
+            for (String style : FashionTagMapper.mapStyle(query.params().styleHint())) {
+                rawTerms.add(style);
+            }
+            // 季节 → 数据枚举 token
+            for (String season : FashionTagMapper.mapSeason(query.params().season())) {
+                rawTerms.add(season);
+            }
+        }
 
-        // FTS5 OR 查询
-        return String.join(" OR ", terms);
+        List<String> matchTerms = new ArrayList<>();
+        List<String> likeTerms = new ArrayList<>();
+        for (String term : rawTerms) {
+            classifyTerm(term, matchTerms, likeTerms);
+        }
+
+        return new FtsPlan(String.join(" OR ", matchTerms), likeTerms);
     }
 
     /**
-     * 转义 FTS5 特殊字符，将中文文本分词。
+     * 将单个检索词分类：长词进 MATCH，短词（<3 字符）进 LIKE 兜底。
      */
-    private String escapeFts(String input) {
-        // FTS5 中双引号包裹整个短语作为精确匹配
-        String cleaned = input.replace("\"", "");
-        if (cleaned.isBlank()) return "";
-        return "\"" + cleaned.trim() + "\"";
+    private void classifyTerm(String input, List<String> matchTerms, List<String> likeTerms) {
+        String cleaned = input.replace("\"", "").trim();
+        if (cleaned.isBlank()) return;
+
+        // trigram 索引无法有效匹配 1-2 字符词，走 LIKE 补充召回
+        if (cleaned.length() < 3) {
+            likeTerms.add(cleaned);
+            return;
+        }
+
+        boolean hasCjk = cleaned.chars().anyMatch(c -> c >= 0x4E00);
+        // 含中文或空格的短语加引号做精确匹配；纯 ASCII 单词（枚举）做 token 匹配
+        if (hasCjk || cleaned.contains(" ")) {
+            matchTerms.add("\"" + cleaned + "\"");
+        } else {
+            matchTerms.add(cleaned);
+        }
     }
 
     /**
