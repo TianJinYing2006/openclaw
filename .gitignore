@@ -43,3 +43,6 @@ replay_pid*
 task_plan.md
 findings.md
 progress.md
+
+# Runtime SQLite databases
+.db/
