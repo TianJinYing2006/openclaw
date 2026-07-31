@@ -43,8 +43,9 @@ This section is newer than historical status later in this file and takes preced
 - `mvn -q -DskipTests compile`, the targeted recommendation/render/tool/context/iLink tests, and the full
   `mvn -q test` suite have passed after tool integration. Test logs intentionally include Qdrant and image-provider
   failure cases because those tests verify the MySQL and real-cutout fallback paths.
-- The explicit `PERSISTENCE_INTEGRATION=true` MySQL/Flyway verification for V17 is still pending. It needs a local
-  database credential environment and must not be reported as complete until it has run successfully.
+- The explicit `PERSISTENCE_INTEGRATION=true` MySQL/Flyway verification for V17 passed on MySQL 8.4. Flyway validated
+  all 17 migrations, upgraded the local schema from V16 to V17, and the test verified user isolation, ranked-option
+  hydration and interrupted-render recovery before cleaning its temporary records.
 - Detailed current architecture is in `docs/features/FASHION_REFERENCE_LIBRARY.md`; implementation tracking is in
   `task_plan.md`, `findings.md`, and `progress.md`.
 
@@ -261,11 +262,10 @@ Before commit/push, inspect the worktree carefully and include only intended cha
 
 ## Recommended Next Steps
 
-1. Apply V17 and run the explicit `PERSISTENCE_INTEGRATION=true` MySQL/Flyway integration test.
-2. Use the existing 12 Looks/24 Garments for one real end-to-end recommendation; do not import all 230 Looks.
-3. Manually verify from WeChat: select a wardrobe item, receive 1-3 deterministic options, receive asynchronous boards,
+1. Use the existing 12 Looks/24 Garments for one real end-to-end recommendation; do not import all 230 Looks.
+2. Manually verify from WeChat: select a wardrobe item, receive 1-3 deterministic options, receive asynchronous boards,
    then refer to “第一套/第二套” after an application restart.
-4. Keep RAGFlow, products, model training, feedback learning and
+3. Keep RAGFlow, products, model training, feedback learning and
    automatic multi-item virtual try-on out of this phase.
 
 ## Target Fashion Architecture
