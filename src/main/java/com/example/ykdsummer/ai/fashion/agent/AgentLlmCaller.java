@@ -23,17 +23,21 @@ import java.util.concurrent.*;
  * <p>核心能力：
  * <ul>
  *   <li>统一的 system + user prompt 构建</li>
- *   <li>JSON 响应解析与重试（最多重试 1 次）</li>
+ *   <li>JSON 响应解析与重试（解析失败重试 2 次，网络超时重试 1 次）</li>
  *   <li>超时控制（通过 CompletableFuture + timeout）</li>
+ *   <li>异常分类：网络超时 / LLM 报错 / 解析失败</li>
  *   <li>不注入任何工具，保证 Agent 推理纯净性</li>
  * </ul>
- *
- * <p>这是整个穿搭 Agent 管道的基座。所有 Agent 的 execute() 方法都通过此类发起 LLM 调用。
  */
 @Component
 public class AgentLlmCaller {
 
     private static final Logger log = LoggerFactory.getLogger(AgentLlmCaller.class);
+
+    /** 网络超时重试次数 */
+    private static final int NETWORK_RETRY_MAX = 1;
+    /** JSON 解析失败重试次数 */
+    private static final int PARSE_RETRY_MAX = 2;
 
     private final ChatModel chatModel;
     private final AiProperties aiProperties;
@@ -51,34 +55,55 @@ public class AgentLlmCaller {
     /**
      * 调用 LLM 并解析为指定类型。
      *
-     * @param systemPrompt  Agent 的系统提示词
-     * @param userMessage   用户消息（结构化上下文的 JSON 或文本）
-     * @param outputType    期望的输出类型
-     * @param maxTokens     输出 token 上限
-     * @param timeout       超时时间
-     * @return 解析后的对象，失败返回 null
+     * <p>降级策略：
+     * <ol>
+     *   <li>网络超时 → 重试 1 次</li>
+     *   <li>LLM 返回非 JSON → 自动清洗后重试 2 次</li>
+     *   <li>全部失败 → 返回 null</li>
+     * </ol>
      */
     public <T> T callAgent(String systemPrompt, String userMessage,
                            Class<T> outputType, int maxTokens, Duration timeout) {
-        try {
-            CompletableFuture<T> future = CompletableFuture.supplyAsync(() -> {
-                String raw = callLlm(systemPrompt, userMessage, maxTokens);
-                return parseJson(raw, outputType);
-            }, executor);
+        long startTime = System.currentTimeMillis();
 
-            return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        for (int networkAttempt = 0; networkAttempt <= NETWORK_RETRY_MAX; networkAttempt++) {
+            try {
+                CompletableFuture<T> future = CompletableFuture.supplyAsync(() -> {
+                    String raw = callLlm(systemPrompt, userMessage, maxTokens);
+                    return parseJsonWithRetry(raw, outputType);
+                }, executor);
 
-        } catch (TimeoutException e) {
-            log.warn("Agent LLM call timed out after {}ms", timeout.toMillis());
-            return null;
-        } catch (ExecutionException e) {
-            log.warn("Agent LLM call failed: {}", e.getCause().getMessage());
-            return null;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.warn("Agent LLM call interrupted");
-            return null;
+                T result = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+
+                long elapsed = System.currentTimeMillis() - startTime;
+                if (result != null) {
+                    log.info("Agent LLM call succeeded in {}ms (networkAttempt={})", elapsed, networkAttempt);
+                }
+                return result;
+
+            } catch (TimeoutException e) {
+                long elapsed = System.currentTimeMillis() - startTime;
+                log.warn("Agent LLM call timed out after {}ms (attempt {}/{})",
+                        elapsed, networkAttempt + 1, NETWORK_RETRY_MAX + 1);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                long elapsed = System.currentTimeMillis() - startTime;
+                if (isNetworkError(cause)) {
+                    log.warn("Network error after {}ms (attempt {}/{}): {}",
+                            elapsed, networkAttempt + 1, NETWORK_RETRY_MAX + 1, cause.getMessage());
+                } else {
+                    log.warn("LLM call error after {}ms: {}", elapsed, cause.getMessage());
+                    return null; // 非网络错误不重试
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("Agent LLM call interrupted");
+                return null;
+            }
         }
+
+        log.error("Agent LLM call failed after all retries");
+        return null;
     }
 
     /**
@@ -115,49 +140,55 @@ public class AgentLlmCaller {
     }
 
     /**
-     * 解析 JSON，失败时重试一次（先尝试提取 JSON 块）。
+     * 解析 JSON，失败时自动清洗并重试（最多 PARSE_RETRY_MAX 次）。
      */
-    private <T> T parseJson(String raw, Class<T> type) {
+    private <T> T parseJsonWithRetry(String raw, Class<T> type) {
         if (raw == null || raw.isBlank()) {
-            log.warn("Empty LLM response, cannot parse as JSON");
+            log.warn("Empty LLM response");
             return null;
         }
 
-        // 第一次尝试：直接解析
-        try {
-            return objectMapper.readValue(raw, type);
-        } catch (Exception e) {
-            log.debug("Direct JSON parse failed, trying to extract JSON block");
-        }
+        // 第一次：直接解析
+        T result = tryParse(raw, type, "direct");
+        if (result != null) return result;
 
-        // 第二次尝试：提取 ```json ... ``` 代码块
+        // 第二次：提取 ```json ... ``` 代码块
         String extracted = extractJsonBlock(raw);
         if (extracted != null) {
-            try {
-                return objectMapper.readValue(extracted, type);
-            } catch (Exception e) {
-                log.debug("JSON block extraction parse failed");
-            }
+            result = tryParse(extracted, type, "code_block");
+            if (result != null) return result;
         }
 
-        // 第三次尝试：找到第一个 { 到最后一个 }
+        // 第三次：第一个 { 到最后一个 }
         String bracket = extractBrackets(raw);
         if (bracket != null) {
-            try {
-                return objectMapper.readValue(bracket, type);
-            } catch (Exception e) {
-                log.warn("All JSON parse attempts failed. Raw response: {}",
-                        raw.length() > 200 ? raw.substring(0, 200) + "..." : raw);
-            }
+            result = tryParse(bracket, type, "bracket");
+            if (result != null) return result;
         }
 
+        log.warn("All {} JSON parse attempts failed. Raw: {}",
+                PARSE_RETRY_MAX + 1, raw.length() > 200 ? raw.substring(0, 200) + "..." : raw);
         return null;
+    }
+
+    private <T> T tryParse(String json, Class<T> type, String method) {
+        try {
+            T result = objectMapper.readValue(json, type);
+            log.debug("JSON parse succeeded via {}", method);
+            return result;
+        } catch (Exception e) {
+            log.debug("JSON parse failed via {}: {}", method, e.getMessage());
+            return null;
+        }
     }
 
     private String extractJsonBlock(String text) {
         int start = text.indexOf("```json");
+        if (start < 0) start = text.indexOf("```");
         if (start >= 0) {
-            int contentStart = start + 7;
+            int contentStart = text.indexOf("\n", start);
+            if (contentStart < 0) contentStart = start + 3;
+            else contentStart++;
             int end = text.indexOf("```", contentStart);
             if (end > contentStart) {
                 return text.substring(contentStart, end).strip();
@@ -173,5 +204,22 @@ public class AgentLlmCaller {
             return text.substring(start, end + 1);
         }
         return null;
+    }
+
+    /**
+     * 判断是否为网络类错误（值得重试）。
+     */
+    private boolean isNetworkError(Throwable cause) {
+        if (cause instanceof TimeoutException) return true;
+        if (cause instanceof java.net.SocketTimeoutException) return true;
+        if (cause instanceof java.net.ConnectException) return true;
+        if (cause instanceof java.io.IOException) return true;
+        String msg = cause.getMessage();
+        if (msg != null) {
+            msg = msg.toLowerCase();
+            return msg.contains("timeout") || msg.contains("connection")
+                    || msg.contains("socket") || msg.contains("reset");
+        }
+        return false;
     }
 }
