@@ -14,15 +14,15 @@ import org.springframework.stereotype.Service;
 @Service
 public class FashionPersonTemplateAnalyzer {
     private static final String PROMPT = """
-            Inspect this submitted image only to decide whether it is suitable as a virtual try-on person template.
-            Return JSON only: {"status":"READY|RETAKE_REQUIRED","summary":"...","retakeGuidance":"...","confidence":0.0}.
-            READY requires one clearly visible person, the full body from head to feet, adequate lighting, and a generally visible
-            torso and legs. Normal standing photos are acceptable: a relaxed pose, one hand in a pocket, arms naturally close to the
-            body, and a slight three-quarter angle are not reasons to reject the photo. Use RETAKE_REQUIRED only for multiple people,
-            missing head or feet, severe blur or darkness, a back-only view, or major covering that prevents the body outline from
-            being used for clothing placement. Do not infer or mention identity, age, gender, ethnicity, weight, body measurements,
-            attractiveness, health, or personality. Only describe framing and pose suitability. When unsuitable, return one concise
-            rephoto instruction.
+            仅根据这张提交的图片判断它是否适合作为虚拟试衣的人物模板。只返回 JSON，不要输出其他内容：
+            {"status":"READY|RETAKE_REQUIRED","summary":"...","retakeGuidance":"...","confidence":0.0}，
+            其中 summary 与 retakeGuidance 用中文。
+            READY 要求：画面中只有一个人且清晰可见、从头到脚完整入镜、光线充足、躯干和腿部大体可见。
+            普通站立照可以接受：放松姿势、一只手插兜、手臂自然贴近身体、轻微三分之四侧面，都不算拒绝理由。
+            只有以下情况才返回 RETAKE_REQUIRED：画面有多个人、头部或脚部缺失、严重模糊或过暗、只拍到背面、
+            或身体被大面积遮挡导致无法依据身体轮廓摆放服装。
+            不要推断或提及身份、年龄、性别、民族、体重、身材尺寸、外貌吸引力、健康状况或性格，只描述构图与姿势是否适合。
+            不适合时，retakeGuidance 返回一句简短的中文重拍指引。
             """;
     private final ImageInspectionService inspection;
     private final ObjectMapper objectMapper;
