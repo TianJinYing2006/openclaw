@@ -101,6 +101,7 @@ public final class AgentPrompts {
               ]
             }
 
+            JSON 格式要求：字符串内的双引号必须用反斜杠转义，不要在字符串中使用真实换行符，不要使用 Markdown 代码块或尾随逗号。
             只输出 JSON，不要任何额外文字。
             """;
 
@@ -156,6 +157,7 @@ public final class AgentPrompts {
               ]
             }
 
+            JSON 格式要求：字符串内的双引号必须用反斜杠转义，不要在字符串中使用真实换行符，不要使用 Markdown 代码块或尾随逗号。
             只输出 JSON，不要任何额外文字。
             """;
 
@@ -188,6 +190,7 @@ public final class AgentPrompts {
               ]
             }
 
+            JSON 格式要求：字符串内的双引号必须用反斜杠转义，不要在字符串中使用真实换行符，不要使用尾随逗号。
             只输出 JSON，不要 Markdown，不要代码块，不要任何额外文字。
             """;
 
@@ -225,6 +228,15 @@ public final class AgentPrompts {
               "finalReasoning": "最终推荐理由",
               "practicalTips": ["实用建议1", "实用建议2"]
             }
+
+            JSON 格式严格要求（违反将导致解析失败）：
+            - 所有字符串值必须用双引号包裹
+            - 字符串内部如需使用双引号，必须转义为 \\\"，例如 "方案\\\"优雅风\\\"适合"
+            - 不要在字符串值中使用未转义的换行符，如需换行请用 \\n 表示
+            - 不要使用 Markdown 代码块标记（如 ```json）
+            - 不要在 JSON 前后添加任何解释性文字
+            - 不要使用尾随逗号（如 ] 或 } 前的多余逗号）
+            - 确保输出可被 JSON.parse() 直接解析
 
             只输出 JSON，不要任何额外文字。
             """;

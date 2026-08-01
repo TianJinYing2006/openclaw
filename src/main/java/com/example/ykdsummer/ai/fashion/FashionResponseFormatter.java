@@ -87,6 +87,41 @@ public class FashionResponseFormatter {
     }
 
     /**
+     * 将推荐结果压缩为简短摘要（用于存储到 fashion_conversations 表）。
+     *
+     * <p>格式示例："上衣：白色T恤 | 下装：牛仔裤 | 鞋子：运动鞋 | 理由：简约百搭"
+     */
+    public String summarize(FashionResult result) {
+        if (result == null || result.coordinator() == null) {
+            return "";
+        }
+        CoordinatorOutput coord = result.coordinator();
+        StringBuilder sb = new StringBuilder();
+
+        CoordinatorOutput.RefinedOutfit outfit = coord.refinedOutfit();
+        if (outfit != null) {
+            if (outfit.top() != null && !outfit.top().isBlank()) {
+                sb.append("上衣:").append(compact(outfit.top(), 40));
+            }
+            if (outfit.bottom() != null && !outfit.bottom().isBlank()) {
+                if (!sb.isEmpty()) sb.append(" | ");
+                sb.append("下装:").append(compact(outfit.bottom(), 40));
+            }
+            if (outfit.shoes() != null && !outfit.shoes().isBlank()) {
+                if (!sb.isEmpty()) sb.append(" | ");
+                sb.append("鞋:").append(compact(outfit.shoes(), 30));
+            }
+        }
+
+        if (coord.finalReasoning() != null && !coord.finalReasoning().isBlank()) {
+            if (!sb.isEmpty()) sb.append(" | ");
+            sb.append("理由:").append(compact(coord.finalReasoning(), 60));
+        }
+
+        return sb.toString();
+    }
+
+    /**
      * 安全兜底文案（所有 Agent 均失败时）。
      */
     private String formatSafetyFallback(FashionResult result) {

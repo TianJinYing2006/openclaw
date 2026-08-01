@@ -24,8 +24,9 @@ import java.util.Map;
 public class CoordinatorAgent {
 
     private static final Logger log = LoggerFactory.getLogger(CoordinatorAgent.class);
-    private static final Duration TIMEOUT = Duration.ofSeconds(15);
-    private static final int MAX_TOKENS = 1500;
+    // 测试阶段放宽限制，后续完善后再收紧
+    private static final Duration TIMEOUT = Duration.ofSeconds(60);
+    private static final int MAX_TOKENS = 3000;
 
     private final AgentLlmCaller llmCaller;
     private final ObjectMapper objectMapper;

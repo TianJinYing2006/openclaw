@@ -19,8 +19,9 @@ import java.time.Duration;
 public class CriticAgent {
 
     private static final Logger log = LoggerFactory.getLogger(CriticAgent.class);
-    private static final Duration TIMEOUT = Duration.ofSeconds(10);
-    private static final int MAX_TOKENS = 1200;
+    // 测试阶段放宽限制，后续完善后再收紧
+    private static final Duration TIMEOUT = Duration.ofSeconds(60);
+    private static final int MAX_TOKENS = 2500;
 
     private final AgentLlmCaller llmCaller;
     private final ObjectMapper objectMapper;

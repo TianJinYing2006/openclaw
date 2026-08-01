@@ -21,6 +21,7 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+application.properties
 application-local.properties
 secret.properties
 ilink/

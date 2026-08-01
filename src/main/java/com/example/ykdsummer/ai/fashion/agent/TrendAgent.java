@@ -23,8 +23,9 @@ import java.util.Map;
 public class TrendAgent {
 
     private static final Logger log = LoggerFactory.getLogger(TrendAgent.class);
-    private static final Duration TIMEOUT = Duration.ofSeconds(15);
-    private static final int MAX_TOKENS = 650;
+    // 测试阶段放宽限制，后续完善后再收紧
+    private static final Duration TIMEOUT = Duration.ofSeconds(60);
+    private static final int MAX_TOKENS = 1500;
 
     private final AgentLlmCaller llmCaller;
     private final ObjectMapper objectMapper;

@@ -19,8 +19,9 @@ import java.time.Duration;
 public class StylistAgent {
 
     private static final Logger log = LoggerFactory.getLogger(StylistAgent.class);
-    private static final Duration TIMEOUT = Duration.ofSeconds(15);
-    private static final int MAX_TOKENS = 2000;
+    // 测试阶段放宽限制，后续完善后再收紧
+    private static final Duration TIMEOUT = Duration.ofSeconds(90);
+    private static final int MAX_TOKENS = 4000;
 
     private final AgentLlmCaller llmCaller;
 
@@ -29,15 +30,24 @@ public class StylistAgent {
     }
 
     /**
-     * 执行穿搭方案生成。
-     *
-     * @param request    用户请求
-     * @param ragContext RAG 检索的穿搭知识文本
-     * @param query      查询分析结果
-     * @return 3 套穿搭方案，失败返回 empty
+     * 执行穿搭方案生成（无画像注入）。
      */
     public StylistOutput execute(FashionRequest request, String ragContext, AnalyzedQuery query) {
-        String userMessage = buildUserMessage(request, ragContext, query);
+        return execute(request, ragContext, query, "");
+    }
+
+    /**
+     * 执行穿搭方案生成（注入用户画像上下文）。
+     *
+     * @param request        用户请求
+     * @param ragContext     RAG 检索的穿搭知识文本
+     * @param query          查询分析结果
+     * @param profileContext 用户偏好上下文（可为空字符串）
+     * @return 3 套穿搭方案，失败返回 empty
+     */
+    public StylistOutput execute(FashionRequest request, String ragContext, AnalyzedQuery query,
+                                  String profileContext) {
+        String userMessage = buildUserMessage(request, ragContext, query, profileContext);
 
         StylistOutput output = llmCaller.callAgent(
                 AgentPrompts.STYLIST,
@@ -69,8 +79,12 @@ public class StylistAgent {
         return output;
     }
 
-    private String buildUserMessage(FashionRequest request, String ragContext, AnalyzedQuery query) {
+    private String buildUserMessage(FashionRequest request, String ragContext, AnalyzedQuery query,
+                                     String profileContext) {
         StringBuilder sb = new StringBuilder();
+        if (profileContext != null && !profileContext.isBlank()) {
+            sb.append(profileContext).append("\n\n");
+        }
         sb.append("## 用户需求\n").append(request.userInput()).append("\n\n");
 
         sb.append("## 结构化参数\n");

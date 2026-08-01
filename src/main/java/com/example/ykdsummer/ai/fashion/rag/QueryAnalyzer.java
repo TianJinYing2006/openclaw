@@ -19,7 +19,7 @@ import java.time.Duration;
 public class QueryAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(QueryAnalyzer.class);
-    private static final Duration TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration TIMEOUT = Duration.ofSeconds(30);
 
     private final AgentLlmCaller llmCaller;
 
@@ -28,15 +28,24 @@ public class QueryAnalyzer {
     }
 
     /**
-     * 分析用户需求。
-     *
-     * @param userInput 用户原始输入
-     * @return 结构化查询分析结果，LLM 失败时返回关键词兜底结果
+     * 分析用户需求（无画像注入，用于非穿搭场景或冷启动）。
      */
     public AnalyzedQuery analyze(String userInput) {
+        return analyze(userInput, "");
+    }
+
+    /**
+     * 分析用户需求（注入用户画像上下文）。
+     *
+     * @param userInput     用户原始输入
+     * @param profileContext 用户偏好上下文（可为空字符串）
+     * @return 结构化查询分析结果，LLM 失败时返回关键词兜底结果
+     */
+    public AnalyzedQuery analyze(String userInput, String profileContext) {
+        String contextualInput = buildContextualInput(userInput, profileContext);
         AnalyzedQuery result = llmCaller.callAgent(
                 AgentPrompts.QUERY_ANALYZER,
-                userInput,
+                contextualInput,
                 AnalyzedQuery.class,
                 200,
                 TIMEOUT
@@ -52,5 +61,12 @@ public class QueryAnalyzer {
                 result.params() != null ? result.params().season() : "null",
                 result.params() != null ? result.params().formality() : 0);
         return result;
+    }
+
+    private static String buildContextualInput(String userInput, String profileContext) {
+        if (profileContext != null && !profileContext.isBlank()) {
+            return profileContext + "\n" + userInput;
+        }
+        return userInput;
     }
 }

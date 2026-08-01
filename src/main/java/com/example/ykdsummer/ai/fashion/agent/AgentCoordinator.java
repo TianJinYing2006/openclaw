@@ -1,8 +1,12 @@
 package com.example.ykdsummer.ai.fashion.agent;
 
 import com.example.ykdsummer.ai.fashion.model.*;
+import com.example.ykdsummer.ai.fashion.profile.FashionConversationService;
+import com.example.ykdsummer.ai.fashion.profile.FashionEmbeddingService;
+import com.example.ykdsummer.ai.fashion.profile.UserProfileService;
 import com.example.ykdsummer.ai.fashion.rag.FashionKnowledgeService;
 import com.example.ykdsummer.ai.fashion.rag.QueryAnalyzer;
+import com.example.ykdsummer.ai.fashion.FashionResponseFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -50,6 +54,10 @@ public class AgentCoordinator {
     private final CriticAgent criticAgent;
     private final TrendAgent trendAgent;
     private final CoordinatorAgent coordinatorAgent;
+    private final FashionConversationService conversationService;
+    private final FashionResponseFormatter formatter;
+    private final UserProfileService userProfileService;
+    private final FashionEmbeddingService embeddingService;
     private final ExecutorService parallelExecutor;
 
     public AgentCoordinator(QueryAnalyzer queryAnalyzer,
@@ -57,13 +65,21 @@ public class AgentCoordinator {
                             StylistAgent stylistAgent,
                             CriticAgent criticAgent,
                             TrendAgent trendAgent,
-                            CoordinatorAgent coordinatorAgent) {
+                            CoordinatorAgent coordinatorAgent,
+                            FashionConversationService conversationService,
+                            FashionResponseFormatter formatter,
+                            UserProfileService userProfileService,
+                            FashionEmbeddingService embeddingService) {
         this.queryAnalyzer = queryAnalyzer;
         this.knowledgeService = knowledgeService;
         this.stylistAgent = stylistAgent;
         this.criticAgent = criticAgent;
         this.trendAgent = trendAgent;
         this.coordinatorAgent = coordinatorAgent;
+        this.conversationService = conversationService;
+        this.formatter = formatter;
+        this.userProfileService = userProfileService;
+        this.embeddingService = embeddingService;
         this.parallelExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
 
@@ -78,11 +94,18 @@ public class AgentCoordinator {
         Map<String, Long> timings = new LinkedHashMap<>();
         log.info("Fashion pipeline started for user: {}", request.userId());
 
-        // ── Step 1: 查询分析 ──
+        // ── Step 0: 获取用户画像上下文（向量相似度检索） ──
+        String profileContext = userProfileService.buildProfileContext(
+                request.userId(), request.userInput());
+        if (!profileContext.isBlank()) {
+            log.info("User profile context loaded: {} chars", profileContext.length());
+        }
+
+        // ── Step 1: 查询分析（注入画像上下文） ──
         long step = System.currentTimeMillis();
         AnalyzedQuery query;
         try {
-            query = queryAnalyzer.analyze(request.userInput());
+            query = queryAnalyzer.analyze(request.userInput(), profileContext);
         } catch (Exception e) {
             log.warn("Step 1 QueryAnalyzer exception, using keyword fallback: {}", e.getMessage());
             query = AnalyzedQuery.fallback(request.userInput());
@@ -92,6 +115,18 @@ public class AgentCoordinator {
                 query.params() != null ? query.params().scene() : "null",
                 query.params() != null ? query.params().season() : "null",
                 timings.get("query_analyze"));
+
+        // ── 保存穿搭对话记录（用户画像数据源） ──
+        Long conversationId = null;
+        if (query.params() != null) {
+            conversationId = conversationService.saveInitial(
+                    request.userId(),
+                    request.userInput(),
+                    query.params().scene(),
+                    query.params().season(),
+                    query.params().formality()
+            );
+        }
 
         // ── Step 2: RAG 知识检索 ──
         step = System.currentTimeMillis();
@@ -112,7 +147,7 @@ public class AgentCoordinator {
         try {
             stylist = shouldUseMockStylist(request)
                     ? mockStylistOutput(query)
-                    : stylistAgent.execute(request, ragContext, query);
+                    : stylistAgent.execute(request, ragContext, query, profileContext);
         } catch (Exception e) {
             log.warn("Step 3 Stylist exception: {}", e.getMessage());
             stylist = null;
@@ -127,7 +162,11 @@ public class AgentCoordinator {
             timings.put("total", System.currentTimeMillis() - pipelineStart);
             logTimings(timings);
             String scene = query.params() != null ? query.params().scene() : "DAILY";
-            return FashionResult.safetyFallback(scene, query);
+            FashionResult fallback = FashionResult.safetyFallback(scene, query);
+            String summary = formatter.summarize(fallback);
+            conversationService.updateRecommendation(conversationId, summary);
+            saveEmbeddingAsync(conversationId, request.userInput(), summary);
+            return fallback;
         }
 
         // ── Step 4: Critic ∥ Trend 并行评审 ──
@@ -187,13 +226,21 @@ public class AgentCoordinator {
         // Coordinator 失败 → 降级到 Stylist 首选方案
         if (coordinator == null) {
             log.warn("Coordinator failed, degrading to Stylist first suggestion");
-            return buildDegradedResult(stylist, critic, trend, ragContext, query,
+            FashionResult degraded = buildDegradedResult(stylist, critic, trend, ragContext, query,
                     "Coordinator 超时，降级为 Stylist 首选方案");
+            String summary = formatter.summarize(degraded);
+            conversationService.updateRecommendation(conversationId, summary);
+            saveEmbeddingAsync(conversationId, request.userInput(), summary);
+            return degraded;
         }
 
-        return new FashionResult(
+        FashionResult finalResult = new FashionResult(
                 true, coordinator, stylist, critic, trend, ragContext, query, null, false
         );
+        String finalSummary = formatter.summarize(finalResult);
+        conversationService.updateRecommendation(conversationId, finalSummary);
+        saveEmbeddingAsync(conversationId, request.userInput(), finalSummary);
+        return finalResult;
     }
 
     private boolean shouldUseMockStylist(FashionRequest request) {
@@ -304,6 +351,29 @@ public class AgentCoordinator {
                         "直线条显利落，但整体容易显严肃。"
                 )
         ));
+    }
+
+    /**
+     * 异步生成对话 Embedding 并回填到数据库（不阻塞管道返回）。
+     *
+     * <p>Embedding 文本 = 用户输入 + 推荐摘要，使向量同时反映"问了什么"和"推荐了什么"。
+     */
+    private void saveEmbeddingAsync(Long conversationId, String userInput, String recommendation) {
+        if (conversationId == null) return;
+        String embeddingText = userInput + " " + (recommendation != null ? recommendation : "");
+        CompletableFuture.runAsync(() -> {
+            try {
+                float[] embedding = embeddingService.embed(embeddingText);
+                if (embedding != null) {
+                    conversationService.updateEmbedding(
+                            conversationId, embeddingService.serialize(embedding));
+                    log.debug("Embedding saved for conversation {}", conversationId);
+                }
+            } catch (Exception e) {
+                log.warn("Async embedding save failed for conversation {}: {}",
+                        conversationId, e.getMessage());
+            }
+        }, parallelExecutor);
     }
 
     /**

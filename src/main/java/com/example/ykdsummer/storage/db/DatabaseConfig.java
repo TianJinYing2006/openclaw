@@ -113,6 +113,35 @@ public class DatabaseConfig {
                     )
                     """);
 
+            // 穿搭对话专属存储表（用户画像数据源）
+            // 只在 fashion_consultant 工具被调用时写入，保证 100% 信噪比
+            jdbc.execute("""
+                    CREATE TABLE IF NOT EXISTS fashion_conversations (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id         TEXT    NOT NULL,
+                        user_input      TEXT    NOT NULL,
+                        scene           TEXT    DEFAULT '',
+                        season          TEXT    DEFAULT '',
+                        formality       INTEGER DEFAULT 0,
+                        recommendation  TEXT    DEFAULT '',
+                        user_feedback   TEXT    DEFAULT '',
+                        created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+                    )
+                    """);
+
+            jdbc.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_fashion_conv_user
+                        ON fashion_conversations(user_id, created_at)
+                    """);
+
+            // 迁移：为 fashion_conversations 添加 embedding 字段（幂等）
+            try {
+                jdbc.execute("ALTER TABLE fashion_conversations ADD COLUMN embedding TEXT DEFAULT ''");
+                log.info("Added embedding column to fashion_conversations (migration)");
+            } catch (Exception ignored) {
+                // 列已存在时忽略
+            }
+
             log.info("SQLite tables initialized");
         }
 
