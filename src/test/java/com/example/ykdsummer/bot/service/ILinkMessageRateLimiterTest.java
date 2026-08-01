@@ -1,12 +1,18 @@
 package com.example.ykdsummer.bot.service;
 
 import com.example.ykdsummer.bot.config.ILinkRateLimitProperties;
+import com.example.ykdsummer.persistence.RedisOperationalStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ILinkMessageRateLimiterTest {
 
@@ -39,5 +45,16 @@ class ILinkMessageRateLimiterTest {
         properties.setEnabled(false);
         assertThat(limiter.tryAcquire("user", "text")).isTrue();
         assertThat(limiter.tryAcquire("user", "text")).isTrue();
+    }
+
+    @Test
+    void usesRedisResultWhenItIsAvailable() {
+        ILinkRateLimitProperties properties = new ILinkRateLimitProperties();
+        RedisOperationalStore redis = mock(RedisOperationalStore.class);
+        when(redis.tryAcquire(anyString(), anyString(), any(Duration.class), anyInt()))
+                .thenReturn(RedisOperationalStore.Result.REJECTED);
+        ILinkMessageRateLimiter limiter = new ILinkMessageRateLimiter(properties, redis);
+
+        assertThat(limiter.tryAcquire("user", "text")).isFalse();
     }
 }

@@ -114,6 +114,20 @@ public class OssImageAssetStore extends LocalImageAssetStore {
     }
 
     @Override
+    public Optional<StoredImage> selectCurrent(String userId, String assetId, int version) {
+        if (useLocalFallback()) return super.selectCurrent(userId, assetId, version);
+        StoredImage cached = currentCache.get(safeUser(userId));
+        if (cached != null && cached.assetId().equals(assetId) && cached.version() == version) {
+            setCurrent(userId, cached);
+            return Optional.of(cached);
+        }
+        return find(userId, assetId, version).map(found -> {
+            setCurrent(userId, found);
+            return found;
+        });
+    }
+
+    @Override
     public boolean clearCurrent(String userId) {
         if (useLocalFallback()) return super.clearCurrent(userId);
         currentCache.remove(safeUser(userId));
@@ -135,6 +149,19 @@ public class OssImageAssetStore extends LocalImageAssetStore {
     public Optional<StoredImage> latest(String userId, String assetId) {
         if (useLocalFallback()) return super.latest(userId, assetId);
         return metadata(userId, assetId).flatMap(ImageMetadata::latest);
+    }
+
+    @Override
+    public List<StoredImage> versions(String userId, String assetId) {
+        if (useLocalFallback()) return super.versions(userId, assetId);
+        return metadata(userId, assetId).map(metadata -> {
+            int latest = integer(metadata.properties(), "latestVersion", 0);
+            return java.util.stream.IntStream.rangeClosed(1, latest)
+                    .mapToObj(metadata::version)
+                    .flatMap(Optional::stream)
+                    .map(version -> version.toStored(assetId, metadata.mediaType()))
+                    .toList();
+        }).orElseGet(List::of);
     }
 
     @Override
@@ -168,8 +195,44 @@ public class OssImageAssetStore extends LocalImageAssetStore {
                 .map(this::latestFromProperties)
                 .flatMap(Optional::stream)
                 .sorted(Comparator.comparing(StoredImage::createdAt).reversed())
-                .limit(Math.max(1, Math.min(limit, 20)))
+                .limit(Math.max(1, Math.min(limit, 500)))
                 .toList();
+    }
+
+    /** Idempotently copies a local image version into OSS while preserving its existing identity and history. */
+    public StoredImage importLegacy(String userId, StoredImage legacy, byte[] bytes) {
+        if (useLocalFallback()) throw new IllegalStateException("图片 OSS 未配置，不能迁移本地资产");
+        if (legacy == null || !validAssetId(legacy.assetId())) throw new IllegalArgumentException("图片资源 ID 无效");
+        Optional<ImageMetadata> existing = metadata(userId, legacy.assetId());
+        if (existing.flatMap(value -> value.version(legacy.version())).isPresent()) {
+            ImageMetadata current = existing.orElseThrow();
+            return current.version(legacy.version())
+                    .map(value -> value.toStored(legacy.assetId(), current.mediaType())).orElseThrow();
+        }
+        int latest = existing.map(value -> integer(value.properties(), "latestVersion", 0)).orElse(0);
+        if (legacy.version() != latest + 1) {
+            throw new IllegalStateException("本地图片版本不连续，无法安全迁移：" + legacy.assetId());
+        }
+        ImageMetadata metadata = existing.orElse(new ImageMetadata(legacy.assetId(), safeMediaType(legacy.mediaType()), legacy.source(),
+                metadataKey(userId, legacy.assetId()), new Properties()));
+        String key = imageKey(userId, legacy.assetId(), legacy.version(), legacy.mediaType());
+        putBytes(key, bytes, safeMediaType(legacy.mediaType()));
+        Properties changed = metadata.copy();
+        changed.setProperty("assetId", legacy.assetId());
+        changed.setProperty("mediaType", safeMediaType(legacy.mediaType()));
+        changed.setProperty("source", safe(legacy.source()));
+        changed.setProperty("latestVersion", Integer.toString(legacy.version()));
+        changed.setProperty("v" + legacy.version() + ".key", key);
+        changed.setProperty("v" + legacy.version() + ".prompt", safe(legacy.prompt()));
+        changed.setProperty("v" + legacy.version() + ".tags", safe(legacy.tags()));
+        changed.setProperty("v" + legacy.version() + ".source", safe(legacy.source()));
+        changed.setProperty("v" + legacy.version() + ".remoteUrl", safe(legacy.remoteUrl()));
+        changed.setProperty("v" + legacy.version() + ".createdAt", legacy.createdAt().toString());
+        writeProperties(metadata.metadataKey(), changed);
+        ImageMetadata migrated = new ImageMetadata(legacy.assetId(), safeMediaType(legacy.mediaType()), legacy.source(),
+                metadata.metadataKey(), changed);
+        return migrated.version(legacy.version())
+                .map(value -> value.toStored(legacy.assetId(), migrated.mediaType())).orElseThrow();
     }
 
     @Override

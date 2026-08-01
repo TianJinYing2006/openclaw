@@ -14,14 +14,12 @@ import java.util.Map;
 import java.util.Set;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 /**
  * 调用图片网关的媒体异步协议：创建任务 → 轮询终态 → 下载结果。
  * 该类只用于“基于原图修改”，全新生图仍由 OpenAI Images SDK 处理。
  */
-@Service
 public class AsyncMediaImageGateway implements AsyncImageEditGateway {
     private static final int MAX_IMAGE_BYTES = 15 * 1024 * 1024;
     private final ImageOpenAiClientProperties imageProperties;

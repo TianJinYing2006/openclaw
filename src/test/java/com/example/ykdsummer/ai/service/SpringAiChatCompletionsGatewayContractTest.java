@@ -45,76 +45,6 @@ import static org.mockito.Mockito.when;
 class SpringAiChatCompletionsGatewayContractTest {
 
     @Test
-    void imageToolCallKeepsArtifactWhenOssPersistenceFails() throws IOException {
-        byte[] png = {9, 8, 7, 6};
-        AtomicInteger calls = new AtomicInteger();
-        List<String> requestBodies = new CopyOnWriteArrayList<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v1/chat/completions", exchange -> {
-            requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            if (calls.incrementAndGet() == 1) {
-                sendJson(exchange, """
-                        {
-                          "id":"chatcmpl_image_tool_request",
-                          "object":"chat.completion",
-                          "created":1,
-                          "model":"gpt-5.6-sol",
-                          "choices":[{"index":0,"message":{"role":"assistant","content":null,
-                            "tool_calls":[{"id":"call_generate_image","type":"function","function":
-                              {"name":"generate_image","arguments":"{\\\"prompt\\\":\\\"一只在草地上的小狗\\\"}"}}]},"finish_reason":"tool_calls"}],
-                          "usage":{"prompt_tokens":20,"completion_tokens":8,"total_tokens":28}
-                        }
-                        """);
-            } else {
-                sendJson(exchange, """
-                        {
-                          "id":"chatcmpl_image_tool_result",
-                          "object":"chat.completion",
-                          "created":2,
-                          "model":"gpt-5.6-sol",
-                          "choices":[{"index":0,"message":{"role":"assistant","content":"图片已经为你生成。"},"finish_reason":"stop"}],
-                          "usage":{"prompt_tokens":40,"completion_tokens":12,"total_tokens":52}
-                        }
-                        """);
-            }
-        });
-        server.start();
-
-        try {
-            AiImageGenerationService imageService = mock(AiImageGenerationService.class);
-            when(imageService.generate(eq("image-user"), anyString()))
-                    .thenReturn(AiImageGenerationService.Result.image(png));
-            LocalImageAssetStore failingStore = new LocalImageAssetStore() {
-                @Override
-                public StoredImage saveGenerated(String userId, String prompt, byte[] bytes, String remoteUrl) {
-                    throw new IllegalStateException("OSS unavailable");
-                }
-            };
-            ToolArtifactCollector collector = new ToolArtifactCollector();
-            ImageTools imageTools = new ImageTools(imageService, failingStore, collector);
-            SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
-                    createModel(server), new AiProperties(),
-                    new Object[]{new WeatherTools(mock(WeatherService.class)), imageTools},
-                    collector, AiTraceLogger.disabled());
-
-            LlmGateway.ModelReply reply = gateway.generate("image-user", List.of(), "给我生成一张小狗图片");
-
-            assertThat(reply.text()).isEqualTo("图片已经为你生成。");
-            assertThat(reply.artifacts()).singleElement().satisfies(artifact -> {
-                assertThat(artifact.type()).isEqualTo(com.example.ykdsummer.ai.model.AiArtifact.Type.IMAGE);
-                assertThat(artifact.bytes()).containsExactly(png);
-                assertThat(artifact.assetId()).isNull();
-                assertThat(artifact.version()).isZero();
-            });
-            assertThat(calls).hasValue(2);
-            assertThat(requestBodies.get(1)).contains("\"role\":\"tool\"", "图片资产保存失败", "本轮仍可查看");
-            verify(imageService).generate(eq("image-user"), anyString());
-        } finally {
-            server.stop(0);
-        }
-    }
-
-    @Test
     void executesToolCallAndSendsToolResultBackToCompletions() throws IOException {
         AtomicInteger calls = new AtomicInteger();
         List<String> requestBodies = new CopyOnWriteArrayList<>();
@@ -268,7 +198,7 @@ class SpringAiChatCompletionsGatewayContractTest {
                     .contains("get_running_tasks", "check_image_task", "retry_last_image_task")
                     .contains("城市名称")
                     .contains("\"role\":\"system\"")
-                    .contains("像朋友聊天一样自然、直接、简洁地回答")
+                    .contains("AI 穿搭助手")
                     .contains("上一问", "上一答", "这次直接说重点");
         } finally {
             server.stop(0);

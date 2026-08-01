@@ -17,6 +17,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Base64;
 import java.util.List;
+import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -44,6 +45,7 @@ public class AiImageGenerationService {
     private final AiProperties properties;
     private final AsyncImageEditGateway imageEditGateway;
     private final List<ImageGenerationProvider> providers;
+    private volatile UsageEventRecorder usageEvents = UsageEventRecorder.disabled();
 
     public AiImageGenerationService(
             @Qualifier("imageOpenAIClient") OpenAIClient client,
@@ -77,16 +79,30 @@ public class AiImageGenerationService {
 
     /** 基于已保存原图创建新版本；参考图通过短时 OSS URL 进入异步媒体协议。 */
     public Result revise(String userId, String prompt, String referenceImageUrl) {
+        return revise(userId, prompt, referenceImageUrl == null ? List.of() : List.of(referenceImageUrl));
+    }
+
+    /**
+     * 基于多个已保存参考图创建新版本。人物模板与衣橱单品等双图任务通过此入口发送，
+     * 不允许底层网关静默忽略任意一张参考图。
+     */
+    public Result revise(String userId, String prompt, List<String> referenceImageUrls) {
+        return revise(userId, prompt, referenceImageUrls, null);
+    }
+
+    /** A background image workflow may have a provider-specific deadline without changing ordinary edit limits. */
+    public Result revise(String userId, String prompt, List<String> referenceImageUrls, Duration timeout) {
         if (!properties.isEnabled() || !properties.isImageEnabled()) {
             return Result.error(DISABLED_REPLY);
         }
-        AsyncImageEditGateway.EditResult result = imageEditGateway.edit(prompt, referenceImageUrl);
+        AsyncImageEditGateway.EditResult result = imageEditGateway.edit(prompt, referenceImageUrls, timeout);
         if (!result.hasImage()) {
             log.warn("AI image revision failed, user={}", anonymize(userId));
             return Result.error(result.errorMessage());
         }
         log.info("AI image revision completed, user={}, model={}, bytes={}", anonymize(userId),
                 properties.getImageModel(), result.imageBytes().length);
+        usageEvents.recordOperation(userId, "IMAGE_EDIT", properties.getImageModel(), "create_image_revision", 1, 0);
         return Result.image(result.imageBytes(), result.remoteUrl());
     }
 
@@ -145,6 +161,7 @@ public class AiImageGenerationService {
                 return Result.error(EMPTY_REPLY);
             }
             log.info("AI image completed, user={}, model={}, bytes={}", anonymize(userId), model, bytes.length);
+            usageEvents.recordOperation(userId, "IMAGE_GENERATION", model, "generate_image", 1, 0);
             return Result.image(bytes);
         } catch (UnauthorizedException | PermissionDeniedException exception) {
             log.warn("AI image authentication failed, user={}", anonymize(userId));
@@ -225,6 +242,11 @@ public class AiImageGenerationService {
 
     private static String anonymize(String userId) {
         return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setUsageEvents(UsageEventRecorder usageEvents) {
+        this.usageEvents = usageEvents == null ? UsageEventRecorder.disabled() : usageEvents;
     }
 
     /**

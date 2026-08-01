@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 public class ImageOpenAiClientProperties {
 
     /** OpenAI Images API 兼容地址，必须包含 /v1。 */
-    private String baseUrl = "https://api.lk888.ai/v1";
+    private String baseUrl = "";
 
     /** 只能通过环境变量注入，不能提交到 Git。 */
     private String apiKey = "not-configured";

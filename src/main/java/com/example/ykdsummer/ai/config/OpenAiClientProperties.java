@@ -3,19 +3,18 @@ package com.example.ykdsummer.ai.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-/**
- * 官方 OpenAI Java 客户端的连接参数。Spring 从 openai.* 配置绑定到这里；
- * 它与 CC Switch/Codex 的配置互不相通，Java 程序必须自己获得 AI_API_KEY。
- */
+/** Connection settings for the optional raw-file Responses provider. */
 @Component
-@ConfigurationProperties(prefix = "openai")
+@ConfigurationProperties(prefix = "app.ai.responses")
 public class OpenAiClientProperties {
 
-    /** OpenAI 兼容服务地址。Java SDK 要求这里包含 /v1。 */
-    private String baseUrl = "https://api.xiaomimimo.com/v1";
+    /** OpenAI-compatible service address. The official Java SDK requires the /v1 base path. */
+    private String baseUrl = "https://api.openai.com/v1";
 
-    /** 只允许通过外部配置注入；仓库中永远不放真实值。 */
+    /** Kept local or in deployment environment variables, never in source control. */
     private String apiKey = "not-configured";
+    /** Responses model stays separate from the active Chat Completions model. */
+    private String model = "not-configured";
 
     public String getBaseUrl() {
         return baseUrl;
@@ -31,5 +30,21 @@ public class OpenAiClientProperties {
 
     public void setApiKey(String apiKey) {
         this.apiKey = apiKey;
+    }
+
+    public String getModel() {
+        return model;
+    }
+
+    public void setModel(String model) {
+        this.model = model;
+    }
+
+    public boolean isConfigured() {
+        return present(baseUrl) && present(apiKey) && present(model);
+    }
+
+    private static boolean present(String value) {
+        return value != null && !value.isBlank() && !"not-configured".equalsIgnoreCase(value.strip());
     }
 }

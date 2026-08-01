@@ -177,7 +177,7 @@ $env:ALIYUN_TTS_VOICE = "longanyang"
 - 文件正文可本地提取时：走 Spring AI Chat Completions，并由模型调用 `DocumentTools`；无法提取而必须附带二进制文件时回退 Responses 做理解。
 - 两条模型请求都设置 `store=false`；短期上下文仍由 Java 按用户隔离保存在内存中，重启后清空。
 
-Spring AI 默认使用 `SPRING_AI_BASE_URL=https://moosecloud.cc` 和 `/v1/chat/completions`，密钥默认复用 `AI_API_KEY`；如需与 Responses 分开，可设置 `SPRING_AI_API_KEY`、`SPRING_AI_BASE_URL` 和 `SPRING_AI_MODEL`。
+Spring AI 默认使用百炼兼容地址 `https://dashscope.aliyuncs.com/compatible-mode/v1` 和 `/v1/chat/completions`，模型为 `qwen3.7-plus`。密钥可通过 `DASHSCOPE_API_KEY` 或本机 `application-local.properties` 注入；部署时仍可用 `SPRING_AI_API_KEY`、`SPRING_AI_BASE_URL` 和 `SPRING_AI_MODEL` 单独覆盖。
 
 ## 11. 当前能力边界
 

@@ -4,6 +4,7 @@ import com.example.ykdsummer.exchange.ExchangeRateInfo;
 import com.example.ykdsummer.exchange.ExchangeRateService;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -13,9 +14,18 @@ import org.springframework.stereotype.Component;
 public class ExchangeRateTools implements AiTool {
 
     private final ExchangeRateService exchangeRateService;
+    private final RealtimeSearchFallback realtimeSearchFallback;
 
     public ExchangeRateTools(ExchangeRateService exchangeRateService) {
+        this(exchangeRateService, RealtimeSearchFallback.unavailable());
+    }
+
+    @Autowired
+    public ExchangeRateTools(
+            ExchangeRateService exchangeRateService, RealtimeSearchFallback realtimeSearchFallback
+    ) {
         this.exchangeRateService = exchangeRateService;
+        this.realtimeSearchFallback = realtimeSearchFallback;
     }
 
     @Tool(
@@ -45,7 +55,11 @@ public class ExchangeRateTools implements AiTool {
         try {
             return exchangeRateService.convertCurrency(base, target, amt);
         } catch (RuntimeException exception) {
-            return InformationToolSupport.failed("汇率查询", exception);
+            return realtimeSearchFallback.search(
+                    "汇率查询",
+                    base + " 兑 " + target + " 今日实时汇率",
+                    "数据源暂时不可用"
+            );
         }
     }
 }

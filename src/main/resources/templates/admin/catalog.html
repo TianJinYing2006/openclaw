@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>商品橱窗</title><link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
+</head>
+<body>
+<header class="topbar"><a class="brand" th:href="@{/admin}">YKD Bot 管理</a><nav><a th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a class="active" th:href="@{/admin/catalog}">商品橱窗</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<main class="page">
+    <div class="page-heading"><div><h1>商品橱窗</h1><p>这是平台商品库，不属于任何一个微信用户。Agent 只能检索状态为“在售”的商品；同一商品编号会更新原商品。</p><div class="dashboard-meta"><span>首批为男女通用基础款</span><span>图片可填写 OSS 或公开 URL</span></div></div></div>
+    <p class="alert notice" th:if="${notice}" th:text="${notice}"></p><p class="alert error" th:if="${error}" th:text="${error}"></p>
+
+    <section class="form-section catalog-form"><h2 th:text="${editingProduct == null ? '新增商品' : '编辑商品 ' + editingProduct.productCode}">新增商品</h2>
+        <form method="post" th:action="@{/admin/catalog/products}">
+            <div class="form-grid">
+                <label>商品编号<input name="productCode" required maxlength="64" placeholder="例如 UNX-TEE-WHITE" th:value="${editingProduct == null ? '' : editingProduct.productCode}"></label>
+                <label>商品名称<input name="title" required maxlength="255" th:value="${editingProduct == null ? '' : editingProduct.title}"></label>
+                <label>品牌<input name="brand" maxlength="128" th:value="${editingProduct == null ? '' : editingProduct.brand}"></label>
+                <label>主类目代码<input name="categoryCode" required maxlength="64" placeholder="TOP / BOTTOM / SHOES" th:value="${editingProduct == null ? '' : editingProduct.categoryCode}"></label>
+                <label>子类目代码<input name="subCategoryCode" required maxlength="64" placeholder="T_SHIRT / JEANS / SNEAKERS" th:value="${editingProduct == null ? '' : editingProduct.subCategoryCode}"></label>
+                <label>适用人群<select name="genderTarget"><option value="UNISEX" th:selected="${editingProduct == null || editingProduct.genderTarget == 'UNISEX'}">男女通用</option><option value="FEMALE" th:selected="${editingProduct != null && editingProduct.genderTarget == 'FEMALE'}">女装</option><option value="MALE" th:selected="${editingProduct != null && editingProduct.genderTarget == 'MALE'}">男装</option></select></label>
+                <label>主色<input name="colorPrimary" maxlength="64" placeholder="例如 黑色" th:value="${editingProduct == null ? '' : editingProduct.colorPrimary}"></label>
+                <label>次要颜色<input name="secondaryColors" maxlength="255" placeholder="逗号分隔" th:value="${editingProduct == null ? '' : #strings.listJoin(editingProduct.secondaryColors, ',')}"></label>
+                <label>风格标签<input name="styleTags" maxlength="512" placeholder="简约,通勤" th:value="${editingProduct == null ? '' : #strings.listJoin(editingProduct.styleTags, ',')}"></label>
+                <label>季节标签<input name="seasonTags" maxlength="512" placeholder="春夏,四季" th:value="${editingProduct == null ? '' : #strings.listJoin(editingProduct.seasonTags, ',')}"></label>
+                <label>场合标签<input name="occasionTags" maxlength="512" placeholder="通勤,日常" th:value="${editingProduct == null ? '' : #strings.listJoin(editingProduct.occasionTags, ',')}"></label>
+                <label>材质<input name="material" maxlength="128" th:value="${editingProduct == null ? '' : editingProduct.material}"></label>
+                <label>版型<input name="fitCode" maxlength="64" th:value="${editingProduct == null ? '' : editingProduct.fitCode}"></label>
+                <label>图案<input name="patternCode" maxlength="64" th:value="${editingProduct == null ? '' : editingProduct.patternCode}"></label>
+                <label>价格（CNY）<input name="price" required min="0" step="0.01" type="number" th:value="${editingProduct == null ? '' : editingProduct.price}"></label>
+                <label>币种<input name="currency" maxlength="3" value="CNY" th:value="${editingProduct == null ? 'CNY' : editingProduct.currency}"></label>
+                <label>状态<select name="availabilityStatus"><option value="DRAFT" th:selected="${editingProduct == null || editingProduct.availabilityStatus == 'DRAFT'}">草稿</option><option value="ACTIVE" th:selected="${editingProduct != null && editingProduct.availabilityStatus == 'ACTIVE'}">在售</option><option value="OUT_OF_STOCK" th:selected="${editingProduct != null && editingProduct.availabilityStatus == 'OUT_OF_STOCK'}">缺货</option><option value="ARCHIVED" th:selected="${editingProduct != null && editingProduct.availabilityStatus == 'ARCHIVED'}">归档</option></select></label>
+                <label>推荐排序<input name="featuredRank" min="0" max="10000" type="number" th:value="${editingProduct == null ? 0 : editingProduct.featuredRank}"></label>
+                <label>来源<input name="source" maxlength="32" placeholder="ADMIN_CATALOG" th:value="${editingProduct == null ? 'ADMIN_CATALOG' : editingProduct.source}"></label>
+                <label>来源商品 ID<input name="sourceProductId" maxlength="128" th:value="${editingProduct == null ? '' : editingProduct.sourceProductId}"></label>
+            </div>
+            <label>商品链接<input name="sourceUrl" maxlength="2048" placeholder="后续商城详情页或公开链接" th:value="${editingProduct == null ? '' : editingProduct.sourceUrl}"></label>
+            <label>主图 URL<input name="primaryImageUrl" maxlength="2048" placeholder="OSS 或公开图片 URL" th:value="${editingProduct == null ? '' : editingProduct.primaryImageUrl}"></label>
+            <label>商品描述<textarea name="textDescription" required maxlength="20000" rows="4" th:text="${editingProduct == null ? '' : editingProduct.textDescription}"></textarea></label>
+            <div class="actions"><button type="submit" th:text="${editingProduct == null ? '保存商品' : '更新商品'}">保存商品</button><a class="button secondary" th:if="${editingProduct != null}" th:href="@{/admin/catalog}">新建商品</a></div>
+        </form>
+    </section>
+
+    <section class="table-section"><div class="section-title"><h2>全部商品</h2><span th:text="${#lists.size(products) + ' 件'}">0 件</span></div>
+        <table class="catalog-table"><thead><tr><th>商品</th><th>类目</th><th>标签</th><th>价格</th><th>状态</th><th>图片</th><th>更新时间</th><th></th></tr></thead><tbody>
+        <tr th:each="product : ${products}">
+            <td><strong th:text="${product.title}">商品</strong><small class="cell-sub mono" th:text="${product.productCode}">编号</small><small class="cell-sub" th:text="${#strings.isEmpty(product.brand) ? '未设品牌' : product.brand}">品牌</small></td>
+            <td><span th:text="${product.categoryCode + ' / ' + product.subCategoryCode}">类目</span><small class="cell-sub" th:text="${product.genderTarget}">UNISEX</small></td>
+            <td><span th:text="${#strings.listJoin(product.styleTags, '、')}">风格</span><small class="cell-sub" th:text="${#strings.listJoin(product.occasionTags, '、')}">场合</small></td>
+            <td th:text="${'¥' + product.price}">¥0</td>
+            <td><span class="status" th:classappend="${product.availabilityStatus == 'ACTIVE' ? ' ok' : product.availabilityStatus == 'OUT_OF_STOCK' ? ' warn' : ' neutral'}" th:text="${product.availabilityStatus}">状态</span></td>
+            <td><a th:if="${!#strings.isEmpty(product.primaryImageUrl)}" th:href="${product.primaryImageUrl}" target="_blank" rel="noreferrer">查看</a><span th:unless="${!#strings.isEmpty(product.primaryImageUrl)}" class="muted">未设置</span></td>
+            <td th:text="${#temporals.format(product.updatedAt, 'yyyy-MM-dd HH:mm')}">-</td>
+            <td><a th:href="@{/admin/catalog(edit=${product.productCode})}">编辑</a><form class="status-form" method="post" th:action="@{/admin/catalog/products/{id}/availability(id=${product.id})}"><select name="availabilityStatus"><option value="ACTIVE">在售</option><option value="OUT_OF_STOCK">缺货</option><option value="ARCHIVED">归档</option></select><button type="submit">更新</button></form></td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(products)}"><td colspan="8" class="empty">商品橱窗尚无数据。</td></tr></tbody></table>
+    </section>
+</main>
+</body>
+</html>

@@ -25,6 +25,8 @@ public class AiGatewayException extends RuntimeException {
         /** 网络、超时、限流或服务端临时故障，用户稍后可以重试。 */
         TEMPORARY_UNAVAILABLE,
         /** 请求成功但没有可用的 output_text。 */
-        EMPTY_RESPONSE
+        EMPTY_RESPONSE,
+        /** Agent 在同一请求内连续规划过多轮工具，已在执行下一轮前安全停止。 */
+        AGENT_ROUND_LIMIT
     }
 }

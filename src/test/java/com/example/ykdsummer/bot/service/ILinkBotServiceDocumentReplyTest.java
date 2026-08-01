@@ -143,6 +143,37 @@ class ILinkBotServiceDocumentReplyTest {
         }
     }
 
+    @Test
+    void sendsEveryImageInABatchBeforeTheFollowUpText() {
+        ILinkReplyService replyService = mock(ILinkReplyService.class);
+        ILinkRuntimeState runtimeState = mock(ILinkRuntimeState.class);
+        ILinkDeliveryAudit audit = mock(ILinkDeliveryAudit.class);
+        ILinkBotService service = new ILinkBotService(
+                new ILinkProperties(), mock(ILinkSessionStore.class), runtimeState, audit, replyService,
+                mock(ILinkMessageRateLimiter.class), mock(ILinkMediaDownloader.class),
+                mock(ILinkFileDownloader.class), mock(ILinkVideoDownloader.class), new VideoProcessingProperties());
+        ILinkBot bot = mock(ILinkBot.class);
+        when(bot.isAutoPulling()).thenReturn(true);
+        ReflectionTestUtils.setField(service, "bot", bot);
+        WeixinMessage message = message();
+        byte[] first = {1, 2};
+        byte[] second = {3, 4, 5};
+        when(replyService.createReply(message, List.of(), service.status()))
+                .thenReturn(new ILinkReply.ImageBatch(List.of(first, second), "两页已发送"));
+
+        try {
+            ReflectionTestUtils.invokeMethod(service, "processReply", message, List.of());
+            var order = inOrder(bot);
+            order.verify(bot).sendImage("user", "context", first);
+            order.verify(bot).sendImage("user", "context", second);
+            order.verify(bot).replyText(message, "两页已发送");
+            verify(audit).gatewayAccepted(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.eq("image_batch"), org.mockito.ArgumentMatchers.eq(5));
+        } finally {
+            service.stop();
+        }
+    }
+
     private static WeixinMessage message() {
         return new WeixinMessage(
                 1L, 1L, "user", "bot", "client", System.currentTimeMillis(), null, null,

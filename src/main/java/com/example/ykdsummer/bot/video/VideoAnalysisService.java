@@ -5,6 +5,7 @@ import com.example.ykdsummer.ai.service.AiChatService;
 import com.example.ykdsummer.bot.audio.AudioTrackExtractor;
 import com.example.ykdsummer.bot.audio.AudioTranscriptionService;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
+import io.github.morningwn.client.ILinkClient;
 import io.github.morningwn.protocol.MessageItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,16 +50,24 @@ public class VideoAnalysisService {
      * 通过 iLink MessageItem 下载并分析视频（SDK 调用方使用）。
      */
     public String analyze(String userId, String userPrompt, List<MessageItem> items) {
+        return analyze(userId, userPrompt, items, null);
+    }
+
+    /** An instance-specific SDK client prevents concurrent managed accounts from sharing media state. */
+    public String analyze(String userId, String userPrompt, List<MessageItem> items, ILinkClient instanceClient) {
         if (!properties.isEnabled()) {
             return DISABLED_REPLY;
         }
         try {
-            byte[] videoBytes = downloader.downloadVideo(items);
+            byte[] videoBytes = instanceClient == null
+                    ? downloader.downloadVideo(items)
+                    : downloader.downloadVideo(instanceClient, items);
             return analyzeVideoBytes(userId, userPrompt, videoBytes);
         } catch (VideoProcessingException exception) {
             log.warn(
-                    "Could not analyze iLink video, user={}, kind={}",
+                    "Could not analyze iLink video, user={}, reason={}, kind={}",
                     anonymize(userId),
+                    exception.userMessage(),
                     exception.getClass().getSimpleName()
             );
             return exception.userMessage();
@@ -90,8 +99,9 @@ public class VideoAnalysisService {
             return aiChatService.answer(userId, prompt, images);
         } catch (VideoProcessingException exception) {
             log.warn(
-                    "Could not analyze video bytes, user={}, kind={}",
+                    "Could not analyze video bytes, user={}, reason={}, kind={}",
                     anonymize(userId),
+                    exception.userMessage(),
                     exception.getClass().getSimpleName()
             );
             return exception.userMessage();

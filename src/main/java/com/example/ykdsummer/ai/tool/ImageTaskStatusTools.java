@@ -41,7 +41,7 @@ public class ImageTaskStatusTools {
         trace.toolCall("get_running_tasks", "current user image tasks");
         List<ImageTask> tasks = taskStore.running(userId);
         String result = tasks.isEmpty()
-                ? "当前没有正在执行的图片任务。图片生成和改图通常会在同一次请求里等待完成。"
+                ? "当前没有正在执行的图片任务。已完成的图片会自动发送；如未收到，可让我重新发送结果图片。"
                 : tasks.stream().map(this::describe).reduce((left, right) -> left + "\n" + right).orElseThrow();
         trace.toolResult("get_running_tasks", "count=" + tasks.size());
         return result;

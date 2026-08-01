@@ -65,6 +65,19 @@ class FileInstructionServiceTest {
     }
 
     @Test
+    void preservesMultipleImageArtifactsForSequentialWechatDelivery() {
+        when(aiChatService.answerWithInternalPromptRich(eq("user"), eq("展示衣橱"), any(), eq(List.of())))
+                .thenReturn(new AiChatService.AssistantAnswer("已发两页衣橱图", List.of(
+                        AiArtifact.image(new byte[]{1}, "第1页", "", 0),
+                        AiArtifact.image(new byte[]{2}, "第2页", "", 0))));
+
+        FileInstructionService.Result result = service.process("user", "展示衣橱", null);
+
+        assertThat(result.hasImagePages()).isTrue();
+        assertThat(result.imagePages()).containsExactly(new byte[]{1}, new byte[]{2});
+    }
+
+    @Test
     void uploadedWordContentAndInstructionCanProduceAReadablePdf() throws Exception {
         AiFile source = new AiFile("source.docx", "application/octet-stream", new byte[]{1, 2, 3});
         when(textExtractor.extract(eq("docx"), any())).thenReturn(Optional.of("原文标题\n原文正文"));

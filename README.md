@@ -71,9 +71,11 @@ spring.ai.openai.api-key=${DASHSCOPE_API_KEY}
 spring.ai.openai.base-url=https://dashscope.aliyuncs.com/compatible-mode/v1
 spring.ai.openai.chat.options.model=qwen3.7-plus
 
-# === 图片生成 ===
-app.ai.image-api-key=${DASHSCOPE_API_KEY}
-app.ai.image-model=wanx2.1-t2i-turbo
+# === 图片生成与改图（OpenAI Images 兼容接口）===
+openai.image.base-url=https://your-image-provider.example/v1
+openai.image.api-key=${IMAGE_API_KEY}
+app.ai.image-model=gpt-image-2
+app.ai.image-timeout=120s
 
 # === 语音识别（腾讯云）===
 tencentcloud.asr.secret-id=${TENCENTCLOUD_SECRET_ID}

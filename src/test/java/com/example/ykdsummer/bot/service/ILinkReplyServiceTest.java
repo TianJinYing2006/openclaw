@@ -5,6 +5,7 @@ import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.service.AiChatService;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.bot.audio.TtsVoiceSelectionService;
+import com.example.ykdsummer.bot.config.LongTextOutputProperties;
 import com.example.ykdsummer.bot.file.FileInstructionService;
 import com.example.ykdsummer.bot.file.FileSessionService;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
@@ -168,6 +169,20 @@ class ILinkReplyServiceTest {
     }
 
     @Test
+    void multipleAgentImagesBecomeAnIndependentWechatImageBatch() {
+        when(fileInstructionService.process("user", "展示衣橱", null))
+                .thenReturn(com.example.ykdsummer.bot.file.FileInstructionService.Result.images(
+                        "已发两页衣橱图", List.of(new byte[]{1}, new byte[]{2})));
+
+        ILinkReply reply = replyService.createReply(message("user"), List.of(text("展示衣橱")), status());
+
+        assertThat(reply).isInstanceOf(ILinkReply.ImageBatch.class);
+        ILinkReply.ImageBatch batch = (ILinkReply.ImageBatch) reply;
+        assertThat(batch.images()).containsExactly(new byte[]{1}, new byte[]{2});
+        assertThat(batch.followUpText()).isEqualTo("已发两页衣橱图");
+    }
+
+    @Test
     void schedulerDoesNotGuessImageIntentBeforeTheAgentPlans() {
         assertThat(replyService.isImageGenerationMessage(List.of(text("生图：一只小猫")))).isFalse();
         assertThat(replyService.isImageGenerationMessage(List.of(text("你好")))).isFalse();
@@ -246,6 +261,29 @@ class ILinkReplyServiceTest {
         assertThat(file.fileName()).isEqualTo("output.docx");
         assertThat(file.bytes()).containsExactly(docx);
         verify(fileInstructionService).process("user", "帮我写一份 Word 周报", null);
+    }
+
+    @Test
+    void asksBeforeSendingAnOversizedReplyAndSendsTxtAfterSelection() {
+        LongTextOutputProperties properties = new LongTextOutputProperties();
+        properties.setThresholdCharacters(200);
+        replyService = new ILinkReplyService(
+                aiChatService, mediaDownloader, fileDownloader, videoAnalysisService,
+                voiceSelectionService, fileSessions, fileInstructionService, imageAssets,
+                new LongTextOutputService(properties));
+        String longText = "天气详情".repeat(200);
+        when(fileInstructionService.process("user", "查询全部天气", null))
+                .thenReturn(FileInstructionService.Result.text(longText));
+
+        ILinkReply offer = replyService.createReply(message("user"), List.of(text("查询全部天气")), status());
+        ILinkReply selected = replyService.createReply(message("user"), List.of(text("TXT")), status());
+
+        assertThat(textValue(offer)).contains("回复“全文”", "回复“TXT”");
+        assertThat(selected).isInstanceOf(ILinkReply.DocumentFile.class);
+        ILinkReply.DocumentFile txt = (ILinkReply.DocumentFile) selected;
+        assertThat(txt.fileName()).isEqualTo("查询结果.txt");
+        assertThat(new String(txt.bytes(), java.nio.charset.StandardCharsets.UTF_8)).isEqualTo(longText);
+        verify(fileInstructionService, never()).process("user", "TXT", null);
     }
 
     private static String textValue(ILinkReply reply) {

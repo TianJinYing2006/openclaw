@@ -23,7 +23,7 @@ pnpm-debug.log*
 !.env.example
 application-local.properties
 secret.properties
-ilink/
+/ilink/
 .ilink/
 .documents/
 .ai-assets/
@@ -52,3 +52,4 @@ progress.md
 
 # Runtime SQLite databases
 .db/
+/tianchi/

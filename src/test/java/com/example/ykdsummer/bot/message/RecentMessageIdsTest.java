@@ -21,4 +21,13 @@ class RecentMessageIdsTest {
         assertTrue(ids.contains(20L));
         assertTrue(ids.contains(30L));
     }
+
+    @Test
+    void claimsAnIdOnlyOnce() {
+        RecentMessageIds ids = new RecentMessageIds(2);
+
+        assertTrue(ids.claim(10L));
+        assertFalse(ids.claim(10L));
+        assertFalse(ids.claim(null));
+    }
 }

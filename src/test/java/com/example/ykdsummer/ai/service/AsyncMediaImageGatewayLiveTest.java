@@ -27,13 +27,13 @@ class AsyncMediaImageGatewayLiveTest {
     @Timeout(420)
     void createsPollsAndDownloadsARealRevision() throws Exception {
         ImageOpenAiClientProperties image = new ImageOpenAiClientProperties();
-        image.setApiKey(requiredFirst("IMAGE_API_KEY", "AI_IMAGE_API_KEY", "JUNDAO_API_KEY"));
-        String baseUrl = firstPresent("IMAGE_API_BASE_URL", "AI_IMAGE_API_BASE_URL", "AI_IMAGE_BASE_URL", "JUNDAO_IMAGE_BASE_URL");
+        image.setApiKey(requiredFirst("IMAGE_API_KEY"));
+        String baseUrl = firstPresent("IMAGE_API_BASE_URL");
         if (!baseUrl.isBlank()) {
             image.setBaseUrl(baseUrl);
         }
         AiProperties ai = new AiProperties();
-        ai.setImageModel(firstPresentOrDefault("gpt-image-2", "IMAGE_MODEL", "AI_IMAGE_MODEL", "JUNDAO_IMAGE_MODEL"));
+        ai.setImageModel(firstPresentOrDefault("gpt-image-2", "IMAGE_MODEL"));
         ai.setImageTimeout(java.time.Duration.ofMinutes(6));
         ai.setImagePollInterval(java.time.Duration.ofSeconds(3));
 

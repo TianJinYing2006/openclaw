@@ -1,13 +1,17 @@
 package com.example.ykdsummer.bot.service;
 
+import com.example.ykdsummer.admin.config.AdminWebProperties;
 import com.example.ykdsummer.bot.config.ILinkProperties;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
+import com.example.ykdsummer.bot.message.ILinkMessageDeduplicator;
 import com.example.ykdsummer.bot.message.ILinkMessageType;
 import com.example.ykdsummer.bot.message.RecentMessageIds;
 import com.example.ykdsummer.bot.runtime.ILinkDeliveryAudit;
+import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
 import com.example.ykdsummer.bot.runtime.ILinkRuntimeState;
 import com.example.ykdsummer.bot.session.ILinkSessionStore;
 import com.example.ykdsummer.bot.video.ILinkVideoDownloader;
+import com.example.ykdsummer.common.concurrent.GracefulExecutorShutdown;
 import io.github.morningwn.client.ILinkBot;
 import io.github.morningwn.client.ILinkClient;
 import io.github.morningwn.client.ILinkClientConfig;
@@ -22,11 +26,13 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Objects;
+import java.time.Duration;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -51,7 +57,7 @@ import java.util.stream.IntStream;
 public class ILinkBotService {
 
     private static final Logger log = LoggerFactory.getLogger(ILinkBotService.class);
-    /** 单进程最多记住 1000 个近期 messageId，防止立即重复回复。 */
+    /** Redis 未启用或暂时不可用时，本地最多记住 1000 个近期 messageId。 */
     private static final int RECENT_MESSAGE_WINDOW = 1_000;
 
     /** 启动时只接受最近两分钟的消息，避免恢复旧游标后回复很久以前的历史消息。 */
@@ -65,6 +71,7 @@ public class ILinkBotService {
     private final ILinkSessionStore sessionStore;
     private final ILinkRuntimeState runtimeState;
     private final ILinkDeliveryAudit deliveryAudit;
+    private final ILinkReplyContextStore replyContexts;
     private final ILinkReplyService replyService;
     private final ILinkMessageRateLimiter rateLimiter;
     private final ILinkMediaDownloader mediaDownloader;
@@ -72,6 +79,7 @@ public class ILinkBotService {
     private final ILinkVideoDownloader videoDownloader;
     private final RecentMessageIds recentMessageIds = new RecentMessageIds(RECENT_MESSAGE_WINDOW);
     private final long startedAtMs = System.currentTimeMillis();
+    private volatile ILinkMessageDeduplicator messageDeduplicator;
 
     /**
      * 8 条文字队列。相同用户总是进入同一条单线程队列，因此文字消息严格保持提交顺序；
@@ -95,6 +103,9 @@ public class ILinkBotService {
     private volatile ILinkBot bot;
     /** 与 ILinkBot 共用的底层客户端，供图片、文件和视频从腾讯 CDN 下载解密。 */
     private volatile ILinkClient lowLevelClient;
+    /** When the administrator site is enabled, managed instances own their own SDK clients instead. */
+    private volatile boolean managedInstanceMode;
+    private final AtomicBoolean stopping = new AtomicBoolean();
 
     public ILinkBotService(
             ILinkProperties settings,
@@ -108,11 +119,30 @@ public class ILinkBotService {
             ILinkVideoDownloader videoDownloader,
             VideoProcessingProperties videoProperties
     ) {
+        this(settings, sessionStore, runtimeState, deliveryAudit, replyService, rateLimiter, mediaDownloader,
+                fileDownloader, videoDownloader, videoProperties, new ILinkReplyContextStore());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ILinkBotService(
+            ILinkProperties settings,
+            ILinkSessionStore sessionStore,
+            ILinkRuntimeState runtimeState,
+            ILinkDeliveryAudit deliveryAudit,
+            ILinkReplyService replyService,
+            ILinkMessageRateLimiter rateLimiter,
+            ILinkMediaDownloader mediaDownloader,
+            ILinkFileDownloader fileDownloader,
+            ILinkVideoDownloader videoDownloader,
+            VideoProcessingProperties videoProperties,
+            ILinkReplyContextStore replyContexts
+    ) {
         // 这些对象都由 Spring 创建并传入；构造器本身不会连接腾讯服务器。
         this.settings = settings;
         this.sessionStore = sessionStore;
         this.runtimeState = runtimeState;
         this.deliveryAudit = deliveryAudit;
+        this.replyContexts = replyContexts;
         this.replyService = replyService;
         this.rateLimiter = rateLimiter;
         this.mediaDownloader = mediaDownloader;
@@ -141,6 +171,17 @@ public class ILinkBotService {
         );
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void configureManagedInstanceMode(AdminWebProperties properties) {
+        managedInstanceMode = properties != null && properties.isEnabled();
+    }
+
+    /** Keeps direct unit-test construction working while Spring wires in the Redis-aware guard. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void configureMessageDeduplicator(ILinkMessageDeduplicator messageDeduplicator) {
+        this.messageDeduplicator = messageDeduplicator;
+    }
+
     /**
      * Spring 完成依赖注入后自动调用一次，不需要再在 PowerShell 手动启动第二个程序。
      *
@@ -148,6 +189,11 @@ public class ILinkBotService {
      */
     @PostConstruct
     public void start() {
+        if (managedInstanceMode) {
+            runtimeState.disabled();
+            log.info("Legacy single iLink service is disabled; managed instances own SDK connections");
+            return;
+        }
         if (!settings.isEnabled()) {
             runtimeState.disabled();
             log.info("iLink is disabled. Set ILINK_ENABLED=true to start QR login.");
@@ -155,6 +201,7 @@ public class ILinkBotService {
         }
 
         runtimeState.starting();
+        stopping.set(false);
         try {
             // 这是 SDK 自己的网络配置对象，本项目只把 application.properties 中的值交给它。
             ILinkClientConfig clientConfig = ILinkClientConfig.builder()
@@ -194,11 +241,11 @@ public class ILinkBotService {
     /** Spring 应用停止时自动调用，关闭 SDK，避免后台线程和连接泄漏。 */
     @PreDestroy
     public void stop() {
-        for (ExecutorService executor : textReplyExecutors) {
-            executor.shutdownNow();
-        }
-        imageReplyExecutor.shutdownNow();
-        videoReplyExecutor.shutdownNow();
+        stopping.set(true);
+        List<ExecutorService> executors = new java.util.ArrayList<>(java.util.Arrays.asList(textReplyExecutors));
+        executors.add(imageReplyExecutor);
+        executors.add(videoReplyExecutor);
+        GracefulExecutorShutdown.shutdown("ilink-reply", Duration.ofSeconds(30), log, executors);
         closeSdkClients();
     }
 
@@ -243,6 +290,54 @@ public class ILinkBotService {
         runtimeState.messageSent();
     }
 
+    /** Sends a background image using a previously observed, valid iLink reply context. */
+    public void sendImage(String toUserId, String contextToken, byte[] imageBytes) {
+        ILinkBot currentBot = requireRunningBot();
+        requireText(toUserId, "toUserId");
+        requireText(contextToken, "contextToken");
+        if (imageBytes == null || imageBytes.length == 0) throw new IllegalArgumentException("imageBytes cannot be blank");
+        currentBot.sendImage(toUserId, contextToken, imageBytes);
+        runtimeState.messageSent();
+    }
+
+    /** Sends a background file using a previously observed, valid iLink reply context. */
+    public void sendFile(String toUserId, String contextToken, String fileName, byte[] bytes) {
+        ILinkBot currentBot = requireRunningBot();
+        requireText(toUserId, "toUserId");
+        requireText(contextToken, "contextToken");
+        requireText(fileName, "fileName");
+        if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("bytes cannot be blank");
+        currentBot.sendFile(toUserId, contextToken, fileName, bytes);
+        runtimeState.messageSent();
+    }
+
+    /** 供后台图片任务在完成后主动推送结果，仍使用该用户最近一次有效微信会话上下文。 */
+    public void sendGeneratedImage(String toUserId, String contextToken, String taskId, byte[] imageBytes) {
+        ILinkBot currentBot = requireRunningBot();
+        requireText(toUserId, "toUserId");
+        requireText(contextToken, "contextToken");
+        if (imageBytes == null || imageBytes.length == 0) {
+            throw new IllegalArgumentException("imageBytes cannot be blank");
+        }
+        try {
+            currentBot.sendImage(toUserId, contextToken, imageBytes);
+            runtimeState.messageSent();
+            deliveryAudit.gatewayAccepted(taskId, toUserId, "image", imageBytes.length);
+        } catch (RuntimeException exception) {
+            runtimeState.messageDeliveryFailed(safeErrorMessage(exception));
+            deliveryAudit.failed(taskId, toUserId, "image", imageBytes.length, exception);
+            try {
+                currentBot.sendText(toUserId, contextToken,
+                        "图片已生成，但自动推送失败。你可以说“把刚才生成的图片再发一次”。");
+                runtimeState.fallbackMessageSent();
+                deliveryAudit.fallbackAccepted(taskId, toUserId, "image");
+            } catch (RuntimeException fallbackException) {
+                log.warn("Could not send image-task fallback, task={}", taskId, fallbackException);
+            }
+            throw exception;
+        }
+    }
+
     /**
      * SDK 的单条入站消息回调，也是本项目最重要的业务入口。
      *
@@ -253,7 +348,8 @@ public class ILinkBotService {
      */
     void handleInboundMessage(WeixinMessage message) {
         // 这里只处理普通用户消息；系统事件、状态通知等协议消息直接忽略。
-        if (message == null || !Objects.equals(message.messageType(), ProtocolValues.MESSAGE_TYPE_USER)) {
+        if (stopping.get() || message == null
+                || !Objects.equals(message.messageType(), ProtocolValues.MESSAGE_TYPE_USER)) {
             return;
         }
 
@@ -274,20 +370,19 @@ public class ILinkBotService {
         logNonTextItems(message, items);
 
         // 先去重，防止 getupdates 重试时同一 messageId 被再次回复。
-        if (recentMessageIds.contains(message.messageId())) {
+        if (!claimInboundMessage(message)) {
             log.info("Skip duplicate iLink message {}", message.messageId());
             return;
         }
+        replyContexts.remember(message.fromUserId(), message.contextToken());
         // 恢复旧游标时可能短暂拉到历史消息，启动保护期内跳过过旧消息。
         if (isStaleAtStartup(message)) {
-            recentMessageIds.remember(message.messageId());
             log.info("Skip stale iLink message {} from before this startup", message.messageId());
             return;
         }
 
         String rateLimitType = rateLimitType(items);
         if (!rateLimiter.tryAcquire(message.fromUserId(), rateLimitType)) {
-            recentMessageIds.remember(message.messageId());
             log.info("Rate limited iLink message {}, user={}, type={}",
                     message.messageId(), anonymize(message.fromUserId()), rateLimitType);
             replyQueueBusy(message, "消息发送过快，请稍后再试");
@@ -305,11 +400,6 @@ public class ILinkBotService {
          * 从这里开始可能要等待外部 AI 数十秒，必须移交给回复线程池。
          * SDK 的 ilink-auto-pull 线程立即返回，继续维持 getupdates 长轮询连接。
          */
-        /*
-         * 这里的“记住”表示本进程已经接受这条消息并准备入队，不代表 AI 已回答成功。
-         * 先记住可以挡住 SDK 短时间内的重复投递。
-         */
-        recentMessageIds.remember(message.messageId());
         try {
             List<MessageItem> safeItems = List.copyOf(items);
             /*
@@ -317,9 +407,10 @@ public class ILinkBotService {
              * 分配到同一文字队列，以便多轮上下文保持顺序。
              */
             boolean videoMessage = replyService.isVideoMessage(safeItems);
+            boolean mediaMessage = replyService.isMediaMessage(safeItems);
             ExecutorService executor = videoMessage
                     ? videoReplyExecutor
-                    : replyService.isImageGenerationMessage(safeItems)
+                    : mediaMessage
                             ? imageReplyExecutor
                             : textExecutorFor(message.fromUserId());
             executor.execute(() -> processReply(message, safeItems));
@@ -330,14 +421,21 @@ public class ILinkBotService {
              */
         } catch (RejectedExecutionException exception) {
             boolean videoMessage = replyService.isVideoMessage(items);
-            boolean imageMessage = !videoMessage && replyService.isImageGenerationMessage(items);
+            boolean mediaMessage = !videoMessage && replyService.isMediaMessage(items);
             String reason = videoMessage
                     ? VIDEO_QUEUE_BUSY_REPLY
-                    : imageMessage ? IMAGE_QUEUE_BUSY_REPLY : TEXT_QUEUE_BUSY_REPLY;
+                    : mediaMessage ? IMAGE_QUEUE_BUSY_REPLY : TEXT_QUEUE_BUSY_REPLY;
             runtimeState.messageDeliveryFailed(reason);
             log.warn("Could not schedule reply for iLink message {}", message.messageId());
             replyQueueBusy(message, reason);
         }
+    }
+
+    private boolean claimInboundMessage(WeixinMessage message) {
+        ILinkMessageDeduplicator deduplicator = messageDeduplicator;
+        return deduplicator == null
+                ? recentMessageIds.claim(message.messageId()) || message.messageId() == null
+                : deduplicator.claim("legacy", message.messageId());
     }
 
     /** 任一有界队列满时直接发送固定提示，不再调用外部 AI。 */
@@ -379,6 +477,13 @@ public class ILinkBotService {
                 if (imageReply.followUpText() != null && !imageReply.followUpText().isBlank()) {
                     runningBot.replyText(message, imageReply.followUpText());
                 }
+            } else if (reply instanceof ILinkReply.ImageBatch imageBatch) {
+                for (byte[] image : imageBatch.images()) {
+                    runningBot.sendImage(message.fromUserId(), message.contextToken(), image);
+                }
+                if (!imageBatch.followUpText().isBlank()) {
+                    runningBot.replyText(message, imageBatch.followUpText());
+                }
             } else if (reply instanceof ILinkReply.AudioFile audioReply) {
                 // TTS 已在上一层完成：只发送 MP3 文件，不额外发送文字答案。
                 runningBot.sendFile(message.fromUserId(), message.contextToken(), audioReply.fileName(), audioReply.bytes());
@@ -415,7 +520,8 @@ public class ILinkBotService {
      */
     private void sendMediaFailureNotice(ILinkBot runningBot, WeixinMessage message, ILinkReply reply) {
         if (runningBot == null || !(reply instanceof ILinkReply.DocumentFile
-                || reply instanceof ILinkReply.AudioFile || reply instanceof ILinkReply.Image)) {
+                || reply instanceof ILinkReply.AudioFile || reply instanceof ILinkReply.Image
+                || reply instanceof ILinkReply.ImageBatch)) {
             return;
         }
         String type = reply instanceof ILinkReply.DocumentFile ? "文件"
@@ -433,6 +539,7 @@ public class ILinkBotService {
         if (reply instanceof ILinkReply.DocumentFile) return "document";
         if (reply instanceof ILinkReply.AudioFile) return "audio";
         if (reply instanceof ILinkReply.Image) return "image";
+        if (reply instanceof ILinkReply.ImageBatch) return "image_batch";
         if (reply instanceof ILinkReply.Text) return "text";
         return "unknown";
     }
@@ -441,6 +548,7 @@ public class ILinkBotService {
         if (reply instanceof ILinkReply.DocumentFile document) return document.bytes().length;
         if (reply instanceof ILinkReply.AudioFile audio) return audio.bytes().length;
         if (reply instanceof ILinkReply.Image image) return image.bytes().length;
+        if (reply instanceof ILinkReply.ImageBatch images) return images.images().stream().mapToInt(bytes -> bytes.length).sum();
         return 0;
     }
 

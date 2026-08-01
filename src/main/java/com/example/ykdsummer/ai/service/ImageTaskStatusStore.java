@@ -2,6 +2,7 @@ package com.example.ykdsummer.ai.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.example.ykdsummer.persistence.ImageTaskPersistence;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -16,6 +17,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 保存当前进程内最近的图片 Tool 执行状态。
@@ -26,6 +29,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class ImageTaskStatusStore {
+    private static final Logger log = LoggerFactory.getLogger(ImageTaskStatusStore.class);
     private static final int MAX_TASKS_PER_USER = 12;
     private static final int MAX_RETRY_PROMPT_LENGTH = 4_000;
     private static final int MAX_FAILURE_LENGTH = 240;
@@ -34,6 +38,12 @@ public class ImageTaskStatusStore {
             .maximumSize(10_000)
             .expireAfterAccess(Duration.ofHours(2))
             .build();
+    private volatile ImageTaskPersistence persistence = ImageTaskPersistence.disabled();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setPersistence(ImageTaskPersistence persistence) {
+        this.persistence = persistence == null ? ImageTaskPersistence.disabled() : persistence;
+    }
 
     public ImageTask start(String userId, Operation operation, String retryPrompt,
                            String sourceAssetId, int sourceVersion) {
@@ -57,6 +67,7 @@ public class ImageTaskStatusStore {
                 tasks.removeLast();
             }
         }
+        persist(userId, task);
         return task;
     }
 
@@ -73,7 +84,9 @@ public class ImageTaskStatusStore {
         if (requested.isBlank()) {
             return Optional.empty();
         }
-        return recent(userId, MAX_TASKS_PER_USER).stream()
+        Optional<ImageTask> persisted = findPersisted(userId, requested);
+        if (persisted.isPresent()) return persisted;
+        return recentInMemory(userId, MAX_TASKS_PER_USER).stream()
                 .filter(task -> task.taskId().equals(requested))
                 .findFirst();
     }
@@ -95,6 +108,12 @@ public class ImageTaskStatusStore {
     }
 
     public List<ImageTask> recent(String userId, int limit) {
+        List<ImageTask> persisted = recentPersisted(userId, limit);
+        if (!persisted.isEmpty()) return persisted;
+        return recentInMemory(userId, limit);
+    }
+
+    private List<ImageTask> recentInMemory(String userId, int limit) {
         Deque<ImageTask> tasks = tasksByUser.getIfPresent(userKey(userId));
         if (tasks == null || limit < 1) {
             return List.of();
@@ -106,24 +125,33 @@ public class ImageTaskStatusStore {
 
     public void clear(String userId) {
         tasksByUser.invalidate(userKey(userId));
+        try {
+            persistence.clear(userId);
+        } catch (RuntimeException exception) {
+            log.warn("Could not clear persisted image tasks, user={}", anonymize(userId), exception);
+        }
     }
 
     private void update(String userId, String taskId, UnaryOperator<ImageTask> updater) {
-        Deque<ImageTask> tasks = tasksByUser.getIfPresent(userKey(userId));
-        if (tasks == null) {
-            return;
-        }
+        ImageTask current = find(userId, taskId).orElse(null);
+        if (current == null) return;
+        ImageTask next = updater.apply(current);
+        Deque<ImageTask> tasks = tasksFor(userId);
         synchronized (tasks) {
             List<ImageTask> updated = new ArrayList<>(tasks);
             for (int index = 0; index < updated.size(); index++) {
                 if (updated.get(index).taskId().equals(taskId)) {
-                    updated.set(index, updater.apply(updated.get(index)));
+                    updated.set(index, next);
                     tasks.clear();
                     updated.forEach(tasks::addLast);
+                    persist(userId, next);
                     return;
                 }
             }
+            tasks.addFirst(next);
+            while (tasks.size() > MAX_TASKS_PER_USER) tasks.removeLast();
         }
+        persist(userId, next);
     }
 
     private Deque<ImageTask> tasksFor(String userId) {
@@ -158,6 +186,36 @@ public class ImageTaskStatusStore {
     private static String limit(String value, int maxLength) {
         String safe = safe(value);
         return safe.length() <= maxLength ? safe : safe.substring(0, maxLength);
+    }
+
+    private void persist(String userId, ImageTask task) {
+        try {
+            persistence.save(userId, task);
+        } catch (RuntimeException exception) {
+            log.warn("Could not persist image task {}, user={}", task.taskId(), anonymize(userId), exception);
+        }
+    }
+
+    private Optional<ImageTask> findPersisted(String userId, String taskId) {
+        try {
+            return persistence.find(userId, taskId);
+        } catch (RuntimeException exception) {
+            log.warn("Could not read persisted image task {}, user={}", taskId, anonymize(userId), exception);
+            return Optional.empty();
+        }
+    }
+
+    private List<ImageTask> recentPersisted(String userId, int limit) {
+        try {
+            return persistence.recent(userId, limit);
+        } catch (RuntimeException exception) {
+            log.warn("Could not read persisted image tasks, user={}", anonymize(userId), exception);
+            return List.of();
+        }
+    }
+
+    private static String anonymize(String userId) {
+        return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
     }
 
     public enum Operation {

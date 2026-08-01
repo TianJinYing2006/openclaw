@@ -6,6 +6,8 @@ import io.github.morningwn.client.ILinkClient;
 import io.github.morningwn.protocol.CDNMedia;
 import io.github.morningwn.protocol.MessageItem;
 import io.github.morningwn.protocol.VideoItem;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.security.MessageDigest;
@@ -21,6 +23,8 @@ import java.util.List;
  */
 @Component
 public class ILinkVideoDownloader {
+
+    private static final Logger log = LoggerFactory.getLogger(ILinkVideoDownloader.class);
 
     private final VideoProcessingProperties properties;
     private volatile ILinkClient client;
@@ -40,6 +44,11 @@ public class ILinkVideoDownloader {
     }
 
     public byte[] downloadVideo(List<MessageItem> items) {
+        return downloadVideo(client, items);
+    }
+
+    /** Uses an explicitly owned client for a managed bot instance. */
+    public byte[] downloadVideo(ILinkClient currentClient, List<MessageItem> items) {
         List<VideoItem> videos = items.stream()
                 .filter(item -> item != null && ILinkMessageType.from(item.type()) == ILinkMessageType.VIDEO)
                 .map(MessageItem::videoItem)
@@ -54,6 +63,12 @@ public class ILinkVideoDownloader {
 
         VideoItem video = videos.getFirst();
         long maxBytes = properties.getMaxVideoSize().toBytes();
+        log.info(
+                "Downloading iLink video, declaredBytes={}, playLengthMs={}, hasThumbnail={}",
+                video.videoSize(),
+                video.playLength(),
+                video.thumbMedia() != null
+        );
         if (video.videoSize() != null && video.videoSize() > maxBytes) {
             throw new VideoProcessingException("视频不能超过 " + properties.getMaxVideoSize().toMegabytes() + " MiB");
         }
@@ -61,7 +76,6 @@ public class ILinkVideoDownloader {
         if (media == null) {
             throw new VideoProcessingException("视频读取失败，请重新发送");
         }
-        ILinkClient currentClient = client;
         if (currentClient == null) {
             throw new VideoProcessingException("视频读取服务尚未连接，请稍后重试");
         }
@@ -83,8 +97,13 @@ public class ILinkVideoDownloader {
             throw new VideoProcessingException("视频不能超过 " + properties.getMaxVideoSize().toMegabytes() + " MiB");
         }
 
+        log.info("Downloaded iLink video, bytes={}, signature={}", bytes.length, signature(bytes));
         verifyMd5WhenPresent(video.videoMd5(), bytes);
         return bytes;
+    }
+
+    private static String signature(byte[] bytes) {
+        return HexFormat.of().formatHex(bytes, 0, Math.min(bytes.length, 12));
     }
 
     private static void verifyMd5WhenPresent(String expected, byte[] bytes) {
