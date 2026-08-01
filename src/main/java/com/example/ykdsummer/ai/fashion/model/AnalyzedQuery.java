@@ -62,7 +62,7 @@ public record AnalyzedQuery(String originalQuery, List<String> decomposedQueries
     /** 关键词兜底分析，当 LLM 调用失败时使用。 */
     public static AnalyzedQuery fallback(String userInput) {
         QueryParams params = QueryParams.fallback(userInput);
-        // 中英混合子查询：原始输入 + 场景/季节枚举，保证 FTS5 枚举 token 可命中
+        // 中英混合子查询：原始输入 + 场景/季节枚举，保证枚举 token 可命中
         List<String> queries = new java.util.ArrayList<>();
         queries.add(userInput);
         if (params.scene() != null && !params.scene().isBlank()) {

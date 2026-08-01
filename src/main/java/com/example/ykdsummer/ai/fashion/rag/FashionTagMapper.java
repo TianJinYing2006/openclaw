@@ -7,7 +7,7 @@ import java.util.Map;
 /**
  * 穿搭标签映射工具：将 LLM 输出的场景/风格/季节与种子数据中的英文枚举对齐。
  *
- * <p>QueryAnalyzer 输出的 scene（如 work/wedding）与 FTS5 表内 scene 列的
+ * <p>QueryAnalyzer 输出的 scene（如 work/wedding）与检索表内 scene 列的
  * 枚举值（如 WORKPLACE/COMMUTE/FORMAL_EVENT）不一致，styleHint 为中文、
  * style 列为英文。检索前必须先做映射，否则场景过滤与加权匹配全部失效。
  */

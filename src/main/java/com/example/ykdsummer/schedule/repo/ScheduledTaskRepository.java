@@ -17,10 +17,9 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 定时任务数据访问层，使用 JdbcTemplate 操作 SQLite scheduled_tasks 表。
+ * 定时任务数据访问层，使用 JdbcTemplate 操作 MySQL scheduled_tasks 表。
  *
- * <p>日期时间在 SQLite 中以 TEXT 格式存储（与 chat_sessions / chat_messages 一致），
- * 格式为 "yyyy-MM-dd HH:mm:ss"。
+ * <p>日期时间以 "yyyy-MM-dd HH:mm:ss" 字符串形式读写（与既有持久化约定一致）。
  */
 @Repository
 public class ScheduledTaskRepository {
@@ -80,14 +79,14 @@ public class ScheduledTaskRepository {
                 task.getTotalRunCount(),
                 task.getErrorMsg()
         );
-        // SQLite last_insert_rowid()
-        Long id = jdbc.queryForObject("SELECT last_insert_rowid()", Long.class);
+        // MySQL LAST_INSERT_ID()
+        Long id = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         return id != null ? id : 0L;
     }
 
     /** 更新任务状态 */
     public void updateStatus(Long id, TaskStatus status) {
-        jdbc.update("UPDATE scheduled_tasks SET status = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+        jdbc.update("UPDATE scheduled_tasks SET status = ?, updated_at = NOW() WHERE id = ?",
                 status.name(), id);
     }
 
@@ -95,10 +94,10 @@ public class ScheduledTaskRepository {
     public void recordRun(Long id, TaskStatus newStatus, String result) {
         jdbc.update("""
                 UPDATE scheduled_tasks
-                SET status = ?, last_run_at = datetime('now','localtime'),
+                SET status = ?, last_run_at = NOW(),
                     last_run_result = ?, total_run_count = total_run_count + 1,
                     error_msg = CASE WHEN ? != 'SUCCESS' THEN ? ELSE '' END,
-                    updated_at = datetime('now','localtime')
+                    updated_at = NOW()
                 WHERE id = ?
                 """, newStatus.name(), result, result, result, id);
     }
@@ -107,22 +106,22 @@ public class ScheduledTaskRepository {
     public void markFinished(Long id) {
         jdbc.update("""
                 UPDATE scheduled_tasks
-                SET status = 'FINISHED', last_run_at = datetime('now','localtime'),
+                SET status = 'FINISHED', last_run_at = NOW(),
                     last_run_result = 'SUCCESS', total_run_count = total_run_count + 1,
-                    updated_at = datetime('now','localtime')
+                    updated_at = NOW()
                 WHERE id = ?
                 """, id);
     }
 
     /** 暂停任务 */
     public void pauseTask(Long id) {
-        jdbc.update("UPDATE scheduled_tasks SET status = 'PAUSED', updated_at = datetime('now','localtime') WHERE id = ?",
+        jdbc.update("UPDATE scheduled_tasks SET status = 'PAUSED', updated_at = NOW() WHERE id = ?",
                 id);
     }
 
     /** 恢复任务为 WAITING */
     public void resumeTask(Long id) {
-        jdbc.update("UPDATE scheduled_tasks SET status = 'WAITING', updated_at = datetime('now','localtime') WHERE id = ?",
+        jdbc.update("UPDATE scheduled_tasks SET status = 'WAITING', updated_at = NOW() WHERE id = ?",
                 id);
     }
 
@@ -139,7 +138,7 @@ public class ScheduledTaskRepository {
         int affected = jdbc.update("""
                 UPDATE scheduled_tasks
                 SET status = 'WAITING', error_msg = 'reset: process restarted',
-                    updated_at = datetime('now','localtime')
+                    updated_at = NOW()
                 WHERE status = 'RUNNING'
                 """);
         if (affected > 0) {

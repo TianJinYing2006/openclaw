@@ -13,16 +13,9 @@ import com.example.ykdsummer.fashion.application.FashionAgentWorkflowContextProv
 import com.example.ykdsummer.fashion.application.FashionWardrobeDraftCommandHandler;
 import com.example.ykdsummer.fashion.tool.FashionWardrobeVisualCommandHandler;
 import com.example.ykdsummer.persistence.ConversationHistoryStore;
-import com.example.ykdsummer.storage.db.SqliteChatMemory;
-import com.google.common.util.concurrent.Striped;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.UserMessage;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReadWriteLock;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import com.example.ykdsummer.ai.config.AiProperties;
@@ -39,7 +32,7 @@ import org.springframework.stereotype.Service;
  * {@link com.example.ykdsummer.bot.service.ILinkReplyService} 整理好的用户 ID、文字和图片，
  * 找到该用户自己的历史记录，然后调用 {@link LlmGateway}。</p>
  *
- * <p>历史记录通过 Caffeine 本地缓存或 SQLite 持久化存储，以 iLink 的 {@code fromUserId} 为键。
+ * <p>历史记录通过 Caffeine 本地缓存或 MySQL 持久化存储，以 iLink 的 {@code fromUserId} 为键。
  * 两个微信用户使用不同的键，因此聊天不会混在一起。</p>
  */
 @Service
@@ -64,23 +57,21 @@ public class AiChatService {
     private volatile FashionWardrobeVisualCommandHandler wardrobeVisualCommands;
     /** key 是 iLink fromUserId，value 是该微信用户自己的最近对话。 */
     private final Cache<String, UserConversation> conversations;
-    private final SqliteChatMemory chatMemory;
-    private final Striped<ReadWriteLock> userLocks;
     private final ScheduledTaskRepository taskRepository;
 
     public AiChatService(AiProperties properties, LlmGateway gateway) {
         this(properties, gateway, AiTraceLogger.disabled(), AiUsageMeter.disabled(),
                 new TokenBudgetPolicy(new com.example.ykdsummer.ai.config.AiUsageProperties()),
-                null, null);
+                null);
     }
 
     public AiChatService(AiProperties properties, LlmGateway gateway, AiTraceLogger trace) {
         this(properties, gateway, trace, AiUsageMeter.disabled(),
                 new TokenBudgetPolicy(new com.example.ykdsummer.ai.config.AiUsageProperties()),
-                null, null);
+                null);
     }
 
-    // 5-arg backward compat for tests (no SqliteChatMemory, no ScheduledTaskRepository)
+    // 5-arg backward compat for tests (no ScheduledTaskRepository)
     public AiChatService(
             AiProperties properties,
             LlmGateway gateway,
@@ -88,19 +79,7 @@ public class AiChatService {
             AiUsageMeter usageMeter,
             TokenBudgetPolicy budgetPolicy
     ) {
-        this(properties, gateway, trace, usageMeter, budgetPolicy, null, null);
-    }
-
-    // 6-arg backward compat for tests (no ScheduledTaskRepository)
-    public AiChatService(
-            AiProperties properties,
-            LlmGateway gateway,
-            AiTraceLogger trace,
-            AiUsageMeter usageMeter,
-            TokenBudgetPolicy budgetPolicy,
-            SqliteChatMemory chatMemory
-    ) {
-        this(properties, gateway, trace, usageMeter, budgetPolicy, chatMemory, null);
+        this(properties, gateway, trace, usageMeter, budgetPolicy, null);
     }
 
     @Autowired
@@ -110,7 +89,6 @@ public class AiChatService {
             AiTraceLogger trace,
             AiUsageMeter usageMeter,
             TokenBudgetPolicy budgetPolicy,
-            @Autowired(required = false) SqliteChatMemory chatMemory,
             @Autowired(required = false) ScheduledTaskRepository taskRepository
     ) {
         this.properties = properties;
@@ -118,18 +96,11 @@ public class AiChatService {
         this.trace = trace;
         this.usageMeter = usageMeter;
         this.budgetPolicy = budgetPolicy;
-        this.chatMemory = chatMemory;
         this.taskRepository = taskRepository;
-        if (chatMemory != null) {
-            this.conversations = null;
-            this.userLocks = Striped.lazyWeakReadWriteLock(1024);
-        } else {
-            this.conversations = Caffeine.newBuilder()
-                    .maximumSize(properties.getMaxMemoryUsers())
-                    .expireAfterAccess(safeMemoryTimeout(properties.getMemoryIdleTimeout()))
-                    .build();
-            this.userLocks = null;
-        }
+        this.conversations = Caffeine.newBuilder()
+                .maximumSize(properties.getMaxMemoryUsers())
+                .expireAfterAccess(safeMemoryTimeout(properties.getMemoryIdleTimeout()))
+                .build();
     }
 
     @Autowired(required = false)
@@ -210,9 +181,6 @@ public class AiChatService {
         String context = pendingTaskContext(userId);
         String enhancedPrompt = context.isEmpty() ? modelPrompt : modelPrompt + context;
 
-        if (chatMemory != null) {
-            return answerSqliteInternal(userId, memoryPrompt, enhancedPrompt, images, files);
-        }
         // Caffeine 按访问时间自动过期，并对总用户数设置上限，避免长期运行后 Map 无限增长。
         UserConversation conversation = conversations.get(userId,
                 ignored -> new UserConversation(conversationHistory.load(ignored, properties.getMaxMemoryMessages())));
@@ -307,31 +275,6 @@ public class AiChatService {
         }
     }
 
-    private AssistantAnswer answerSqliteInternal(
-            String userId,
-            String memoryPrompt,
-            String modelPrompt,
-            List<AiImage> images,
-            List<AiFile> files
-    ) {
-        String conversationId = userId + "::single";
-        Lock lock = userLocks.get(userId).writeLock();
-        lock.lock();
-        try {
-            return executeWithGateway(userId, memoryPrompt, modelPrompt, images, files,
-                    () -> {
-                        int windowSize = chatMemory.getWindowSize(conversationId, properties.getMaxMemoryMessages());
-                        return chatMemory.getAsConversationMessages(conversationId, windowSize);
-                    },
-                    (userMsg, assistantMsg) -> {
-                        chatMemory.add(conversationId, List.of(toSpringMessage(userMsg)));
-                        chatMemory.add(conversationId, List.of(toSpringMessage(assistantMsg)));
-                    });
-        } finally {
-            lock.unlock();
-        }
-    }
-
     /**
      * 共享的网关调用模板方法。负责预算检查、用量计量、模型调用、历史保存和异常处理。
      *
@@ -394,18 +337,7 @@ public class AiChatService {
         }
     }
 
-    private static Message toSpringMessage(ConversationMessage msg) {
-        return switch (msg.role()) {
-            case USER -> new UserMessage(msg.text());
-            case ASSISTANT -> new AssistantMessage(msg.text());
-        };
-    }
-
     public void clear(String userId) {
-        if (chatMemory != null) {
-            chatMemory.clear(userId + "::single");
-            return;
-        }
         UserConversation removed = conversations.getIfPresent(userId);
         conversations.invalidate(userId);
         if (removed != null) {
@@ -487,9 +419,6 @@ public class AiChatService {
     }
 
     int conversationCount() {
-        if (chatMemory != null) {
-            return 0;
-        }
         conversations.cleanUp();
         return Math.toIntExact(conversations.estimatedSize());
     }

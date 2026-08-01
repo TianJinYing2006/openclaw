@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 
 @SpringBootTest(properties = {
         "ilink.enabled=false",
-        "app.persistence.enabled=false",
+        "app.persistence.enabled=true",
         "app.persistence.redis.enabled=false",
         "app.fashion.semantic.enabled=false",
         "app.fashion.reference.enabled=false"

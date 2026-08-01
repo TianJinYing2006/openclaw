@@ -17,13 +17,13 @@ import java.util.Map;
 /**
  * 穿搭知识检索服务（RAG 层）。
  *
- * <p>使用 SQLite FTS5 全文检索从种子数据中查找相关穿搭案例。
+ * <p>使用 MySQL FULLTEXT 全文检索（ngram 分词）从种子数据中查找相关穿搭案例。
  * 检索在 Agent 启动前统一执行一次，结果共享给所有 Agent。
  *
  * <p>检索策略：
  * <ul>
- *   <li>用 AnalyzedQuery 的 decomposedQueries 拼接为 FTS5 MATCH 查询</li>
- *   <li>用 params.scene/season 做精确过滤增强</li>
+ *   <li>用 AnalyzedQuery 的 decomposedQueries 拼接为 MATCH...AGAINST 查询</li>
+ *   <li>短词（1-2 字符）走 content LIKE 兜底召回</li>
  *   <li>返回 top_k=5 条结果</li>
  * </ul>
  */
@@ -54,36 +54,36 @@ public class FashionKnowledgeService {
         }
 
         try {
-            // 构建 FTS5 查询：MATCH 长词（含英文枚举）+ LIKE 兜底短中文词
+            // 构建 FULLTEXT 查询：MATCH...AGAINST 长词（含英文枚举）+ LIKE 兜底短中文词
             FtsPlan plan = buildFtsPlan(query);
             if (plan.matchQuery().isBlank() && plan.likeTerms().isEmpty()) {
-                log.warn("Empty FTS query, returning empty results");
+                log.warn("Empty FULLTEXT query, returning empty results");
                 return List.of();
             }
 
-            log.info("FTS5 query: {} (like fallback: {})",
+            log.info("FULLTEXT query: {} (like fallback: {})",
                     plan.matchQuery().isBlank() ? "<none>" : plan.matchQuery(),
                     plan.likeTerms());
 
             StringBuilder sql = new StringBuilder(
                     "SELECT id, content, source, summary, top, bottom, shoes, accessories, " +
                     "style, scene, season, color_scheme, " +
-                    "bm25(fashion_seed_fts, 1, 1, 1, 1, 1, 1, 1, 1, 8, 8, 8, 1) AS rank " +
+                    "MATCH(content, style, scene, season) AGAINST (? IN BOOLEAN MODE) AS relevance " +
                     "FROM fashion_seed_fts WHERE");
 
             List<Object> params = new ArrayList<>();
             if (!plan.matchQuery().isBlank()) {
-                sql.append(" fashion_seed_fts MATCH ?");
+                sql.append(" MATCH(content, style, scene, season) AGAINST (? IN BOOLEAN MODE)");
                 params.add(plan.matchQuery());
             } else {
                 sql.append(" 1=0");
             }
-            // trigram 无法匹配 1-2 字符短词，用 content LIKE 补充召回
+            // MySQL 全文检索（ngram）对 1-2 字符短词召回有限，用 content LIKE 补充召回
             for (String like : plan.likeTerms()) {
                 sql.append(" OR content LIKE ?");
                 params.add("%" + like + "%");
             }
-            sql.append(" ORDER BY rank LIMIT ?");
+            sql.append(" ORDER BY relevance DESC LIMIT ?");
             params.add(TOP_K);
 
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), params.toArray());
@@ -91,8 +91,8 @@ public class FashionKnowledgeService {
             List<RetrievedChunk> chunks = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 SeedEntry entry = mapToEntry(row);
-                // bm25 返回负值，越相关越负；取绝对值避免除零，转为 0~1 分数
-                double score = 1.0 / (1.0 + Math.abs(getDouble(row, "rank")));
+                // MySQL FULLTEXT 相关性为 0~1 正值，越高越相关
+                double score = Math.min(1.0, Math.max(0.0, getDouble(row, "relevance")));
                 chunks.add(new RetrievedChunk(entry, score));
             }
 
@@ -105,19 +105,19 @@ public class FashionKnowledgeService {
         }
     }
 
-    /** FTS 检索计划：MATCH 查询串 + LIKE 兜底短词列表。 */
+    /** FULLTEXT 检索计划：AGAINST 查询串 + LIKE 兜底短词列表。 */
     private record FtsPlan(String matchQuery, List<String> likeTerms) {}
 
     /**
-     * 构建 FTS 检索计划。
+     * 构建 FULLTEXT 检索计划。
      *
      * <p>双路召回：
      * <ul>
-     *   <li>长词（≥3字符，含中英混合）→ MATCH 查询：中文短语加引号、英文枚举做 token 匹配</li>
-     *   <li>短词（1-2 字符中文/英文）→ trigram 无法索引，转 content LIKE 兜底</li>
+     *   <li>长词（≥3字符，含中英混合）→ MATCH...AGAINST（BOOLEAN MODE）</li>
+     *   <li>短词（1-2 字符中文/英文）→ content LIKE 兜底</li>
      * </ul>
-     * 场景/风格/季节枚举经 {@link FashionTagMapper} 映射后因 bm25 列权重
-     * （style/scene/season 为 8）排在最前。
+     * 场景/风格/季节枚举经 {@link FashionTagMapper} 映射后直接进入检索词，
+     * 命中 style/scene/season 列的文档相关性更高。
      */
     private FtsPlan buildFtsPlan(AnalyzedQuery query) {
         List<String> rawTerms = new ArrayList<>();
@@ -157,29 +157,25 @@ public class FashionKnowledgeService {
             classifyTerm(term, matchTerms, likeTerms);
         }
 
-        return new FtsPlan(String.join(" OR ", matchTerms), likeTerms);
+        // BOOLEAN MODE 下默认 OR 语义，检索词间用空格分隔即可
+        return new FtsPlan(String.join(" ", matchTerms), likeTerms);
     }
 
     /**
-     * 将单个检索词分类：长词进 MATCH，短词（<3 字符）进 LIKE 兜底。
+     * 将单个检索词分类：长词（≥3字符）进 MATCH，短词（<3 字符）进 LIKE 兜底。
      */
     private void classifyTerm(String input, List<String> matchTerms, List<String> likeTerms) {
         String cleaned = input.replace("\"", "").trim();
         if (cleaned.isBlank()) return;
 
-        // trigram 索引无法有效匹配 1-2 字符词，走 LIKE 补充召回
+        // MySQL 全文检索（ngram，token 最小 2 字符）对 1-2 字符词召回有限，走 LIKE 补充召回
         if (cleaned.length() < 3) {
             likeTerms.add(cleaned);
             return;
         }
 
-        boolean hasCjk = cleaned.chars().anyMatch(c -> c >= 0x4E00);
-        // 含中文或空格的短语加引号做精确匹配；纯 ASCII 单词（枚举）做 token 匹配
-        if (hasCjk || cleaned.contains(" ")) {
-            matchTerms.add("\"" + cleaned + "\"");
-        } else {
-            matchTerms.add(cleaned);
-        }
+        // 中英文统一作为检索词；BOOLEAN MODE 下空格即 OR
+        matchTerms.add(cleaned);
     }
 
     /**

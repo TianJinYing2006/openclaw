@@ -24,9 +24,9 @@ import java.util.List;
  *
  * <p>启动时：
  * <ol>
- *   <li>创建 SQLite FTS5 虚拟表用于全文检索</li>
+ *   <li>创建 MySQL 检索表（含 FULLTEXT ngram 索引）用于全文检索</li>
  *   <li>从 data/xiaohongshu_fashion_seed.json 加载种子数据</li>
- *   <li>将种子数据写入 FTS5 索引</li>
+ *   <li>将种子数据写入检索表</li>
  * </ol>
  *
  * <p>幂等设计：每次启动先清空再导入，保证数据一致性。
@@ -49,55 +49,54 @@ public class FashionSchemaInitializer {
 
     @PostConstruct
     public void initialize() {
-        // trigram 分词器不支持重建，每次启动先 DROP 再 CREATE，保证结构一致
-        dropFts5TableIfExists();
-        createFts5Table();
+        // 每次启动先 DROP 再 CREATE，保证表结构与 FULLTEXT 索引一致
+        dropSearchTable();
+        createSearchTable();
         loadSeedData();
     }
 
     /**
-     * 删除旧 FTS5 表。tokenizer 变更时（如 unicode61 → trigram）必须重建，
-     * 否则 CREATE VIRTUAL TABLE IF NOT EXISTS 会复用旧结构。
+     * 删除旧检索表，保证启动时表结构与 FULLTEXT 索引一致。
      */
-    private void dropFts5TableIfExists() {
+    private void dropSearchTable() {
         try {
             jdbcTemplate.execute("DROP TABLE IF EXISTS fashion_seed_fts");
         } catch (Exception e) {
-            log.error("Failed to drop FTS5 table: {}", e.getMessage());
+            log.error("Failed to drop search table: {}", e.getMessage());
         }
     }
 
     /**
-     * 创建 FTS5 虚拟表。使用 trigram 分词器，支持中文子词检索
+     * 创建检索表。使用 InnoDB FULLTEXT 索引（ngram 分词器），支持中文子词检索
      * （如查询"短袖"可命中"韩系宽松短袖T恤"）。
      */
-    private void createFts5Table() {
+    private void createSearchTable() {
         try {
             jdbcTemplate.execute("""
-                    CREATE VIRTUAL TABLE fashion_seed_fts USING fts5(
-                        id UNINDEXED,
-                        content,
-                        source UNINDEXED,
-                        summary UNINDEXED,
-                        top UNINDEXED,
-                        bottom UNINDEXED,
-                        shoes UNINDEXED,
-                        accessories UNINDEXED,
-                        style,
-                        scene,
-                        season,
-                        color_scheme,
-                        tokenize='trigram'
-                    )
+                    CREATE TABLE IF NOT EXISTS fashion_seed_fts (
+                        id VARCHAR(64) NOT NULL,
+                        content TEXT NOT NULL,
+                        source VARCHAR(255),
+                        summary TEXT,
+                        top VARCHAR(255),
+                        bottom VARCHAR(255),
+                        shoes VARCHAR(255),
+                        accessories VARCHAR(255),
+                        style VARCHAR(255),
+                        scene VARCHAR(255),
+                        season VARCHAR(255),
+                        color_scheme VARCHAR(255),
+                        FULLTEXT KEY ft_search (content, style, scene, season) WITH PARSER ngram
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                     """);
-            log.info("FTS5 table 'fashion_seed_fts' created (trigram tokenizer)");
+            log.info("Search table 'fashion_seed_fts' created (FULLTEXT ngram index)");
         } catch (Exception e) {
-            log.error("Failed to create FTS5 table: {}", e.getMessage());
+            log.error("Failed to create search table: {}", e.getMessage());
         }
     }
 
     /**
-     * 从 JSON 文件加载种子数据并写入 FTS5 索引。
+     * 从 JSON 文件加载种子数据并写入检索表。
      */
     private void loadSeedData() {
         Path seedPath = Paths.get(SEED_DATA_PATH);
@@ -118,7 +117,7 @@ public class FashionSchemaInitializer {
                 insertEntry(entry);
             }
 
-            log.info("Loaded {} seed entries into FTS5 index", entries.size());
+            log.info("Loaded {} seed entries into search table", entries.size());
 
         } catch (IOException e) {
             log.error("Failed to read seed data file: {}", e.getMessage());

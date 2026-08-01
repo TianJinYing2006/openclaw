@@ -129,7 +129,7 @@ public class FashionEmbeddingService {
     }
 
     /**
-     * 将向量序列化为 JSON 字符串（用于存储到 SQLite）。
+     * 将向量序列化为 JSON 字符串（用于存储到 MySQL）。
      */
     public String serialize(float[] embedding) {
         if (embedding == null) return "";
