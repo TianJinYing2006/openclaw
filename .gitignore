@@ -21,13 +21,18 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
-application.properties
 application-local.properties
 secret.properties
 ilink/
 .ilink/
 .documents/
 .ai-assets/
+
+# AI 辅助工具本地计划/运行时产物，不入库
+.mimocode/
+.trae-html-share-packages/
+skill-design-daily-report/
+data/wechat/
 
 # Operating-system files
 .DS_Store

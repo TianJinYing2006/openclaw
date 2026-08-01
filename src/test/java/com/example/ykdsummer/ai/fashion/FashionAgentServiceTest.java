@@ -33,7 +33,7 @@ class FashionAgentServiceTest {
 
     @Test
     void blankInputReturnsGuidanceWithoutCallingPipeline() {
-        FashionAgentService service = new FashionAgentService(null, new FashionResponseFormatter());
+        FashionAgentService service = new FashionAgentService(null, new FashionResponseFormatter(), null);
 
         String reply = service.consult("  ");
 
@@ -44,7 +44,7 @@ class FashionAgentServiceTest {
 
     @Test
     void consultFormatsPipelineResultIntoWechatCopy() {
-        FashionAgentService service = new FashionAgentService(stubCoordinator(), new FashionResponseFormatter());
+        FashionAgentService service = new FashionAgentService(stubCoordinator(), new FashionResponseFormatter(), null);
 
         String reply = service.consult("今天去海边穿什么");
 
@@ -57,7 +57,8 @@ class FashionAgentServiceTest {
     }
 
     private static AgentCoordinator stubCoordinator() {
-        return new AgentCoordinator(null, null, null, null, null, null) {
+        return new AgentCoordinator(null, null, null, null, null, null,
+                null, null, null, null) {
             @Override
             public FashionResult process(FashionRequest request) {
                 return new FashionResult(

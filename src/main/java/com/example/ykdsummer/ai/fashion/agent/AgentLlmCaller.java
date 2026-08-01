@@ -145,11 +145,10 @@ public class AgentLlmCaller {
                         .model(model)
                         .maxCompletionTokens(Math.max(1, maxTokens))
                         .store(false)
-                        // mimo-v2.5 默认开启深度思考，思考内容占用 max_completion_tokens 额度，
-                        // 导致实际输出为空。fashion 管道是结构化 JSON 输出，关闭思考可保证有返回值。
-                        // 参数格式参考 MiMo 官方文档：extra_body: {"thinking": {"type": "disabled"}}
-                        // 使用 HashMap 而非 Map.of，确保 Jackson 序列化嵌套对象时行为正确
-                        .extraBody(buildThinkingDisabledBody())
+                        // 不同模型关闭思考的参数格式不同：
+                        // qwen 系列用 enable_thinking=false，mimo 系列用 thinking={"type":"disabled"}。
+                        // 按模型名选择对应参数，避免思考内容占用 max_completion_tokens 导致输出为空。
+                        .extraBody(buildThinkingDisabledBody(model))
                         .build()
         );
 
@@ -361,18 +360,32 @@ public class AgentLlmCaller {
     }
 
     /**
-     * 构建 mimo-v2.5 关闭深度思考的 extraBody。
+     * 构建关闭深度思考的 extraBody，按模型名选择兼容的参数格式。
+     *
+     * <ul>
+     *   <li>qwen 系列（如 qwen3.7-flash）：{@code "enable_thinking": false}</li>
+     *   <li>mimo 系列：{@code "thinking": {"type": "disabled"}}</li>
+     *   <li>未知模型：两种都带上，OpenAI 兼容网关通常忽略未知字段</li>
+     * </ul>
      *
      * <p>使用可变 HashMap 构建嵌套结构，避免 Map.of 创建的不可变 Map
      * 在 Jackson @JsonAnyGetter 序列化时出现兼容性问题。
-     *
-     * <p>最终展平到请求 JSON 顶层的效果：{@code "thinking": {"type": "disabled"}}
      */
-    private java.util.Map<String, Object> buildThinkingDisabledBody() {
-        java.util.Map<String, Object> thinking = new java.util.HashMap<>();
-        thinking.put("type", "disabled");
+    private java.util.Map<String, Object> buildThinkingDisabledBody(String model) {
+        String normalized = model == null ? "" : model.toLowerCase();
         java.util.Map<String, Object> body = new java.util.HashMap<>();
-        body.put("thinking", thinking);
+        if (normalized.contains("mimo")) {
+            java.util.Map<String, Object> thinking = new java.util.HashMap<>();
+            thinking.put("type", "disabled");
+            body.put("thinking", thinking);
+        } else if (normalized.contains("qwen")) {
+            body.put("enable_thinking", false);
+        } else {
+            body.put("enable_thinking", false);
+            java.util.Map<String, Object> thinking = new java.util.HashMap<>();
+            thinking.put("type", "disabled");
+            body.put("thinking", thinking);
+        }
         return body;
     }
 }

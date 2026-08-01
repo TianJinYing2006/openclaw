@@ -54,8 +54,8 @@ class FashionReviewAgentsTest {
                 eq(AgentPrompts.TREND),
                 anyString(),
                 eq(TrendOutput.class),
-                eq(650),
-                eq(Duration.ofSeconds(15))
+                eq(1500),
+                eq(Duration.ofSeconds(60))
         )).thenReturn(partialTrend);
 
         TrendOutput output = new TrendAgent(llmCaller).execute(beachStylistOutput(), beachQuery());
@@ -90,8 +90,8 @@ class FashionReviewAgentsTest {
                 eq(AgentPrompts.COORDINATOR),
                 anyString(),
                 eq(CoordinatorOutput.class),
-                eq(600),
-                eq(Duration.ofSeconds(15))
+                eq(3000),
+                eq(Duration.ofSeconds(60))
         )).thenReturn(invalidCoordinator);
 
         CoordinatorOutput output = new CoordinatorAgent(llmCaller).execute(
