@@ -128,22 +128,27 @@ public class ImageTools {
     }
 
     @Tool(name = "inspect_image", description = "当用户的问题依赖某张已保存图片的真实视觉内容时调用，例如“图里的人穿什么”“把那只猫改成白色”。"
-            + "先用 get_current_image 或 list_recent_images 确定 image assetId；此工具会将本地原图通过 Responses 视觉通道读取并返回描述，"
+            + "用户明确说当前、刚才或上一张图片时，assetId 可以留空或传 current；其他情况先用 list_recent_images 确定真实 image assetId。"
+            + "此工具会将本地原图通过视觉通道读取并返回描述，"
             + "不要根据编号或保存提示词猜测画面细节。")
     public String inspectImage(
-            @ToolParam(required = true, description = "要查看的 image assetId，来自图片查询工具。") String assetId,
+            @ToolParam(required = false, description = "要查看的 image assetId；空白、current 或 img_current 表示当前用户最近一张图片。") String assetId,
             @ToolParam(required = false, description = "希望识别的具体问题；空白时返回完整画面摘要。") String question
     ) {
         trace.toolCall("inspect_image", "asset=" + safe(assetId) + ", questionLength=" + safeLength(question));
-        Optional<StoredImage> image = imageStore.latest(artifacts.userId(), assetId);
+        Optional<StoredImage> image = isCurrentAlias(assetId)
+                ? imageStore.current(artifacts.userId())
+                : imageStore.latest(artifacts.userId(), assetId);
         if (image.isEmpty()) {
-            String toolResult = "找不到图片资源：" + assetId + "。请先查询当前或最近图片。";
+            String toolResult = isCurrentAlias(assetId)
+                    ? "当前用户没有可查看的图片资源。请先发送或生成图片。"
+                    : "找不到图片资源：" + assetId + "。请先查询当前或最近图片。";
             trace.toolResult("inspect_image", toolResult);
             return toolResult;
         }
         try {
             String visualSummary = inspectionService.inspect(image.get(), question);
-            imageStore.annotate(artifacts.userId(), assetId, visualSummary);
+            imageStore.annotate(artifacts.userId(), image.get().assetId(), visualSummary);
             String toolResult = describe("视觉识别对象", image.get()) + "\n识别结果：" + visualSummary
                     + "\n该识别摘要已登记到图片元数据，后续可用于定位这张图片。";
             trace.toolResult("inspect_image", toolResult);
@@ -152,6 +157,12 @@ public class ImageTools {
             trace.toolFailure("inspect_image", failure);
             throw failure;
         }
+    }
+
+    private static boolean isCurrentAlias(String assetId) {
+        String value = safe(assetId).toLowerCase(java.util.Locale.ROOT);
+        return value.isBlank() || value.equals("current") || value.equals("img_current")
+                || value.equals("current_image") || value.equals("当前图片") || value.equals("刚才的图片");
     }
 
     @Tool(name = "create_image_revision", description = "当用户要求把某张已保存图片改成另一种颜色、风格、人物状态或构图时调用。"
