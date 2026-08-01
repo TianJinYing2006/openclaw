@@ -13,6 +13,7 @@ import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
@@ -82,14 +83,19 @@ public class OpenAiImageEditGateway implements AsyncImageEditGateway {
                 || referenceImageUrls.stream().anyMatch(url -> url == null || url.isBlank())) {
             return EditResult.error("原图读取地址无效，无法修改图片");
         }
+        long startedAt = System.nanoTime();
+        String stage = "source-download";
         try {
             Duration effectiveTimeout = effectiveTimeout(timeout);
             List<SourceImage> sources = new ArrayList<>(referenceImageUrls.size());
-            for (String referenceImageUrl : referenceImageUrls) {
-                sources.add(downloadSource(referenceImageUrl, effectiveTimeout));
+            for (int index = 0; index < referenceImageUrls.size(); index++) {
+                stage = "source-download-" + (index + 1);
+                sources.add(downloadSource(referenceImageUrls.get(index), effectiveTimeout));
             }
+            stage = "provider-request";
             HttpResponse<String> response = httpClient.send(
                     buildEditRequest(prompt, sources, effectiveTimeout), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            stage = "provider-response";
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 return EditResult.error(errorMessage(response.statusCode(), response.body()));
             }
@@ -98,12 +104,15 @@ public class OpenAiImageEditGateway implements AsyncImageEditGateway {
             Thread.currentThread().interrupt();
             return EditResult.error("图片编辑已取消");
         } catch (IOException exception) {
-            log.warn("OpenAI-compatible image edit transport failed, providerHost={}, referenceCount={}, type={}",
-                    providerHost(), referenceImageUrls.size(), exception.getClass().getSimpleName());
-            return EditResult.error("图片编辑暂时没有响应，请稍后重试");
+            log.warn("OpenAI-compatible image edit transport failed, providerHost={}, stage={}, referenceCount={}, durationMs={}, type={}, detail={}",
+                    providerHost(), stage, referenceImageUrls.size(), elapsedMillis(startedAt),
+                    exception.getClass().getSimpleName(), diagnosticMessage(exception));
+            return exception instanceof HttpTimeoutException
+                    ? EditResult.error("图片编辑请求超时，请稍后重试")
+                    : EditResult.error("图片编辑暂时没有响应，请稍后重试");
         } catch (IllegalArgumentException exception) {
-            log.warn("OpenAI-compatible image edit request was invalid, providerHost={}, referenceCount={}",
-                    providerHost(), referenceImageUrls.size());
+            log.warn("OpenAI-compatible image edit request was invalid, providerHost={}, stage={}, referenceCount={}, durationMs={}, detail={}",
+                    providerHost(), stage, referenceImageUrls.size(), elapsedMillis(startedAt), diagnosticMessage(exception));
             return EditResult.error("图片编辑暂时没有响应，请稍后重试");
         }
     }
@@ -291,6 +300,18 @@ public class OpenAiImageEditGateway implements AsyncImageEditGateway {
 
     private static String safe(String value) {
         return value == null ? "" : value.replace('\u0000', ' ').strip();
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return Math.max(0L, (System.nanoTime() - startedAt) / 1_000_000L);
+    }
+
+    private static String diagnosticMessage(Throwable failure) {
+        String value = safe(failure == null ? "" : failure.getMessage())
+                .replaceAll("(?i)https?://\\S+", "[url]")
+                .replaceAll("(?i)Bearer\\s+\\S+", "Bearer [redacted]");
+        if (value.isBlank()) return "none";
+        return value.length() <= 240 ? value : value.substring(0, 240);
     }
 
     private record SourceImage(byte[] bytes, String mediaType) {

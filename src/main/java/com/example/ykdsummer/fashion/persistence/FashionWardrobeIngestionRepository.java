@@ -30,6 +30,7 @@ public interface FashionWardrobeIngestionRepository {
     GarmentCutoutTask retryCutoutTask(String externalUserId, String candidateId, String instruction, Instant expiresAt);
     GarmentCutoutTask reviseDraftTask(String externalUserId, String candidateId, int sourceVersionNumber,
                                       String instruction, Instant expiresAt);
+    Optional<GarmentCutoutTask> latestCutoutTask(String externalUserId, String candidateId);
     List<String> pendingCutoutTaskIds(Instant now, int limit);
     Optional<GarmentCutoutWork> claimCutoutTask(String taskId, Instant now);
     void completeCutoutTask(String taskId, long outputAssetVersionId, Instant completedAt);

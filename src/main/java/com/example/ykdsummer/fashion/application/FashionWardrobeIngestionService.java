@@ -136,6 +136,10 @@ public class FashionWardrobeIngestionService {
         return repository.draftVersions(externalUserId, candidateId);
     }
 
+    public Optional<GarmentCutoutTask> latestCutoutTask(String externalUserId, String candidateId) {
+        return repository.latestCutoutTask(externalUserId, candidateId);
+    }
+
     public GarmentDraftVersion draftVersion(String externalUserId, String candidateId, int versionNumber) {
         return draftVersions(externalUserId, candidateId).stream()
                 .filter(value -> value.versionNumber() == versionNumber)
@@ -211,16 +215,9 @@ public class FashionWardrobeIngestionService {
             StoredImage source = imageStore.find(work.externalUserId(), work.sourceImage().assetId(), work.sourceImage().version())
                     .orElseThrow(() -> new IllegalStateException("Source image bytes are no longer available"));
             boolean isRevision = work.task().sourceAssetVersionId() != work.candidate().sourceAssetVersionId();
-            GarmentCutoutService.CutoutResult result;
-            if (isRevision) {
-                FashionImageAsset originalAsset = repository.requireOwnedImageVersion(work.externalUserId(),
-                        work.candidate().sourceAssetVersionId());
-                StoredImage original = imageStore.find(work.externalUserId(), originalAsset.assetId(), originalAsset.version())
-                        .orElseThrow(() -> new IllegalStateException("Original garment photo bytes are no longer available"));
-                result = cutouts.revise(work.externalUserId(), source, original, work.candidate(), work.task().instructionText());
-            } else {
-                result = cutouts.cutout(work.externalUserId(), source, work.candidate(), work.task().instructionText());
-            }
+            GarmentCutoutService.CutoutResult result = isRevision
+                    ? cutouts.revise(work.externalUserId(), source, work.candidate(), work.task().instructionText())
+                    : cutouts.cutout(work.externalUserId(), source, work.candidate(), work.task().instructionText());
             if (!result.hasImage()) {
                 repository.failCutoutTask(work.task().id(), result.failureSummary(), Instant.now());
                 publishFailure(work, result.failureSummary());

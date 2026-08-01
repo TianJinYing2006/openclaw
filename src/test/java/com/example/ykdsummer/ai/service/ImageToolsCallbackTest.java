@@ -115,6 +115,26 @@ class ImageToolsCallbackTest {
         assertThat(artifacts.finish()).isEmpty();
     }
 
+    @Test
+    void inspectImageResolvesCurrentAliasWithoutAFailedLookup() {
+        StoredImage current = new StoredImage("img_current_real", 2, Path.of("current.png"), "", "",
+                Instant.EPOCH, "image/png", "uploaded", "");
+        AiImageGenerationService imageService = mock(AiImageGenerationService.class);
+        LocalImageAssetStore store = mock(LocalImageAssetStore.class);
+        ImageInspectionService inspection = mock(ImageInspectionService.class);
+        ToolArtifactCollector artifacts = new ToolArtifactCollector();
+        artifacts.begin("image-user");
+        when(store.current("image-user")).thenReturn(Optional.of(current));
+        when(inspection.inspect(current, "这件上衣是什么颜色")).thenReturn("深灰色上衣");
+        ImageTools tools = new ImageTools(imageService, store, artifacts, inspection, AiTraceLogger.disabled());
+
+        String result = tools.inspectImage("img_current", "这件上衣是什么颜色");
+
+        assertThat(result).contains("img_current_real", "深灰色上衣").doesNotContain("找不到图片资源");
+        verify(store).annotate("image-user", "img_current_real", "深灰色上衣");
+        artifacts.finish();
+    }
+
     private static ToolCallback callback(Object tools, String name) {
         return java.util.Arrays.stream(ToolCallbacks.from(tools))
                 .filter(callback -> callback.getToolDefinition().name().equals(name))

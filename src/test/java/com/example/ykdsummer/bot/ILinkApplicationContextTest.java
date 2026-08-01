@@ -74,7 +74,7 @@ class ILinkApplicationContextTest {
 
     @Test
     void bindsIndependentOpenAiImagesConfigurationWithoutSharingTheTextProtocolClient() {
-        assertEquals("https://api.lk888.ai/v1", imageProperties.getBaseUrl());
+        assertEquals("", imageProperties.getBaseUrl());
         assertEquals("gpt-image-2", aiProperties.getImageModel());
     }
 

@@ -22,23 +22,21 @@ import org.junit.jupiter.api.Test;
 class ReferenceImageGarmentCutoutServiceTest {
 
     @Test
-    void revisionUsesTheOriginalPhotoAsEvidenceAndTheDraftAsThePresentationReference() {
+    void revisionUsesOnlyTheSelectedDraftAsItsReference() {
         AiImageGenerationService images = mock(AiImageGenerationService.class);
         LocalImageAssetStore assets = mock(LocalImageAssetStore.class);
         ReferenceImageGarmentCutoutService service = new ReferenceImageGarmentCutoutService(images, assets);
-        StoredImage original = image("img_original");
         StoredImage draft = image("img_draft");
-        when(assets.signedReadUrl(original)).thenReturn("https://oss.example/original");
         when(assets.signedReadUrl(draft)).thenReturn("https://oss.example/draft");
-        when(images.revise(eq("wechat-user"), contains("Reference image 1 is the original worn photo"),
-                eq(List.of("https://oss.example/original", "https://oss.example/draft"))))
+        when(images.revise(eq("wechat-user"), contains("supplied draft as the only reference"),
+                eq("https://oss.example/draft")))
                 .thenReturn(AiImageGenerationService.Result.image(new byte[] {1, 2, 3}));
 
-        var result = service.revise("wechat-user", draft, original, candidate(), "衣长加长一点");
+        var result = service.revise("wechat-user", draft, candidate(), "衣长加长一点");
 
         assertThat(result.hasImage()).isTrue();
-        verify(images).revise(eq("wechat-user"), contains("Preserve any original print exactly"),
-                eq(List.of("https://oss.example/original", "https://oss.example/draft")));
+        verify(images).revise(eq("wechat-user"), contains("Preserve every existing print"),
+                eq("https://oss.example/draft"));
     }
 
     private static StoredImage image(String assetId) {

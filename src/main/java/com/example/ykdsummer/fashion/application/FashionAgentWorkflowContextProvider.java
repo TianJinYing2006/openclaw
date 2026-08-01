@@ -62,12 +62,15 @@ public class FashionAgentWorkflowContextProvider {
                 处理规则：
                 1. 必须结合聊天历史判断本轮是确认、拒绝、修改还是无关问题，不能只按某个关键词机械执行。
                 2. PENDING_SELECTION：用户确认提取时调用 submit_garment_cutout，并传入匹配的 candidateId。
-                3. CUTOUT_SUBMITTED：任务已经执行中，不得重复提交；用户询问时只说明仍在后台处理。
+                3. CUTOUT_SUBMITTED：任务已经执行中，不得重复提交；用户询问是否完成时调用 list_garment_draft_versions 查询持久化状态。
                 4. AWAITING_FINAL_CONFIRMATION：用户确认满意并入库时调用 confirm_wardrobe_candidate。
                 5. FAILED：用户明确要求重试时调用 retry_garment_cutout；RETAKE_REQUIRED：说明遮挡问题并请用户补拍，不得强行提交。
-                6. 用户明确拒绝、说算了或不要时调用 cancel_wardrobe_candidate；修改标签或草稿时调用对应工具。
-                7. 多件候选无法从名称、类别、颜色和历史指代中唯一定位时，只追问一个必要问题，不得猜选。
-                8. 用户问无关问题时正常回答，保留待确认状态，不得擅自调用衣橱修改工具。
+                6. “基于原图/重新提取”调用 retry_garment_cutout；“基于第几版/当前版继续改”调用 edit_garment_draft，普通草稿编辑只传一张选定草稿图。
+                7. 用户要求视觉修改但没有说明基于原始照片还是某个草稿版本时，先调用 list_garment_draft_versions 获取可选版本，再只追问这一个来源问题。
+                8. 如果上一轮刚追问修改来源，用户只回复“原图”“当前版”或“第N版”，必须结合紧邻历史中的未执行修改要求调用对应工具，不得丢失原修改要求或重复追问。
+                9. 用户明确拒绝、说算了或不要时调用 cancel_wardrobe_candidate；修改标签时调用标签工具。
+                10. 多件候选无法从名称、类别、颜色和历史指代中唯一定位时，只追问一个必要问题，不得猜选。
+                11. 用户问无关问题时正常回答，保留待确认状态，不得擅自调用衣橱修改工具。
                 [/内部衣橱流程状态]
                 """);
     }

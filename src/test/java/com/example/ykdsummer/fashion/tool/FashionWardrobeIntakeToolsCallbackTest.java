@@ -67,6 +67,7 @@ class FashionWardrobeIntakeToolsCallbackTest {
         FashionWardrobeIntakeTools tools = new FashionWardrobeIntakeTools(service, collector, AiTraceLogger.disabled());
         ClothingCandidate draft = candidate("internal-candidate", ClothingCandidateStatus.AWAITING_FINAL_CONFIRMATION,
                 ClothingCompletenessStatus.READY, 12L);
+        when(service.activeWorkflowCandidates(userId)).thenReturn(List.of(draft));
         when(service.awaitingFinalConfirmationCandidates(userId)).thenReturn(List.of(draft));
         when(service.candidate(userId, "internal-candidate")).thenReturn(Optional.of(draft));
         when(service.confirmCandidate(userId, "internal-candidate")).thenReturn(item(24L));
@@ -102,6 +103,7 @@ class FashionWardrobeIntakeToolsCallbackTest {
                         Instant.now(), false),
                 new GarmentDraftVersion(2, "task-two", "衣长加长一点", new FashionImageAsset(22L, "img_two", 1, "image/png"),
                         Instant.now(), true));
+        when(service.activeWorkflowCandidates(userId)).thenReturn(List.of(draft));
         when(service.awaitingFinalConfirmationCandidates(userId)).thenReturn(List.of(draft));
         when(service.candidate(userId, "internal-candidate")).thenReturn(Optional.of(draft));
         when(service.draftVersions(userId, "internal-candidate")).thenReturn(versions);
@@ -114,6 +116,24 @@ class FashionWardrobeIntakeToolsCallbackTest {
         assertThat(listed).contains("第1版", "第2版", "当前最新版").doesNotContain("task-one", "task-two", "img_one", "img_two");
         assertThat(confirmed).contains("已加入个人衣橱").doesNotContain("internal-candidate", "#25");
         verify(service).confirmCandidate(userId, "internal-candidate", 1);
+        collector.finish();
+    }
+
+    @Test
+    void reportsDurableProcessingStatusWithoutExposingTaskIdentifiers() {
+        FashionWardrobeIngestionService service = mock(FashionWardrobeIngestionService.class);
+        ToolArtifactCollector collector = collectorFor("wechat-user");
+        FashionWardrobeIntakeTools tools = new FashionWardrobeIntakeTools(service, collector, AiTraceLogger.disabled());
+        ClothingCandidate candidate = candidate("processing-one", ClothingCandidateStatus.CUTOUT_SUBMITTED,
+                ClothingCompletenessStatus.READY, null);
+        GarmentCutoutTask processing = task("private-task", "processing-one", GarmentCutoutTaskStatus.PROCESSING);
+        when(service.activeWorkflowCandidates("wechat-user")).thenReturn(List.of(candidate));
+        when(service.draftVersions("wechat-user", "processing-one")).thenReturn(List.of());
+        when(service.latestCutoutTask("wechat-user", "processing-one")).thenReturn(Optional.of(processing));
+
+        String result = callback(tools, "list_garment_draft_versions").call("{}");
+
+        assertThat(result).contains("正在后台生成", "还没有生成可查看的草稿").doesNotContain("private-task", "processing-one");
         collector.finish();
     }
 
@@ -204,9 +224,13 @@ class FashionWardrobeIntakeToolsCallbackTest {
     }
 
     private static GarmentCutoutTask task(String id, String candidateId) {
+        return task(id, candidateId, GarmentCutoutTaskStatus.PENDING);
+    }
+
+    private static GarmentCutoutTask task(String id, String candidateId, GarmentCutoutTaskStatus status) {
         Instant now = Instant.now();
         return new GarmentCutoutTask(id, candidateId, 7L, "instance", 11L, 1, "",
-                GarmentCutoutTaskStatus.PENDING, null, "", null, null, now.plusSeconds(600), now, now);
+                status, null, "", null, null, now.plusSeconds(600), now, now);
     }
 
     private static ClothingCandidate candidate(String id, ClothingCandidateStatus status,

@@ -63,7 +63,7 @@ class OpenAiImageEditOssLiveTest {
         ai.setImageModel(required("IMAGE_MODEL"));
         ai.setImageSize("1024x1024");
         ai.setImageQuality("high");
-        ai.setImageTimeout(Duration.ofSeconds(150));
+        ai.setImageTimeout(Duration.ofSeconds(120));
         return new OpenAiImageEditGateway(image, ai, new ObjectMapper());
     }
 

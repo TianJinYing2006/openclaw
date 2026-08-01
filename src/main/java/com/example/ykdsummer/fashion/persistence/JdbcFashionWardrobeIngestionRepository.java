@@ -319,6 +319,16 @@ public class JdbcFashionWardrobeIngestionRepository implements FashionWardrobeIn
     }
 
     @Override
+    public Optional<GarmentCutoutTask> latestCutoutTask(String externalUserId, String candidateId) {
+        FashionUserScope scope = scopes.resolve(externalUserId);
+        List<GarmentCutoutTask> values = jdbc.query("SELECT " + TASK_COLUMNS
+                        + " FROM fashion_garment_cutout_tasks WHERE candidate_id = ? AND app_user_id = ? "
+                        + "ORDER BY attempt_number DESC LIMIT 1",
+                (rs, row) -> task(rs), identifier(candidateId, "candidateId"), scope.appUserId());
+        return values.stream().findFirst();
+    }
+
+    @Override
     public List<String> pendingCutoutTaskIds(Instant now, int limit) {
         Instant time = now == null ? Instant.now() : now;
         return jdbc.query("""

@@ -94,7 +94,7 @@ public class AiProperties {
     /** 图片尺寸、质量和单次请求超时。 */
     private String imageSize = "1024x1024";
     private String imageQuality = "high";
-    private Duration imageTimeout = Duration.ofMinutes(15);
+    private Duration imageTimeout = Duration.ofSeconds(120);
     /** 异步图生图任务的状态查询间隔；网络偶发失败不会立刻判定任务失败。 */
     private Duration imagePollInterval = Duration.ofSeconds(3);
 

@@ -128,6 +128,22 @@ class AiChatServiceTest {
     }
 
     @Test
+    void executesAnExplicitWardrobeRevisionBeforeCallingTheModel() {
+        AiProperties properties = new AiProperties();
+        RecordingGateway gateway = new RecordingGateway();
+        FashionWardrobeDraftCommandHandler handler = mock(FashionWardrobeDraftCommandHandler.class);
+        when(handler.handleExplicitRevision("user", "基于原图改瘦一点"))
+                .thenReturn(Optional.of("已提交基于原图的修改。"));
+        AiChatService service = new AiChatService(properties, gateway);
+        service.setWardrobeDraftCommands(handler);
+
+        assertThat(service.answer("user", "基于原图改瘦一点", List.of()))
+                .isEqualTo("已提交基于原图的修改。");
+        assertThat(gateway.requests).isEmpty();
+        verify(handler).handleExplicitRevision("user", "基于原图改瘦一点");
+    }
+
+    @Test
     void injectsDurableWorkflowStateWithoutWritingInternalIdsIntoConversationHistory() {
         AiProperties properties = new AiProperties();
         RecordingGateway gateway = new RecordingGateway();

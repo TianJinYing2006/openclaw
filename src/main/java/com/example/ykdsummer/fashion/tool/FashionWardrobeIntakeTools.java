@@ -162,12 +162,12 @@ public class FashionWardrobeIntakeTools implements AiTool {
         }
     }
 
-    @Tool(name = "retry_garment_cutout", description = "仅当用户明确要求重新抠图，或对刚完成的抠图提出具体修改时调用。"
-            + "candidateId 是内部关联键；用户刚收到且仅有一张待确认草稿时可留空。instruction 只描述边缘、完整度或背景等"
-            + "抠图修正，不得改变衣服颜色、长度或设计。")
+    @Tool(name = "retry_garment_cutout", description = "仅当用户明确要求基于原始上传照片重新提取、重新抠图或从原图重新生成时调用。"
+            + "该工具始终只发送原始照片，不使用已有草稿；如果用户明确要求改变衣长、宽窄或颜色，可把该要求写入 instruction。"
+            + "candidateId 是内部关联键；当前只有一件可重试衣物时可留空。")
     public String retryGarmentCutout(
             @ToolParam(required = false, description = "内部服装候选编号 UUID；当前只有一张待确认草稿时可为空。") String candidateId,
-            @ToolParam(required = false, description = "用户提出的抠图修正，例如 保留完整裤脚；为空表示普通重试。") String instruction
+            @ToolParam(required = false, description = "基于原始照片重新生成时的明确要求，例如 保留完整裤脚、整体窄一点；为空表示忠实重新提取。") String instruction
     ) {
         String userId = currentUser();
         if (userId == null) return unavailable();
@@ -184,21 +184,25 @@ public class FashionWardrobeIntakeTools implements AiTool {
         }
     }
 
-    @Tool(name = "list_garment_draft_versions", description = "当用户想比较、查看、选择或确认某件衣物的不同草稿版本时调用。"
+    @Tool(name = "list_garment_draft_versions", description = "当用户询问衣物图片是否完成、还在不在处理，或想比较、查看、选择不同草稿版本时调用。"
             + "一个衣物草稿可以保留原版和多次修改后的多个可选版本；返回的版本序号可供后续预览、继续修改和确认。"
-            + "candidateId 是内部关联键；仅有一件待确认衣物时可为空。")
+            + "它会读取 MySQL 中最近任务状态，不得根据聊天上下文猜测。candidateId 是内部关联键；仅有一件活动衣物时可为空。")
     public String listGarmentDraftVersions(
             @ToolParam(required = false, description = "内部服装候选编号 UUID；当前仅一件待确认草稿时可为空。") String candidateId
     ) {
         String userId = currentUser();
         if (userId == null) return unavailable();
         try {
-            String resolvedCandidateId = resolveReviewCandidateId(userId, candidateId);
+            String resolvedCandidateId = resolveStatusCandidateId(userId, candidateId);
             List<GarmentDraftVersion> values = intake.draftVersions(userId, resolvedCandidateId);
-            if (values.isEmpty()) return "这件衣物还没有生成可查看的草稿版本。";
-            String message = values.stream().map(this::describeVersion)
-                    .reduce((left, right) -> left + "\n" + right).orElse("这件衣物还没有生成可查看的草稿版本。")
-                    + "\n用户可以说“看第二版”“基于第一版再改长一点”或“确认第二版加入衣橱”。";
+            String status = intake.latestCutoutTask(userId, resolvedCandidateId)
+                    .map(task -> describeTaskStatus(task, !values.isEmpty()))
+                    .orElse("当前没有已提交的衣物图片任务。");
+            String versionSummary = values.stream().map(this::describeVersion)
+                    .reduce((left, right) -> left + "\n" + right)
+                    .orElse("这件衣物还没有生成可查看的草稿版本。");
+            String message = status + "\n" + versionSummary
+                    + "\n修改时可以说“基于原始照片重新做”或“基于第一版再改长一点”；来源不明确时必须先询问。";
             trace.toolResult("list_garment_draft_versions", message);
             return message;
         } catch (IllegalArgumentException | IllegalStateException failure) {
@@ -228,9 +232,9 @@ public class FashionWardrobeIntakeTools implements AiTool {
     }
 
     @Tool(name = "edit_garment_draft", description = "仅当用户明确要求修改已完成衣物草稿本身时调用，"
-            + "例如衣长、裤长、边缘、颜色或展示效果。它会以选定草稿图为参考，后台生成新的可选版本，"
+            + "例如基于第一版、第二版或当前版调整衣长、裤长、宽窄、颜色或展示效果。它始终只发送一张选定草稿图，"
             + "不会覆盖或删除旧版本。candidateId 是内部关联键；仅有一件待确认草稿时可为空。"
-            + "sourceVersionNumber 为空时以当前最新版为基础。")
+            + "sourceVersionNumber 为空时以当前最新版为基础。用户没有说明基于原始照片还是草稿时，先调用 list_garment_draft_versions 并追问，不得猜测。")
     public String editGarmentDraft(
             @ToolParam(required = false, description = "内部服装候选编号 UUID；当前仅一件待确认草稿时可为空。") String candidateId,
             @ToolParam(required = false, description = "作为参考的草稿版本序号；为空时使用当前最新版。") Integer sourceVersionNumber,
@@ -294,6 +298,13 @@ public class FashionWardrobeIntakeTools implements AiTool {
         if (values.isEmpty()) throw new IllegalStateException("No completed wardrobe draft is awaiting confirmation");
         throw new IllegalStateException("More than one wardrobe draft is awaiting confirmation");
     }
+    private String resolveStatusCandidateId(String userId, String candidateId) {
+        if (!safe(candidateId).isBlank()) return safe(candidateId);
+        List<ClothingCandidate> values = intake.activeWorkflowCandidates(userId);
+        if (values.size() == 1) return values.getFirst().id();
+        if (values.isEmpty()) throw new IllegalStateException("No active wardrobe candidate is available");
+        throw new IllegalStateException("More than one active wardrobe candidate is available");
+    }
     private String resolveMutableCandidateId(String userId, String candidateId) {
         if (!safe(candidateId).isBlank()) return safe(candidateId);
         List<ClothingCandidate> values = new java.util.ArrayList<>(intake.pendingSelectionCandidates(userId));
@@ -346,6 +357,20 @@ public class FashionWardrobeIntakeTools implements AiTool {
     private String describeVersion(GarmentDraftVersion value) {
         String kind = value.instruction() == null || value.instruction().isBlank() ? "初始抠图" : "按要求调整";
         return "第" + value.versionNumber() + "版：" + kind + (value.current() ? "（当前最新版）" : "");
+    }
+    private static String describeTaskStatus(GarmentCutoutTask task, boolean hasExistingDraft) {
+        return switch (task.status()) {
+            case PENDING -> "当前状态：任务已排队，尚未开始生成。";
+            case PROCESSING -> "当前状态：图片正在后台生成。";
+            case SUCCEEDED -> "当前状态：最近一次图片任务已经完成。";
+            case FAILED -> hasExistingDraft
+                    ? "当前状态：最近一次修改失败，但已有草稿仍然保留，可以继续查看、确认或重试。"
+                    : "当前状态：最近一次生成失败，目前没有可确认草稿，可以基于原始照片重试。";
+            case CANCELLED -> "当前状态：最近一次图片任务已取消。";
+            case EXPIRED -> hasExistingDraft
+                    ? "当前状态：最近一次任务已过期，但已有草稿仍然保留。"
+                    : "当前状态：图片任务已过期，目前没有可确认草稿。";
+        };
     }
     private static String describeCandidates(String summary, List<ClothingCandidate> candidates, boolean reused) {
         if (candidates == null || candidates.isEmpty()) {

@@ -12,15 +12,6 @@ public interface GarmentCutoutService {
         return cutout(externalUserId, source, candidate, instruction);
     }
 
-    /**
-     * A revision can use both the original worn photo and an isolated draft. The original is factual evidence for
-     * prints and details, while the draft supplies the desired standalone product composition.
-     */
-    default CutoutResult revise(String externalUserId, StoredImage draft, StoredImage original,
-                                ClothingCandidate candidate, String instruction) {
-        return revise(externalUserId, draft, candidate, instruction);
-    }
-
     record CutoutResult(byte[] imageBytes, String remoteUrl, String failureSummary) {
         public static CutoutResult image(byte[] bytes, String remoteUrl) { return new CutoutResult(bytes, remoteUrl, ""); }
         public static CutoutResult failed(String summary) { return new CutoutResult(null, null, summary == null ? "" : summary); }

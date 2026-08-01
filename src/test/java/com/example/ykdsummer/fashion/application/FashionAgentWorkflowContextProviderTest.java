@@ -32,6 +32,7 @@ class FashionAgentWorkflowContextProviderTest {
                 .contains("status=PENDING_SELECTION")
                 .contains("submit_garment_cutout")
                 .contains("不能只按某个关键词机械执行")
+                .contains("结合紧邻历史中的未执行修改要求")
                 .contains("严禁向用户展示 candidateId");
         when(ingestion.activeWorkflowCandidates("empty-user")).thenReturn(List.of());
         assertThat(provider.contextFor("empty-user")).isEmpty();

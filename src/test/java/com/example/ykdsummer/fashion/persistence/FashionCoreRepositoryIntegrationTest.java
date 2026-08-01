@@ -256,6 +256,8 @@ class FashionCoreRepositoryIntegrationTest {
                 .map(ClothingCandidate::id).toList());
 
         var task = restartedRepository.submitCutoutTasks(firstExternalUser, List.of(candidate.id()), "keep print").getFirst();
+        assertEquals(task.id(), restartedRepository.latestCutoutTask(firstExternalUser, candidate.id()).orElseThrow().id());
+        assertTrue(restartedRepository.latestCutoutTask(secondExternalUser, candidate.id()).isEmpty());
         assertThrows(IllegalStateException.class,
                 () -> restartedRepository.submitCutoutTasks(firstExternalUser, List.of(candidate.id()), "duplicate"));
         assertThrows(IllegalArgumentException.class,
@@ -291,6 +293,8 @@ class FashionCoreRepositoryIntegrationTest {
 
         var revisionTask = ingestion.reviseDraftTask(firstExternalUser, candidate.id(), 1, "make the hem longer",
                 Instant.now().plusSeconds(1_800));
+        assertEquals(revisionTask.id(), ingestion.latestCutoutTask(firstExternalUser, candidate.id()).orElseThrow().id());
+        assertTrue(ingestion.latestCutoutTask(secondExternalUser, candidate.id()).isEmpty());
         var revisionWork = ingestion.claimCutoutTask(revisionTask.id(), Instant.now()).orElseThrow();
         assertEquals(firstDraftAssetVersionId, revisionWork.sourceImage().assetVersionId());
         String secondDraftAssetId = "img_draft" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);

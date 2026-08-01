@@ -177,6 +177,11 @@ public class AiChatService {
             try {
                 List<ConversationMessage> history = conversation.copyMessages();
                 if ((images == null || images.isEmpty()) && (files == null || files.isEmpty())) {
+                    String revisionReply = handleExplicitWardrobeRevision(userId, memoryPrompt);
+                    if (revisionReply != null) {
+                        rememberLocalTurn(conversation, userId, memoryPrompt, revisionReply, images, files);
+                        return AssistantAnswer.text(revisionReply);
+                    }
                     AssistantAnswer visualReply = handleExplicitWardrobeVisualRequest(userId, memoryPrompt, history);
                     if (visualReply != null) {
                         rememberLocalTurn(conversation, userId, memoryPrompt, visualReply.text(), images, files);
@@ -280,6 +285,17 @@ public class AiChatService {
             return handler.handle(userId, prompt).orElse(null);
         } catch (RuntimeException failure) {
             log.warn("Fashion wardrobe fallback could not be executed, user={}", anonymize(userId), failure);
+            return null;
+        }
+    }
+
+    private String handleExplicitWardrobeRevision(String userId, String prompt) {
+        FashionWardrobeDraftCommandHandler handler = wardrobeDraftCommands;
+        if (handler == null) return null;
+        try {
+            return handler.handleExplicitRevision(userId, prompt).orElse(null);
+        } catch (RuntimeException failure) {
+            log.warn("Explicit wardrobe draft revision could not be executed, user={}", anonymize(userId), failure);
             return null;
         }
     }

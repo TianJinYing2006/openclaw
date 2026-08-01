@@ -208,11 +208,11 @@ Important incident on 2026-07-28: PID `26188`, launched at 11:06, was still runn
 Latest full regression command:
 
 ```powershell
-mvn -q '-Dopenai.image.base-url=https://api.lk888.ai/v1' test
+mvn -q test '-Dspring.profiles.active=test'
 ```
 
-The default suite skips `37` explicit opt-in live/integration tests as intended. The image base URL override is an existing test-environment
-expectation; it is not a production configuration instruction.
+The default suite skips explicit opt-in live/integration tests as intended. The image base URL has no hard-coded provider fallback;
+configure it in the ignored local properties file or with `IMAGE_API_BASE_URL`.
 
 Historical validation before the 2026-07-31 recommendation changes had `282` tests, `0` failures and `0` errors (`41` explicit live/integration probes skipped by
 default). The opt-in MySQL workflow suite
