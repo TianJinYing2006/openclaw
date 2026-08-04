@@ -179,7 +179,7 @@ public class AiTraceLogger {
         if (value == null) {
             return "";
         }
-        String normalized = value.replace("\r", "\\r").replace("\n", "\\n");
+        String normalized = redactUrls(value).replace("\r", "\\r").replace("\n", "\\n");
         int limit = properties.getMaxTextLength();
         return normalized.length() <= limit ? normalized : normalized.substring(0, limit) + "…[已截断]";
     }
@@ -187,6 +187,34 @@ public class AiTraceLogger {
     private String shortPreview(String value) {
         String preview = preview(value);
         return preview.length() <= 180 ? preview : preview.substring(0, 180) + "…[摘要]";
+    }
+
+    /**
+     * 日志脱敏：把 URL 中的查询参数（可能含 OSS 签名 / token）整体替换为占位符，
+     * 只保留协议、主机和路径，便于定位又不泄露签名信息。
+     */
+    private static final java.util.regex.Pattern URL_PATTERN =
+            java.util.regex.Pattern.compile("https?://[^\\s\"'，。；）)]+");
+
+    private static String redactUrls(String value) {
+        if (value == null || value.indexOf("http") < 0) {
+            return value;
+        }
+        java.util.regex.Matcher matcher = URL_PATTERN.matcher(value);
+        StringBuilder sb = new StringBuilder();
+        while (matcher.find()) {
+            matcher.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(redactUrl(matcher.group())));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+
+    private static String redactUrl(String url) {
+        int query = url.indexOf('?');
+        if (query <= 0) {
+            return url;
+        }
+        return url.substring(0, query) + "?[query-redacted]";
     }
 
     private static int size(List<?> values) {

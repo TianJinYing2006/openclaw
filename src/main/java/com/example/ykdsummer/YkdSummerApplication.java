@@ -20,6 +20,8 @@ import com.example.ykdsummer.bot.config.ILinkRateLimitProperties;
 import com.example.ykdsummer.bot.config.LongTextOutputProperties;
 import com.example.ykdsummer.bot.config.TencentAsrProperties;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
+import com.example.ykdsummer.common.security.ApiSecurityProperties;
+import com.example.ykdsummer.common.security.TokenEncryptionProperties;
 import com.example.ykdsummer.fashion.config.FashionAnalysisProperties;
 import com.example.ykdsummer.fashion.config.FashionCutoutProperties;
 import com.example.ykdsummer.fashion.config.FashionReferenceProperties;
@@ -64,6 +66,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         RagFlowProperties.class,
         WebSearchProperties.class,
         AdminWebProperties.class,
+        ApiSecurityProperties.class,
+        TokenEncryptionProperties.class,
         AliyunTtsProperties.class,
         FileProcessingProperties.class,
         ILinkProperties.class,

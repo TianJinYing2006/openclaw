@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # 加载 .env 环境变量
 from dotenv import load_dotenv
@@ -37,8 +38,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mcp-server")
 
+
+def _url_label(url: str) -> str:
+    """日志脱敏：只保留 host + path，去掉 query（可能含 OSS 签名或 token）。"""
+    if not url:
+        return "none"
+    try:
+        parts = urlsplit(url)
+        return (f"{parts.hostname or ''}{parts.path or ''}")[:80]
+    except Exception:
+        return "[url]"
+
 # 读取 host 和 port（在构造 FastMCP 之前）
-_host = os.getenv("MCP_SERVER_HOST", "0.0.0.0")
+# 默认仅绑定本机，防止局域网其它机器直接调用；需要跨机访问时改为 0.0.0.0
+_host = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
 _port = int(os.getenv("MCP_SERVER_PORT", "8090"))
 
 # 创建 MCP Server 实例
@@ -92,7 +105,7 @@ def garment_cutout(sourceImageUrl: str, displayName: str = "",
         instruction: 用户修改指令；为空表示忠实提取
     """
     logger.info("工具调用 garment_cutout: url=%s, category=%s",
-                sourceImageUrl[:50], category)
+                _url_label(sourceImageUrl), category)
     return cutout.garment_cutout(sourceImageUrl, displayName, category,
                                   colorPrimary, instruction)
 
@@ -111,7 +124,7 @@ def garment_revise(sourceImageUrl: str, displayName: str = "",
         instruction: 用户修改指令（如"整体窄一点"）
     """
     logger.info("工具调用 garment_revise: url=%s, instruction=%s",
-                sourceImageUrl[:50], instruction)
+                _url_label(sourceImageUrl), instruction)
     return cutout.garment_revise(sourceImageUrl, displayName, category,
                                   colorPrimary, instruction)
 
@@ -123,7 +136,7 @@ def wardrobe_photo_analysis(imageUrl: str) -> str:
     Args:
         imageUrl: 衣橱照片的签名 URL，服务端自行下载分析
     """
-    logger.info("工具调用 wardrobe_photo_analysis: url=%s", imageUrl[:50])
+    logger.info("工具调用 wardrobe_photo_analysis: url=%s", _url_label(imageUrl))
     return analysis.wardrobe_photo_analysis(imageUrl)
 
 
@@ -138,7 +151,7 @@ def virtual_try_on(personImageUrl: str, garmentImageUrl: str,
         garmentCategory: 衣物类目（如 OUTER/T_SHIRT/JEANS）
     """
     logger.info("工具调用 virtual_try_on: person=%s, garment=%s",
-                personImageUrl[:50], garmentImageUrl[:50])
+                _url_label(personImageUrl), _url_label(garmentImageUrl))
     return tryon.virtual_try_on(personImageUrl, garmentImageUrl, garmentCategory)
 
 

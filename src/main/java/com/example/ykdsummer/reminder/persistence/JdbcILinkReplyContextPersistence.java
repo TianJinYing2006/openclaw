@@ -1,5 +1,6 @@
 package com.example.ykdsummer.reminder.persistence;
 
+import com.example.ykdsummer.common.security.TokenCipher;
 import com.example.ykdsummer.persistence.ManagedInstanceScope;
 import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -12,9 +13,11 @@ import org.springframework.stereotype.Repository;
 @ConditionalOnProperty(prefix = "app.persistence", name = "enabled", havingValue = "true")
 public class JdbcILinkReplyContextPersistence implements ILinkReplyContextPersistence {
     private final JdbcTemplate jdbc;
+    private final TokenCipher tokenCipher;
 
-    public JdbcILinkReplyContextPersistence(JdbcTemplate jdbc) {
+    public JdbcILinkReplyContextPersistence(JdbcTemplate jdbc, TokenCipher tokenCipher) {
         this.jdbc = jdbc;
+        this.tokenCipher = tokenCipher;
     }
 
     @Override
@@ -28,16 +31,16 @@ public class JdbcILinkReplyContextPersistence implements ILinkReplyContextPersis
                 ON DUPLICATE KEY UPDATE platform_user_id = COALESCE(VALUES(platform_user_id), platform_user_id),
                     instance_id = COALESCE(VALUES(instance_id), instance_id), context_token = VALUES(context_token),
                     observed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                """, externalUserId, platformUserId, scope.instanceId(), contextToken);
+                """, externalUserId, platformUserId, scope.instanceId(), tokenCipher.encrypt(contextToken));
     }
 
     @Override
     public Optional<String> find(String externalUserId) {
         if (blank(externalUserId)) return Optional.empty();
         try {
-            String token = jdbc.queryForObject(
+            String stored = jdbc.queryForObject(
                     "SELECT context_token FROM ilink_reply_contexts WHERE external_user_id = ?", String.class, externalUserId);
-            return blank(token) ? Optional.empty() : Optional.of(token);
+            return blank(stored) ? Optional.empty() : Optional.of(tokenCipher.decrypt(stored));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }

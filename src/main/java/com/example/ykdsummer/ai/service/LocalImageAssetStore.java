@@ -1,5 +1,6 @@
 package com.example.ykdsummer.ai.service;
 
+import com.example.ykdsummer.common.security.TokenCipher;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -15,6 +16,7 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +26,10 @@ import org.springframework.stereotype.Service;
  * <p>目录按微信用户摘要隔离；一张全新图片会获得新的 {@code img_*} 资源 ID，同一张图的
  * 修改、回退会在该资源 ID 下追加 {@code v2、v3...}。元数据和“当前图片”指针同时写入磁盘，
  * 所以应用重启后仍能继续用 ID 找回图片。生产环境只需把这个类替换为 OSS + 数据库实现。</p>
+ *
+ * <p>配置了 {@code app.security.token-encryption-key} 时，图片字节落盘前使用
+ * {@link TokenCipher} AES-GCM 加密（文件带 {@code enc:} 前缀），读取时自动解密；
+ * 未配置密钥则保持明文（旧文件与降级路径兼容）。</p>
  */
 @Service
 @ConditionalOnProperty(prefix = "oss.image", name = "enabled", havingValue = "false", matchIfMissing = true)
@@ -32,6 +38,7 @@ public class LocalImageAssetStore {
 
     private final Path root;
     private final ConcurrentMap<String, StoredImage> currentCache = new ConcurrentHashMap<>();
+    private volatile TokenCipher tokenCipher;
 
     public LocalImageAssetStore() {
         this(Path.of(".ai-assets", "images").toAbsolutePath().normalize());
@@ -39,6 +46,12 @@ public class LocalImageAssetStore {
 
     public LocalImageAssetStore(Path root) {
         this.root = root.toAbsolutePath().normalize();
+    }
+
+    /** 加密开关由 Spring 注入；直接 new 的测试场景保持不加密。 */
+    @Autowired(required = false)
+    public void setTokenCipher(TokenCipher tokenCipher) {
+        this.tokenCipher = tokenCipher;
     }
 
     /** 兼容旧调用：每次调用都表示一张全新的图片，而不是覆盖上一张。 */
@@ -195,7 +208,7 @@ public class LocalImageAssetStore {
     /** 本地开发/测试回退实现；生产环境会由 OssImageAssetStore 覆盖，不长期写入本机。 */
     public byte[] readBytes(StoredImage image) {
         try {
-            return Files.readAllBytes(image.file());
+            return decrypt(Files.readAllBytes(image.file()));
         } catch (IOException exception) {
             throw new IllegalStateException("无法读取图片资源", exception);
         }
@@ -205,6 +218,16 @@ public class LocalImageAssetStore {
     public String signedReadUrl(StoredImage image) {
         return "data:" + safeMediaType(image.mediaType()) + ";base64,"
                 + Base64.getEncoder().encodeToString(readBytes(image));
+    }
+
+    private byte[] encrypt(byte[] plain) {
+        TokenCipher cipher = tokenCipher;
+        return cipher == null ? plain : cipher.encryptBytes(plain);
+    }
+
+    private byte[] decrypt(byte[] stored) {
+        TokenCipher cipher = tokenCipher;
+        return cipher == null ? stored : cipher.decryptBytes(stored);
     }
 
     private StoredImage saveNew(String userId, String source, String prompt, byte[] bytes, String remoteUrl, String mediaType) {
@@ -225,7 +248,7 @@ public class LocalImageAssetStore {
         Path file = assetDirectory.resolve("v" + version + "." + extension);
         try {
             Files.createDirectories(assetDirectory);
-            Files.write(file, bytes.clone());
+            Files.write(file, encrypt(bytes.clone()));
             Properties properties = metadata.properties();
             properties.setProperty("assetId", metadata.assetId());
             properties.setProperty("mediaType", safeMediaType(mediaType));
