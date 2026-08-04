@@ -204,11 +204,10 @@ mvn spring-boot:run -Dmaven.test.skip=true
 
 ### Profile
 
-| Profile      | 用途                   | 说明                                             |
-| ------------ | ---------------------- | ------------------------------------------------ |
-| `local`      | 全功能本地开发（默认） | 加载被 Git 忽略的 `application-local.properties` |
-| `minimal`    | 仅穿搭管道，无媒体处理 | 关闭图片/视频/ASR/TTS                            |
-| `production` | 全功能 + 持久化        | 持久化默认开启                                   |
+| Profile   | 用途                   | 说明                                             |
+| --------- | ---------------------- | ------------------------------------------------ |
+| `local`   | 全功能本地开发（默认） | 加载被 Git 忽略的 `application-local.properties` |
+| `minimal` | 仅穿搭管道，无媒体处理 | 关闭图片/视频/ASR/TTS                            |
 
 ```bash
 # 仅穿搭的轻量实例
