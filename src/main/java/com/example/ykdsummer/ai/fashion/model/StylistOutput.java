@@ -29,6 +29,7 @@ public record StylistOutput(List<OutfitSuggestion> suggestions) {
      * @param reasoning      选择理由
      * @param suitableFor    适用场景列表
      * @param bodyTypeNotes  体型适配说明
+     * @param referenceOutfitId  该方案主要参考的 RAG 知识条目编号（如 "002"），用于图片补发对齐
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record OutfitSuggestion(
@@ -38,7 +39,8 @@ public record StylistOutput(List<OutfitSuggestion> suggestions) {
             String colorScheme,
             String reasoning,
             List<String> suitableFor,
-            String bodyTypeNotes
+            String bodyTypeNotes,
+            String referenceOutfitId
     ) {}
 
     /** 穿搭单品。 */

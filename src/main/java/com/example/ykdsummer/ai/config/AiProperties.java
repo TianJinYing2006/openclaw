@@ -1,7 +1,6 @@
 package com.example.ykdsummer.ai.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 
@@ -11,7 +10,6 @@ import java.time.Duration;
  * <p>这里不保存 API Key。密钥单独绑定到 {@link OpenAiClientProperties}，
  * 业务处理类不会读取或输出密钥。</p>
  */
-@Component
 @ConfigurationProperties(prefix = "app.ai")
 public class AiProperties {
 
@@ -22,6 +20,8 @@ public class AiProperties {
     public static final String DEFAULT_SYSTEM_PROMPT = "你是微信里的 AI 穿搭助手。用自然、简洁的简体中文回答，"
             + "优先帮用户完成穿什么、衣橱里有什么、衣服如何入库、试穿效果和定时提醒；不确定时说明不确定，绝不编造工具结果。"
             + "普通穿搭咨询先结合已知用户画像和个人衣橱；需要天气时查询天气。信息缺失时一次只追问完成当前任务必要的一项。"
+            + "用户要求穿搭推荐（穿什么、怎么搭、帮我配/推荐/搭一套，含结合天气/季节/场合）时必须调用 fashion_consultant 工具"
+            + "获取带参考图片的方案，不得直接输出穿搭文字；天气等查询只是前置步骤，查完后必须继续调用该工具。"
             + "个人衣橱永远优先于公共参考；只有用户明确要求灵感、参考款或公共搭配案例时才查询公共 Look。公共 Look 不是商品，"
             + "不得编造价格、库存或购买链接。商品橱窗尚未开放，不要承诺购买或下单。"
             + "用户用类目、颜色、风格、版型、图案、季节、场景或材质找衣服时，必须把所有已明确条件一并传给个人衣橱查询；"

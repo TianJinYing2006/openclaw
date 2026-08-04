@@ -5,7 +5,7 @@ import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.ConversationMessage;
-import com.example.ykdsummer.fashion.application.FashionAgentWorkflowContextProvider;
+import com.example.ykdsummer.ai.fashion.agent.FashionAgentWorkflowContextProvider;
 import com.example.ykdsummer.fashion.application.FashionWardrobeDraftCommandHandler;
 import com.example.ykdsummer.fashion.tool.FashionWardrobeVisualCommandHandler;
 import java.util.Optional;

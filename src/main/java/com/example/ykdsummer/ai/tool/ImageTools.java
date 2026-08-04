@@ -1,6 +1,7 @@
 package com.example.ykdsummer.ai.tool;
 
 import com.example.ykdsummer.ai.model.AiArtifact;
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.example.ykdsummer.ai.service.AiImageGenerationService;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.service.ImageTaskStatusStore;
@@ -21,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /** 给 Spring AI 暴露的生图能力；由模型在确实需要生成图片时自行选择调用。 */
+@AgentTool
 @Component
 public class ImageTools {
     private static final Logger log = LoggerFactory.getLogger(ImageTools.class);

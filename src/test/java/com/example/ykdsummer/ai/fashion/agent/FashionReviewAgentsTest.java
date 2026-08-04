@@ -82,7 +82,7 @@ class FashionReviewAgentsTest {
                         "错误地选择了不存在的方案",
                         Map.of("rejected_2", "测试淘汰原因")
                 ),
-                new CoordinatorOutput.RefinedOutfit("", "", "", ""),
+                new CoordinatorOutput.RefinedOutfit("", "", "", "", null),
                 "",
                 List.of("注意防晒")
         );

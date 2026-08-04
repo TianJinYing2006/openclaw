@@ -1,10 +1,8 @@
 package com.example.ykdsummer.ai.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /** Connection settings for the optional raw-file Responses provider. */
-@Component
 @ConfigurationProperties(prefix = "app.ai.responses")
 public class OpenAiClientProperties {
 

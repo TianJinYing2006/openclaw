@@ -1,5 +1,6 @@
 package com.example.ykdsummer.fashion.tool;
 
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.tool.AiTool;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Component;
  * Agent boundary for persistent Fashion data. It always derives identity from the current iLink request,
  * never accepts a user id from the model.
  */
+@AgentTool
 @Component
 @ConditionalOnBean(FashionCoreService.class)
 public class FashionTools implements AiTool {

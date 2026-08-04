@@ -68,7 +68,7 @@ public class WechatReminderDispatcher {
                 new ArrayBlockingQueue<>(properties.getQueueCapacity()), daemonFactory(), new ThreadPoolExecutor.AbortPolicy());
     }
 
-    @Scheduled(fixedDelayString = "#{@reminderProperties.pollInterval.toMillis()}")
+    @Scheduled(fixedDelayString = "${app.reminder.poll-interval:15s}")
     void dispatchDueReminders() {
         if (!properties.isEnabled()) return;
         Instant now = Instant.now();

@@ -8,6 +8,7 @@ import com.example.ykdsummer.fashion.domain.FashionTryOnTask;
 import com.example.ykdsummer.fashion.domain.FashionTryOnWork;
 import com.example.ykdsummer.fashion.persistence.FashionTryOnRepository;
 import com.example.ykdsummer.fashion.runtime.FashionTryOnCompletedEvent;
+import com.example.ykdsummer.fashion.runtime.FashionTryOnFailedEvent;
 import com.example.ykdsummer.persistence.ImageAssetMetadataStore;
 import java.time.Instant;
 import java.util.List;
@@ -54,6 +55,23 @@ public class FashionVirtualTryOnService {
         return tasks.submit(externalUserId, wardrobeItemId);
     }
 
+    /**
+     * Submits a try-on task whose garment is an external reference outfit image. The caller
+     * supplies the downloaded garment bytes; this service persists the image as a user-owned
+     * asset before delegating to the repository so the existing claim/render pipeline is reused.
+     */
+    public FashionTryOnTask submitWithReferenceOutfit(String externalUserId, String referenceOutfitId,
+                                                      byte[] garmentBytes, String garmentCategoryCode) {
+        if (garmentBytes == null || garmentBytes.length == 0) {
+            throw new IllegalArgumentException("试穿参考单品图内容为空");
+        }
+        StoredImage garment = imageStore.saveGenerated(externalUserId,
+                "fashion-tryon-reference:" + referenceOutfitId, garmentBytes, null);
+        assetMetadata.record(externalUserId, garment, imageStore instanceof OssImageAssetStore ? "oss" : "local");
+        return tasks.submitWithReferenceOutfit(externalUserId, referenceOutfitId,
+                garment.assetId(), garment.version(), garmentCategoryCode);
+    }
+
     public List<String> pendingTaskIds(int limit) { return tasks.pendingTaskIds(limit); }
     public Optional<FashionTryOnTask> latest(String externalUserId) { return tasks.latest(externalUserId); }
     public int recoverInterruptedTasks() { return tasks.recoverInterruptedTasks(); }
@@ -70,6 +88,7 @@ public class FashionVirtualTryOnService {
                     work.garmentCategoryCode(), properties.getProviderTimeout());
             if (!result.hasImage()) {
                 tasks.fail(work.task().id(), result.failureSummary(), Instant.now());
+                publishFailure(work, result.failureSummary());
                 return;
             }
             StoredImage output = imageStore.saveGenerated(work.externalUserId(), "fashion-tryon:" + work.task().id(),
@@ -77,7 +96,9 @@ public class FashionVirtualTryOnService {
             assetMetadata.record(work.externalUserId(), output, imageStore instanceof OssImageAssetStore ? "oss" : "local");
             tasks.succeed(work.task().id(), output.assetId(), output.version(), Instant.now());
             publish(work, output, result.imageBytes());
-            log.info("Fashion virtual try-on completed, task={}, wardrobeItem={}", work.task().id(), work.task().wardrobeItemId());
+            Long wardrobeItemId = work.task().wardrobeItemId();
+            log.info("Fashion virtual try-on completed, task={}, wardrobeItem={}, source={}", work.task().id(),
+                    wardrobeItemId == null ? "reference" : wardrobeItemId, work.task().garmentSource());
         } catch (RuntimeException exception) {
             try {
                 tasks.fail(work.task().id(), "试衣生成或图片存储失败，请稍后重试", Instant.now());
@@ -85,6 +106,7 @@ public class FashionVirtualTryOnService {
                 // Preserve the original exception as the useful diagnostic signal.
             }
             log.warn("Fashion virtual try-on failed, task={}", work.task().id(), exception);
+            publishFailure(work, "试衣生成或图片存储失败，请稍后重试");
         }
     }
 
@@ -95,11 +117,21 @@ public class FashionVirtualTryOnService {
 
     private void publish(FashionTryOnWork work, StoredImage output, byte[] imageBytes) {
         try {
+            Long wardrobeItemId = work.task().wardrobeItemId();
             completionPublisher.publishEvent(new FashionTryOnCompletedEvent(work.externalUserId(), work.task().id(),
-                    work.task().wardrobeItemId(), imageBytes, output.assetId(), output.version()));
+                    wardrobeItemId == null ? 0L : wardrobeItemId, imageBytes, output.assetId(), output.version()));
         } catch (RuntimeException exception) {
             // Output and task are already durable; reply-context recovery can still deliver a later resend request.
             log.warn("Could not publish fashion virtual try-on completion, task={}", work.task().id(), exception);
+        }
+    }
+
+    /** 试衣失败时发布通知事件，避免用户只收到"开始生成"后毫无下文。 */
+    private void publishFailure(FashionTryOnWork work, String reason) {
+        try {
+            completionPublisher.publishEvent(new FashionTryOnFailedEvent(work.externalUserId(), work.task().id(), reason));
+        } catch (RuntimeException exception) {
+            log.warn("Could not publish fashion virtual try-on failure, task={}", work.task().id(), exception);
         }
     }
 }

@@ -15,7 +15,7 @@ import java.util.*;
  * 微信服装 Agent 的 Tool 注册表。
  *
  * <p>容器内可能仍有历史功能的 Bean，但不能因为标了 {@code @Tool} 就自动交给模型。
- * 这里采用默认拒绝，只暴露衣橱/试衣、图片、天气、时间和提醒所需工具，避免聊天模型获得
+ * 这里采用默认拒绝，只暴露标有 {@link AgentTool} 注解的工具方法，避免聊天模型获得
  * 飞书、娱乐、财经、旅游等与服装主线无关的能力。</p>
  *
  * <p>在 {@link ContextRefreshedEvent} 事件中扫描，确保所有 Bean 均已初始化完成，
@@ -77,6 +77,7 @@ public class ToolRegistry implements ApplicationListener<ContextRefreshedEvent> 
         for (String name : beanNames) {
             Object bean = context.getBean(name);
             Class<?> beanClass = bean.getClass();
+            AgentTool classLevel = beanClass.getAnnotation(AgentTool.class);
             for (Method method : beanClass.getMethods()) {
                 Tool annotation = method.getAnnotation(Tool.class);
                 if (annotation != null) {
@@ -84,8 +85,11 @@ public class ToolRegistry implements ApplicationListener<ContextRefreshedEvent> 
                     if (toolName.isBlank()) {
                         toolName = method.getName();
                     }
-                    if (!isFashionAgentTool(beanClass, toolName)) {
-                        log.debug("Skipped non-fashion tool: {} ({})", toolName, beanClass.getSimpleName());
+                    // 方法级 @AgentTool 优先于类级；无注解则默认拒绝
+                    AgentTool methodLevel = method.getAnnotation(AgentTool.class);
+                    AgentTool effective = methodLevel != null ? methodLevel : classLevel;
+                    if (effective == null || !effective.enabled()) {
+                        log.debug("Skipped non-agent tool: {} ({})", toolName, beanClass.getSimpleName());
                         continue;
                     }
                     String description = annotation.description();
@@ -95,21 +99,6 @@ public class ToolRegistry implements ApplicationListener<ContextRefreshedEvent> 
             }
         }
         log.info("ToolRegistry collected {} tool(s): {}", tools.size(), tools.keySet());
-    }
-
-    private static boolean isFashionAgentTool(Class<?> beanClass, String toolName) {
-        String packageName = beanClass.getPackageName();
-        if (packageName.startsWith("com.example.ykdsummer.fashion.tool")) {
-            // 商品橱窗尚未接入真实业务数据；避免模型误把公共 Look 当作可购买商品。
-            return !"search_fashion_products".equals(toolName);
-        }
-        return (packageName.startsWith("com.example.ykdsummer.reminder.tool")
-                || "com.example.ykdsummer.ai.tool".equals(packageName))
-                && Set.of("get_current_weather", "get_current_china_time",
-                        "generate_image", "get_current_image", "list_recent_images", "inspect_image",
-                        "create_image_revision", "restore_image_version",
-                        "create_scheduled_agent_task", "list_wechat_reminders", "cancel_wechat_reminder")
-                .contains(toolName);
     }
 
     /** 单个工具的注册条目。 */

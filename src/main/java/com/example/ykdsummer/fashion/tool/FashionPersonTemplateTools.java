@@ -1,5 +1,6 @@
 package com.example.ykdsummer.fashion.tool;
 
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.tool.AiTool;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
@@ -12,6 +13,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 /** User-scoped tools for saving and selecting the source image used by future virtual try-on. */
+@AgentTool
 @Component
 @ConditionalOnBean(FashionPersonTemplateService.class)
 public class FashionPersonTemplateTools implements AiTool {

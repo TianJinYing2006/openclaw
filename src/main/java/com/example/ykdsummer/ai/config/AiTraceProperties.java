@@ -1,12 +1,10 @@
 package com.example.ykdsummer.ai.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /**
  * 本地联调日志开关。只允许输出截断后的文字摘要，禁止输出密钥、Base64 和完整文件内容。
  */
-@Component
 @ConfigurationProperties(prefix = "app.ai.trace")
 public class AiTraceProperties {
 

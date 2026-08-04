@@ -5,8 +5,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$javaHome = 'D:\YOUKD\jdk-21.0.11'
-$mavenHome = 'D:\YOUKD\maven\apache-maven-3.9.9'
+$javaHome = if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'D:\jdk-21.0.10' }
+$mavenHome = if ($env:MAVEN_HOME) { $env:MAVEN_HOME } else { 'D:\apache-maven-3.9.9' }
 $java = Join-Path $javaHome 'bin\java.exe'
 $maven = Join-Path $mavenHome 'bin\mvn.cmd'
 $jar = Join-Path $projectRoot 'target\ykd-summer-0.0.1-SNAPSHOT.jar'

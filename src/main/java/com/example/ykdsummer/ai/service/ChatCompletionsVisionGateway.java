@@ -146,7 +146,9 @@ public class ChatCompletionsVisionGateway implements VisionChatGateway {
             boolean inspection
     ) {
         var root = objectMapper.createObjectNode();
-        root.put("model", properties.getModel());
+        // 视觉请求优先用独立视觉模型（如 qwen-vl-max）；未配置时回退主对话模型
+        String vision = properties.getVisionModel();
+        root.put("model", vision == null || vision.isBlank() ? properties.getModel() : vision);
         int maxTokens = budget == null
                 ? (inspection ? properties.getVisionMaxCompletionTokens() : properties.getMaxCompletionTokens())
                 : budget.maxOutputTokens();

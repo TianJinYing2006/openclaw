@@ -1,6 +1,7 @@
 package com.example.ykdsummer.fashion.tool;
 
 import com.example.ykdsummer.ai.model.AiArtifact;
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.tool.AiTool;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
@@ -17,6 +18,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /** Explicit public-reference search. Personal wardrobe requests must use the user-scoped wardrobe tools. */
+@AgentTool
 @Component
 @ConditionalOnProperty(prefix = "app.fashion.reference", name = "enabled", havingValue = "true")
 public class FashionReferenceTools implements AiTool {

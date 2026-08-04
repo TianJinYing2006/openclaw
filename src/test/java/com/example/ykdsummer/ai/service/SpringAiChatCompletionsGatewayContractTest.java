@@ -4,20 +4,7 @@ import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import com.example.ykdsummer.ai.tool.WeatherTools;
 import com.example.ykdsummer.ai.tool.ImageTools;
-import com.example.ykdsummer.ai.tool.SpeechTools;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
-import com.example.ykdsummer.ai.tool.VoiceSettingsTools;
-import com.example.ykdsummer.ai.tool.DocumentTools;
-import com.example.ykdsummer.ai.tool.FileProductionTools;
-import com.example.ykdsummer.ai.tool.ConversationMemoryTools;
-import com.example.ykdsummer.ai.tool.AssetManagementTools;
-import com.example.ykdsummer.ai.tool.ImageTaskStatusTools;
-import com.example.ykdsummer.bot.document.DocumentTextExtractor;
-import com.example.ykdsummer.bot.document.DocumentRenderer;
-import com.example.ykdsummer.bot.file.LocalDocumentAssetStore;
-import com.example.ykdsummer.bot.audio.TextToSpeechService;
-import com.example.ykdsummer.bot.audio.TtsVoiceSelectionService;
-import com.example.ykdsummer.bot.file.FileSessionService;
 import com.example.ykdsummer.weather.WeatherInfo;
 import com.example.ykdsummer.weather.WeatherService;
 import com.sun.net.httpserver.HttpExchange;
@@ -36,8 +23,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -144,11 +129,6 @@ class SpringAiChatCompletionsGatewayContractTest {
             properties.setModel("gpt-5.6-sol");
             properties.setMaxCompletionTokens(321);
             ToolArtifactCollector collector = new ToolArtifactCollector();
-            TtsVoiceSelectionService voices = mock(TtsVoiceSelectionService.class);
-            ConversationMemoryTools memoryTools = new ConversationMemoryTools(
-                    new AiChatService(properties, (history, prompt, images, files) -> new LlmGateway.ModelReply("", "test")),
-                    new FileSessionService(), new LocalImageAssetStore(), new LocalDocumentAssetStore(), collector
-            );
             ImageTaskStatusStore taskStore = new ImageTaskStatusStore();
             ImageTools imageTools = new ImageTools(mock(AiImageGenerationService.class), mock(LocalImageAssetStore.class),
                     collector, ImageInspectionService.unavailable(), taskStore, AiTraceLogger.disabled());
@@ -156,14 +136,7 @@ class SpringAiChatCompletionsGatewayContractTest {
                     model, properties,
                     new Object[]{
                             new WeatherTools(mock(WeatherService.class)),
-                            imageTools,
-                            new SpeechTools(mock(TextToSpeechService.class), voices, collector),
-                            new VoiceSettingsTools(voices, collector),
-                            new DocumentTools(new LocalDocumentAssetStore(), new DocumentTextExtractor(), collector),
-                            new FileProductionTools(new LocalDocumentAssetStore(), collector),
-                            memoryTools,
-                            new AssetManagementTools(new LocalImageAssetStore(), new LocalDocumentAssetStore(), collector),
-                            new ImageTaskStatusTools(taskStore, imageTools, collector)
+                            imageTools
                     },
                     collector, AiTraceLogger.disabled());
 
@@ -188,78 +161,11 @@ class SpringAiChatCompletionsGatewayContractTest {
                     .contains("\"tools\"")
                     .contains("get_current_weather")
                     .contains("generate_image")
-                    .contains("synthesize_speech")
-                    .contains("set_voice", "get_current_voice", "list_voice_options", "reset_voice")
                     .contains("get_current_image", "inspect_image", "create_image_revision", "restore_image_version")
-                    .contains("create_document", "get_current_document", "replace_document_content", "restore_document_version")
-                    .contains("produce_file")
-                    .contains("clear_current_memory")
-                    .contains("list_recent_assets", "select_asset", "describe_asset", "resend_asset")
-                    .contains("get_running_tasks", "check_image_task", "retry_last_image_task")
                     .contains("城市名称")
                     .contains("\"role\":\"system\"")
                     .contains("AI 穿搭助手")
                     .contains("上一问", "上一答", "这次直接说重点");
-        } finally {
-            server.stop(0);
-        }
-    }
-
-    @Test
-    void canExecuteDocumentToolForPreviouslyImportedPdf() throws IOException {
-        AtomicInteger calls = new AtomicInteger();
-        List<String> requestBodies = new CopyOnWriteArrayList<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v1/chat/completions", exchange -> {
-            requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            if (calls.incrementAndGet() == 1) {
-                sendJson(exchange, """
-                        {
-                          "id":"chatcmpl_document_tool_request",
-                          "object":"chat.completion",
-                          "created":1,
-                          "model":"gpt-5.6-sol",
-                          "choices":[{"index":0,"message":{"role":"assistant","content":null,
-                            "tool_calls":[{"id":"call_current_document","type":"function","function":
-                              {"name":"get_current_document","arguments":"{}"}}]},"finish_reason":"tool_calls"}],
-                          "usage":{"prompt_tokens":20,"completion_tokens":8,"total_tokens":28}
-                        }
-                        """);
-            } else {
-                sendJson(exchange, """
-                        {
-                          "id":"chatcmpl_document_tool_result",
-                          "object":"chat.completion",
-                          "created":2,
-                          "model":"gpt-5.6-sol",
-                          "choices":[{"index":0,"message":{"role":"assistant","content":"这份 PDF 已读取，可以继续修改。"},"finish_reason":"stop"}],
-                          "usage":{"prompt_tokens":40,"completion_tokens":12,"total_tokens":52}
-                        }
-                        """);
-            }
-        });
-        server.start();
-
-        try {
-            ToolArtifactCollector collector = new ToolArtifactCollector();
-            LocalDocumentAssetStore store = new LocalDocumentAssetStore();
-            byte[] pdf = new DocumentRenderer().render("pdf", "PDF 唯一标记：工具链测试");
-            store.importUploaded("pdf-user", new com.example.ykdsummer.ai.model.AiFile(
-                    "tool-test.pdf", "application/pdf", pdf));
-            SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
-                    createModel(server), new AiProperties(),
-                    new Object[]{
-                            new WeatherTools(mock(WeatherService.class)),
-                            new DocumentTools(store, new DocumentTextExtractor(), collector)
-                    },
-                    collector, AiTraceLogger.disabled());
-
-            LlmGateway.ModelReply reply = gateway.generate("pdf-user", List.of(), "请查看我刚上传的 PDF");
-
-            assertThat(reply.text()).contains("PDF 已读取");
-            assertThat(calls).hasValue(2);
-            assertThat(requestBodies.get(0)).contains("get_current_document");
-            assertThat(requestBodies.get(1)).contains("\"role\":\"tool\"", "当前文档", "PDF 唯一标记：工具链测试");
         } finally {
             server.stop(0);
         }

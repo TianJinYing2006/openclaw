@@ -1,10 +1,8 @@
 package com.example.ykdsummer.ai.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /** Documents reuse the private image bucket credentials but keep a separate object-key prefix. */
-@Component
 @ConfigurationProperties(prefix = "oss.document")
 public class OssDocumentProperties {
     private boolean enabled;

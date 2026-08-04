@@ -1,5 +1,6 @@
 package com.example.ykdsummer.fashion.tool;
 
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.tool.AiTool;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
@@ -15,6 +16,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 /** Natural-language wardrobe retrieval backed by Bailian embeddings and user-isolated Qdrant vectors. */
+@AgentTool
 @Component
 @ConditionalOnBean(FashionSemanticSearchService.class)
 public class FashionSemanticTools implements AiTool {

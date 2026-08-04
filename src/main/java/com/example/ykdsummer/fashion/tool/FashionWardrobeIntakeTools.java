@@ -4,6 +4,7 @@ import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.tool.AiTool;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
 import com.example.ykdsummer.ai.model.AiArtifact;
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
 import com.example.ykdsummer.fashion.application.FashionItemNamer;
 import com.example.ykdsummer.fashion.application.FashionWardrobeIngestionService;
@@ -21,6 +22,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 /** User-confirmed photo intake workflow: analyze -> review/edit -> cutout -> final wardrobe confirmation. */
+@AgentTool
 @Component
 @ConditionalOnBean(FashionWardrobeIngestionService.class)
 public class FashionWardrobeIntakeTools implements AiTool {
@@ -257,7 +259,8 @@ public class FashionWardrobeIntakeTools implements AiTool {
 
     @Tool(name = "confirm_wardrobe_candidate", description = "仅当用户明确确认一张已完成的衣物抠图满意并要求加入衣橱时调用。"
             + "candidateId 是内部关联键；用户刚收到且仅有一张待确认草稿时必须留空，让工具自动定位。"
-            + "不可在抠图前或用户未确认时调用。")
+            + "不可在抠图前或用户未确认时调用；若当前没有任何待确认草稿，不要调用本工具，"
+            + "应直接引导用户先上传衣服照片。")
     public String confirmWardrobeCandidate(
             @ToolParam(required = false, description = "内部服装候选编号 UUID；当前只有一张待确认草稿时留空。") String candidateId,
             @ToolParam(required = false, description = "用户确认的草稿版本序号；为空时确认当前最新版。") Integer versionNumber
@@ -276,10 +279,19 @@ public class FashionWardrobeIntakeTools implements AiTool {
             trace.toolResult("confirm_wardrobe_candidate", message);
             return message;
         } catch (IllegalArgumentException | IllegalStateException failure) {
-            return failed("confirm_wardrobe_candidate", failure, "确认入衣橱失败：请先等待抠图完成，并确认候选编号正确。");
+            return failed("confirm_wardrobe_candidate", failure, confirmFailureMessage(failure));
         } catch (RuntimeException failure) {
             return failed("confirm_wardrobe_candidate", failure, "确认入衣橱失败，请稍后重试。");
         }
+    }
+
+    /** 区分"没有任何待确认草稿"（应引导用户先上传衣服照片）与"有草稿但尚未就绪"两种情况。 */
+    private static String confirmFailureMessage(RuntimeException failure) {
+        if (failure instanceof IllegalStateException
+                && "No completed wardrobe draft is awaiting confirmation".equals(failure.getMessage())) {
+            return "当前没有待确认的衣物草稿。若想把衣服加入衣橱，请先上传衣服照片，我会先帮你识别和抠图。";
+        }
+        return "确认入衣橱失败：请先等待抠图完成，并确认候选编号正确。";
     }
 
     private String currentUser() {

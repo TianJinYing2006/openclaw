@@ -83,7 +83,31 @@ public class FashionResponseFormatter {
             }
         }
 
+        // 末尾附上可试穿的方案编号，供 LLM 在用户要求"试穿推荐的那套"时，
+        // 通过 virtual_try_on_reference_outfit 传入正确的 referenceOutfitId（图文对齐依赖同一编号）。
+        String outfitId = referenceOutfitId(coord, result.stylist());
+        if (outfitId != null && !outfitId.isBlank()) {
+            sb.append("\n（可试穿方案编号：").append(outfitId.strip()).append("）");
+        }
+
         return sb.toString().strip();
+    }
+
+    /** 优先取 Coordinator 最终方案引用的 outfit 编号，缺失时回退到 Stylist 第一套方案。 */
+    private static String referenceOutfitId(CoordinatorOutput coord, StylistOutput stylist) {
+        if (coord != null && coord.refinedOutfit() != null) {
+            String value = coord.refinedOutfit().referenceOutfitId();
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        if (stylist != null && stylist.suggestions() != null && !stylist.suggestions().isEmpty()) {
+            String value = stylist.suggestions().getFirst().referenceOutfitId();
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     /**

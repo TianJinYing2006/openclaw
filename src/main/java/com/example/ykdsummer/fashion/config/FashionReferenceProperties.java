@@ -2,10 +2,8 @@ package com.example.ykdsummer.fashion.config;
 
 import java.nio.file.Path;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /** Public outfit-reference import and query settings. */
-@Component
 @ConfigurationProperties(prefix = "app.fashion.reference")
 public class FashionReferenceProperties {
     private boolean enabled;

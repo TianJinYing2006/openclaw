@@ -24,20 +24,20 @@ class FashionResponseFormatterTest {
                 true,
                 new CoordinatorOutput(
                         new CoordinatorOutput.FinalRecommendation(1, "更适合海边", Map.of("2", "偏正式")),
-                        new CoordinatorOutput.RefinedOutfit("浅蓝亚麻衬衫", "米白直筒短裤", "白色帆布鞋", "草编包"),
+                        new CoordinatorOutput.RefinedOutfit("浅蓝亚麻衬衫", "米白直筒短裤", "白色帆布鞋", "草编包", null),
                         "亚麻衬衫透气，浅蓝和米白能贴合海边场景，同时比普通T恤更有度假感。",
                         List.of("白天注意防晒。", "晚上有风可以带一件薄外套。", "鞋子优先选不怕沙的款式。", "这条不会展示。")
                 ),
                 new StylistOutput(List.of(
                         new StylistOutput.OutfitSuggestion(1, "清爽度假风",
                                 new StylistOutput.Outfit("浅蓝亚麻衬衫", "米白短裤", "白色帆布鞋", "草编包"),
-                                "蓝白", "轻松清爽", List.of("海边"), "不挑身形"),
+                                "蓝白", "轻松清爽", List.of("海边"), "不挑身形", null),
                         new StylistOutput.OutfitSuggestion(2, "轻户外风",
                                 new StylistOutput.Outfit("速干T恤", "卡其短裤", "凉鞋", "棒球帽"),
-                                "卡其", "更方便活动", List.of("户外"), "适合多数体型"),
+                                "卡其", "更方便活动", List.of("户外"), "适合多数体型", null),
                         new StylistOutput.OutfitSuggestion(3, "简约休闲风",
                                 new StylistOutput.Outfit("白T", "牛仔短裤", "运动鞋", ""),
-                                "蓝白", "日常好穿", List.of("日常"), "不挑身形")
+                                "蓝白", "日常好穿", List.of("日常"), "不挑身形", null)
                 )),
                 CriticOutput.empty(),
                 TrendOutput.neutral(),
@@ -63,7 +63,7 @@ class FashionResponseFormatterTest {
                 false,
                 new CoordinatorOutput(
                         new CoordinatorOutput.FinalRecommendation(1, "降级首选", Map.of()),
-                        new CoordinatorOutput.RefinedOutfit("白色衬衫", "深色西裤", "乐福鞋", ""),
+                        new CoordinatorOutput.RefinedOutfit("白色衬衫", "深色西裤", "乐福鞋", "", null),
                         "稳妥、干净，适合通勤。",
                         List.of()
                 ),
@@ -89,6 +89,81 @@ class FashionResponseFormatterTest {
 
         assertTrue(text.contains("通用正式场合穿搭方案"));
         assertTrue(text.contains("白色基础T恤"));
+    }
+
+    @Test
+    void appendsReferenceOutfitIdForTryOnFromCoordinator() {
+        FashionResult result = new FashionResult(
+                true,
+                new CoordinatorOutput(
+                        new CoordinatorOutput.FinalRecommendation(1, "海边首选", Map.of()),
+                        new CoordinatorOutput.RefinedOutfit("浅蓝亚麻衬衫", "米白短裤", "帆布鞋", "草编包", "034"),
+                        "清爽透气。",
+                        List.of()
+                ),
+                new StylistOutput(List.of()),
+                CriticOutput.empty(),
+                TrendOutput.neutral(),
+                "",
+                analyzed("beach"),
+                null,
+                false
+        );
+
+        String text = formatter.format(result);
+
+        assertTrue(text.contains("可试穿方案编号：034"));
+    }
+
+    @Test
+    void fallsBackToStylistReferenceOutfitIdWhenCoordinatorHasNone() {
+        FashionResult result = new FashionResult(
+                true,
+                new CoordinatorOutput(
+                        new CoordinatorOutput.FinalRecommendation(1, "海边首选", Map.of()),
+                        new CoordinatorOutput.RefinedOutfit("浅蓝亚麻衬衫", "米白短裤", "帆布鞋", "草编包", null),
+                        "清爽透气。",
+                        List.of()
+                ),
+                new StylistOutput(List.of(
+                        new StylistOutput.OutfitSuggestion(1, "清爽度假风",
+                                new StylistOutput.Outfit("浅蓝亚麻衬衫", "米白短裤", "帆布鞋", "草编包"),
+                                "蓝白", "轻松清爽", List.of("海边"), "不挑身形", "010")
+                )),
+                CriticOutput.empty(),
+                TrendOutput.neutral(),
+                "",
+                analyzed("beach"),
+                null,
+                false
+        );
+
+        String text = formatter.format(result);
+
+        assertTrue(text.contains("可试穿方案编号：010"));
+    }
+
+    @Test
+    void omitsTryOnMarkerWhenNoReferenceOutfitIdIsAvailable() {
+        FashionResult result = new FashionResult(
+                true,
+                null,
+                new StylistOutput(List.of(
+                        new StylistOutput.OutfitSuggestion(1, "清爽度假风",
+                                new StylistOutput.Outfit("浅蓝亚麻衬衫", "米白短裤", "帆布鞋", "草编包"),
+                                "蓝白", "轻松清爽", List.of("海边"), "不挑身形", null)
+                )),
+                CriticOutput.empty(),
+                TrendOutput.neutral(),
+                "",
+                analyzed("beach"),
+                null,
+                false
+        );
+
+        String text = formatter.format(result);
+
+        assertFalse(text.contains("可试穿方案编号"));
     }
 
     private static AnalyzedQuery analyzed(String scene) {

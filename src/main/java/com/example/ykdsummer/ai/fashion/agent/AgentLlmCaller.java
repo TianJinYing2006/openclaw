@@ -13,6 +13,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -44,7 +45,8 @@ public class AgentLlmCaller {
     private final ObjectMapper objectMapper;
     private final ExecutorService executor;
 
-    public AgentLlmCaller(ChatModel chatModel, AiProperties aiProperties) {
+    public AgentLlmCaller(ChatModel chatModel, AiProperties aiProperties,
+                          @Qualifier("agentLlmCallerExecutor") ExecutorService executor) {
         this.chatModel = chatModel;
         this.aiProperties = aiProperties;
         // 宽松 JSON 解析：LLM 输出常带尾逗号、单引号、未转义控制字符等问题，
@@ -58,7 +60,7 @@ public class AgentLlmCaller {
                 .enable(JsonReadFeature.ALLOW_UNESCAPED_CONTROL_CHARS)
                 .enable(JsonReadFeature.ALLOW_BACKSLASH_ESCAPING_ANY_CHARACTER)
                 .build();
-        this.executor = Executors.newVirtualThreadPerTaskExecutor();
+        this.executor = executor;
     }
 
     /**
@@ -180,52 +182,24 @@ public class AgentLlmCaller {
     }
 
     /**
-     * 解析 JSON，失败时自动清洗并重试。
+     * 解析 JSON 并反序列化为指定类型。
      *
-     * <p>清洗策略按力度递增，依次尝试 6 种组合：
-     * <ol>
-     *   <li>原始文本直接解析</li>
-     *   <li>提取 ```json 代码块</li>
-     *   <li>提取第一个 { 到最后一个 }</li>
-     *   <li>修复后的原始文本（补全截断括号、去 BOM 等）</li>
-     *   <li>修复后的代码块</li>
-     *   <li>修复后的括号提取</li>
-     * </ol>
+     * <p>百炼 Qwen 已在请求中开启 {@code response_format: json_object}（JSON Mode），
+     * 输出为严格 JSON；这里只保留两种兜底：直接解析 + ```json 代码块提取。
+     * 截断导致的非法 JSON 不做括号补全修复——那应当通过调大 maxTokens 解决。</p>
      */
     private <T> T parseJsonWithRetry(String raw, Class<T> type) {
         if (raw == null || raw.isBlank()) {
             log.warn("Empty LLM response");
             return null;
         }
-
-        String codeBlock = extractJsonBlock(raw);
-        String bracket = extractBrackets(raw);
-
-        String[] candidates = {
-                raw,                    // 原始
-                codeBlock,              // ```json 代码块
-                bracket,                // 第一个 { 到最后一个 }
-                repairJson(raw),        // 修复后的原始
-                repairJson(codeBlock),  // 修复后的代码块
-                repairJson(bracket)     // 修复后的括号提取
-        };
-        String[] methods = {
-                "direct", "code_block", "bracket",
-                "repaired_direct", "repaired_code_block", "repaired_bracket"
-        };
-
-        for (int i = 0; i < candidates.length; i++) {
-            if (candidates[i] == null || candidates[i].isBlank()) continue;
-            T result = tryParse(candidates[i], type, methods[i]);
-            if (result != null) return result;
-        }
-
-        log.warn("All {} JSON parse attempts failed. Raw: {}",
-                candidates.length, raw.length() > 500 ? raw.substring(0, 500) + "..." : raw);
-        return null;
+        T direct = tryParse(raw, type, "direct");
+        if (direct != null) return direct;
+        return tryParse(extractJsonBlock(raw), type, "code_block");
     }
 
     private <T> T tryParse(String json, Class<T> type, String method) {
+        if (json == null || json.isBlank()) return null;
         try {
             T result = objectMapper.readValue(json, type);
             log.debug("JSON parse succeeded via {}", method);
@@ -249,84 +223,6 @@ public class AgentLlmCaller {
             }
         }
         return null;
-    }
-
-    private String extractBrackets(String text) {
-        int start = text.indexOf('{');
-        int end = text.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            return text.substring(start, end + 1);
-        }
-        return null;
-    }
-
-    /**
-     * 修复 LLM 输出中常见的 JSON 格式问题。
-     *
-     * <p>处理 ObjectMapper 宽松模式无法覆盖的问题：
-     * <ul>
-     *   <li>移除 BOM 头</li>
-     *   <li>移除残留的 Markdown 代码块标记</li>
-     *   <li>补全因 max_tokens 截断导致缺失的闭合括号</li>
-     * </ul>
-     */
-    private String repairJson(String json) {
-        if (json == null || json.isBlank()) return null;
-        String repaired = json.strip();
-        // 移除 BOM
-        if (repaired.startsWith("\uFEFF")) {
-            repaired = repaired.substring(1);
-        }
-        // 移除残留的 Markdown 代码块标记
-        repaired = repaired.replaceAll("^```(?:json)?\\s*", "");
-        repaired = repaired.replaceAll("\\s*```$", "");
-        // 补全因截断导致缺失的闭合括号
-        repaired = closeUnclosedBraces(repaired);
-        return repaired;
-    }
-
-    /**
-     * 统计未闭合的大括号和方括号，在末尾按正确顺序补全。
-     *
-     * <p>可挽救因 max_tokens 截断导致的不完整 JSON，例如：
-     * {@code {"a": 1, "b": [2, 3} → 补全为 → {"a": 1, "b": [2, 3]}
-     */
-    private String closeUnclosedBraces(String json) {
-        int braces = 0;
-        int brackets = 0;
-        boolean inString = false;
-        boolean escaped = false;
-
-        for (int i = 0; i < json.length(); i++) {
-            char c = json.charAt(i);
-            if (escaped) {
-                escaped = false;
-                continue;
-            }
-            if (c == '\\') {
-                escaped = true;
-                continue;
-            }
-            if (c == '"') {
-                inString = !inString;
-                continue;
-            }
-            if (inString) continue;
-            switch (c) {
-                case '{' -> braces++;
-                case '}' -> braces--;
-                case '[' -> brackets++;
-                case ']' -> brackets--;
-            }
-        }
-
-        if (braces < 0 || brackets < 0) return json; // 结构已损坏，无法简单修复
-        if (braces == 0 && brackets == 0) return json; // 已平衡
-
-        StringBuilder sb = new StringBuilder(json);
-        while (brackets-- > 0) sb.append(']');
-        while (braces-- > 0) sb.append('}');
-        return sb.toString();
     }
 
     /**
@@ -385,6 +281,13 @@ public class AgentLlmCaller {
             java.util.Map<String, Object> thinking = new java.util.HashMap<>();
             thinking.put("type", "disabled");
             body.put("thinking", thinking);
+        }
+        // 百炼 Qwen 支持 response_format=json_object（JSON Mode，需关闭 thinking），
+        // 让模型直接输出严格 JSON，从源头减少解析失败。
+        if (normalized.contains("qwen")) {
+            java.util.Map<String, Object> jsonMode = new java.util.HashMap<>();
+            jsonMode.put("type", "json_object");
+            body.put("response_format", jsonMode);
         }
         return body;
     }

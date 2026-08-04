@@ -2,10 +2,8 @@ package com.example.ykdsummer.fashion.config;
 
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /** Candidate limits, deterministic ranking weights, and background rendering deadlines. */
-@Component
 @ConfigurationProperties(prefix = "app.fashion.outfit-recommendation")
 public class OutfitRecommendationProperties {
     private boolean enabled = true;
