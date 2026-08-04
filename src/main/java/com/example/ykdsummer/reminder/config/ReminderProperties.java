@@ -3,10 +3,8 @@ package com.example.ykdsummer.reminder.config;
 import java.time.Duration;
 import java.time.ZoneId;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /** Runtime limits for durable WeChat reminder delivery. */
-@Component
 @ConfigurationProperties(prefix = "app.reminder")
 public class ReminderProperties {
     private boolean enabled = true;

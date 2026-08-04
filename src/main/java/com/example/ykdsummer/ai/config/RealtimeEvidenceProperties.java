@@ -6,7 +6,6 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /**
  * 专用实时查询的联网辅助策略。
@@ -14,7 +13,6 @@ import org.springframework.stereotype.Component;
  * <p>只有白名单中的无副作用查询 Tool 可以并行补充联网证据。写入、审批、生成和资产操作
  * 必须继续在原线程同步执行，不能因为本策略被意外并发。</p>
  */
-@Component
 @ConfigurationProperties(prefix = "app.ai.realtime-augmentation")
 public class RealtimeEvidenceProperties {
 

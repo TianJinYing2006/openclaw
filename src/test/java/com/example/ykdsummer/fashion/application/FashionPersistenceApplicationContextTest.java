@@ -2,6 +2,7 @@ package com.example.ykdsummer.fashion.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.ykdsummer.ai.fashion.agent.FashionAgentWorkflowContextProvider;
 import com.example.ykdsummer.ai.service.AiChatService;
 import com.example.ykdsummer.ai.orchestration.ToolRegistry;
 import java.util.List;
@@ -43,8 +44,8 @@ class FashionPersistenceApplicationContextTest {
         List<String> names = toolRegistry.allToolMeta().stream().map(ToolRegistry.ToolMeta::name).toList();
 
         assertThat(names).contains("search_wardrobe", "search_wardrobe_semantic", "show_wardrobe_items",
-                "search_fashion_references", "recommend_outfits_from_wardrobe");
-        assertThat(names).hasSize(35);
+                "search_fashion_references", "recommend_outfits_from_wardrobe", "fashion_consultant");
+        assertThat(names).hasSize(36);
         assertThat(names).doesNotHaveDuplicates();
     }
 }

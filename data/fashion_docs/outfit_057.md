@@ -1,4 +1,4 @@
-# 穿搭方案 057：小R同学 - 燕麦色肌理图案开衫 + 灰色T恤 + 天蓝色超宽松牛仔裤 + 浅灰色运动鞋
+# 穿搭方案 057：小R同学 - 燕麦绞花开衫浅蓝阔腿牛仔裤_原图
 
 ## 基本信息
 - 编号：057
@@ -19,51 +19,55 @@
 ## 单品1：燕麦色肌理图案开衫
 - 类别：外套（开衫）
 - 适用性别：UNISEX
-- 颜色：主色=燕麦色，色调=NEUTRAL，近似色值=#B8AA91
+- 颜色：主色=燕麦色, 色调=NEUTRAL, 近似色值=#B8AA91
 - 外观：图案=肌理图案, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：未知成分针织面料
-- 面料属性：厚度=MEDIUM, 弹性=MEDIUM, 垂感=MEDIUM, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：领型=SHIRT_COLLAR, 袖型=LONG_SLEEVE, 开合方式=BUTTON
+- 面料属性：thickness=MEDIUM, stretch=MEDIUM, drape=MEDIUM, sheen=MATTE, breathability=UNKNOWN, texture=KNITTED
+- 结构：collar=SHIRT_COLLAR, sleeve=LONG_SLEEVE, closure=BUTTON
 - 风格：街头/学院/复古
 - 季节：春季/秋季
 - 场合：日常/上学
-- 正式度：2/5（半休闲）
+- 正式度：2/5
 - 特征：绞花针织
 
 ## 单品2：灰色T恤
 - 类别：上衣（T恤）
 - 适用性别：UNISEX
-- 颜色：主色=灰色，色调=NEUTRAL，近似色值=#777A7D
+- 颜色：主色=灰色, 色调=NEUTRAL, 近似色值=#777A7D
 - 外观：图案=纯色, 版型=常规, 轮廓=H型, 长度=常规长度
 - 材质：棉混纺
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=LOW, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：领型=CREW_NECK, 袖型=UNKNOWN, 开合方式=PULLOVER
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=LOW, sheen=MATTE, breathability=UNKNOWN, texture=KNITTED
+- 结构：collar=CREW_NECK, sleeve=UNKNOWN, closure=PULLOVER
 - 风格：街头/学院/复古
 - 季节：春季/秋季
 - 场合：日常/上学
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品3：天蓝色超宽松牛仔裤
 - 类别：下装（牛仔裤）
 - 适用性别：UNISEX
-- 颜色：主色=天蓝色，辅色=蓝色，色调=COOL，近似色值=#9DBFD3
+- 颜色：主色=天蓝色, 辅色=蓝色, 色调=COOL, 近似色值=#9DBFD3
 - 外观：图案=纯色, 版型=超宽松, 轮廓=阔腿, 长度=全长
 - 材质：牛仔布
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：腰型=UNKNOWN, 裤型=WIDE_LEG
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=UNKNOWN, texture=DENIM_TEXTURE
+- 结构：waist=UNKNOWN, legShape=WIDE_LEG
 - 风格：街头/学院/复古
 - 季节：春季/秋季
 - 场合：日常/上学
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品4：浅灰色运动鞋
 - 类别：鞋子（运动鞋）
 - 适用性别：UNISEX
-- 颜色：主色=浅灰色，辅色=灰色，色调=NEUTRAL，近似色值=#B8BAB9
+- 颜色：主色=浅灰色, 辅色=灰色, 色调=NEUTRAL, 近似色值=#B8BAB9
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=NONE, 垂感=NONE, 光泽=MATTE, 透气性=LOW
+- 面料属性：thickness=MEDIUM, stretch=NONE, drape=NONE, sheen=MATTE, breathability=LOW, texture=UNKNOWN
+- 结构：shoeCut=LOW_TOP
 - 风格：街头/学院/复古
 - 季节：春季/秋季
 - 场合：日常/上学
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征

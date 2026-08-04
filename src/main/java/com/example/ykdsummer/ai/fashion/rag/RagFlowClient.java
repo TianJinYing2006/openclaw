@@ -2,6 +2,8 @@ package com.example.ykdsummer.ai.fashion.rag;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -136,13 +138,19 @@ public class RagFlowClient {
 
     /**
      * RAGFlow 返回的单个文档分块。
+     *
+     * <p>注意：retrieval 响应中不返回 {@code document_name}，文档名实际在
+     * {@code document_keyword} 字段（值为文件名，如 outfit_075.md）。
+     * JSON 字段均为 snake_case，用 {@link JsonNaming} 统一映射到驼峰属性。
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record RagFlowChunk(
             String id,
             String content,
             String documentId,
             String documentName,
+            String documentKeyword,
             String datasetId,
             double similarity,
             double vectorSimilarity,

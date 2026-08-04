@@ -1,7 +1,6 @@
 package com.example.ykdsummer.bot.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 
 import java.time.Duration;
@@ -12,7 +11,6 @@ import java.time.Duration;
  * <p>这些限制都发生在 Java 本地：腾讯 iLink 只负责把视频媒体交给 SDK，真正的
  * 下载后校验、抽帧和模型调用由本项目完成。</p>
  */
-@Component
 @ConfigurationProperties(prefix = "app.video")
 public class VideoProcessingProperties {
 

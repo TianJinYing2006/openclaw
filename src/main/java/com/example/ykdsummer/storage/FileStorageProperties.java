@@ -1,7 +1,6 @@
 package com.example.ykdsummer.storage;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -11,7 +10,6 @@ import java.time.Duration;
  *
  * <p>目录结构：{root}/{userId}/{sessionId}/{input|temp|output}/</p>
  */
-@Component
 @ConfigurationProperties(prefix = "app.workspace")
 public class FileStorageProperties {
 

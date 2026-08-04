@@ -4,10 +4,13 @@ import com.example.ykdsummer.ai.service.AiImageGenerationService;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
 import com.example.ykdsummer.fashion.domain.ClothingCandidate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /** First provider adapter: uses the current reference-image editing endpoint behind the cutout port. */
 @Service
+@ConditionalOnProperty(prefix = "app.fashion.cutout", name = "provider",
+        havingValue = "reference-image", matchIfMissing = true)
 public class ReferenceImageGarmentCutoutService implements GarmentCutoutService {
     private final AiImageGenerationService images;
     private final LocalImageAssetStore assets;

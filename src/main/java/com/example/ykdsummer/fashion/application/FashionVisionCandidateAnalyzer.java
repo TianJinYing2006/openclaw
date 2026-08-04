@@ -14,11 +14,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
-/** Converts a vision response into structured clothing candidate drafts for a user-confirmed wardrobe. */
+/** ChatCompletions vision provider: analyzes photos via the image inspection gateway. */
 @Service
-public class FashionVisionCandidateAnalyzer {
+@ConditionalOnProperty(prefix = "app.fashion.analysis", name = "provider",
+        havingValue = "chat-completions", matchIfMissing = true)
+public class FashionVisionCandidateAnalyzer implements WardrobePhotoAnalyzer {
     static final String PROMPT_VERSION = "fashion-wardrobe-v2";
     private static final BigDecimal MINIMUM_USABLE_QUALITY = new BigDecimal("0.45");
     private static final String ANALYSIS_PROMPT = """
@@ -50,7 +53,8 @@ public class FashionVisionCandidateAnalyzer {
         this.objectMapper = objectMapper;
     }
 
-    public AnalysisResult analyze(StoredImage source) {
+    @Override
+    public WardrobePhotoAnalyzer.AnalysisResult analyze(StoredImage source) {
         if (source == null) throw new IllegalArgumentException("source image is required");
         AnalysisResult fromSavedSummary = analyzeSavedSummary(source.tags());
         if (!fromSavedSummary.candidates().isEmpty()) return fromSavedSummary;
@@ -61,15 +65,21 @@ public class FashionVisionCandidateAnalyzer {
         return parse(response);
     }
 
+    @Override
+    public String providerName() { return "chat-completions-vision"; }
+
+    @Override
+    public String promptVersion() { return PROMPT_VERSION; }
+
     /**
      * A prior image inspection is already an expensive, OSS-backed multimodal read. Reuse a detailed saved summary
      * for the first wardrobe draft instead of sending the same bytes to a slow upstream a second time. Users still
      * review every candidate and the generated cutout before an item can enter the wardrobe.
      */
-    private AnalysisResult analyzeSavedSummary(String tags) {
+    private WardrobePhotoAnalyzer.AnalysisResult analyzeSavedSummary(String tags) {
         String summary = text(tags, 8_000);
         if (summary.length() < 80 || containsAny(summary, "暂时不可用", "无法识别", "未识别")) {
-            return new AnalysisResult("", List.of());
+            return new WardrobePhotoAnalyzer.AnalysisResult("", List.of());
         }
         List<ClothingCandidateDraft> drafts = new ArrayList<>();
         addSummaryCandidate(drafts, summary, "T_SHIRT", "上衣", "Polo", "Polo衫", "T恤", "短袖", "上装");
@@ -85,8 +95,8 @@ public class FashionVisionCandidateAnalyzer {
         addSummaryCandidate(drafts, summary, "DRESS", "连衣裙", "裙装");
         addSummaryCandidate(drafts, summary, "SHOES", "鞋子", "厚底鞋", "运动鞋", "皮鞋", "鞋");
         addSummaryCandidate(drafts, summary, "BAG", "包包", "手提包", "背包", "包");
-        if (drafts.isEmpty()) return new AnalysisResult("", List.of());
-        return new AnalysisResult("已复用这张图片已保存的视觉摘要，生成待确认的服装候选。", List.copyOf(drafts));
+        if (drafts.isEmpty()) return new WardrobePhotoAnalyzer.AnalysisResult("", List.of());
+        return new WardrobePhotoAnalyzer.AnalysisResult("已复用这张图片已保存的视觉摘要，生成待确认的服装候选。", List.copyOf(drafts));
     }
 
     private void addSummaryCandidate(List<ClothingCandidateDraft> drafts, String summary, String category,
@@ -219,11 +229,11 @@ public class FashionVisionCandidateAnalyzer {
         return List.copyOf(tags);
     }
 
-    AnalysisResult parse(String raw) {
+    WardrobePhotoAnalyzer.AnalysisResult parse(String raw) {
         try {
             JsonNode root = objectMapper.readTree(extractJson(raw));
             JsonNode candidates = root != null && root.isArray() ? root : root.path("candidates");
-            if (!candidates.isArray()) return new AnalysisResult("Unable to read structured clothing candidates", List.of());
+            if (!candidates.isArray()) return new WardrobePhotoAnalyzer.AnalysisResult("Unable to read structured clothing candidates", List.of());
             List<ClothingCandidateDraft> drafts = new ArrayList<>();
             int index = 0;
             for (JsonNode node : candidates) {
@@ -231,9 +241,9 @@ public class FashionVisionCandidateAnalyzer {
                 drafts.add(draft(index++, node));
             }
             String summary = root != null && root.isObject() ? text(root.path("summary").asText(), 512) : "";
-            return new AnalysisResult(summary, List.copyOf(drafts));
+            return new WardrobePhotoAnalyzer.AnalysisResult(summary, List.copyOf(drafts));
         } catch (JsonProcessingException exception) {
-            return new AnalysisResult("Vision response was not valid structured JSON", List.of());
+            return new WardrobePhotoAnalyzer.AnalysisResult("Vision response was not valid structured JSON", List.of());
         }
     }
 
@@ -318,6 +328,4 @@ public class FashionVisionCandidateAnalyzer {
         String clean = value == null ? "" : value.replace('\u0000', ' ').strip();
         return clean.length() <= limit ? clean : clean.substring(0, limit);
     }
-
-    public record AnalysisResult(String summary, List<ClothingCandidateDraft> candidates) { }
 }

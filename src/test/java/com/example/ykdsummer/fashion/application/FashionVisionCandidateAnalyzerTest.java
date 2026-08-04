@@ -35,7 +35,7 @@ class FashionVisionCandidateAnalyzerTest {
     void parsesStructuredCandidatesAndForcesRetakeForLowQualityGarment() {
         FashionVisionCandidateAnalyzer analyzer = new FashionVisionCandidateAnalyzer(mock(ImageInspectionService.class), new ObjectMapper());
 
-        FashionVisionCandidateAnalyzer.AnalysisResult result = analyzer.parse("""
+        WardrobePhotoAnalyzer.AnalysisResult result = analyzer.parse("""
                 ```json
                 {"summary":"two garments","candidates":[
                   {"displayName":"white shirt","categoryCode":"SHIRT","colorPrimary":"WHITE",
@@ -62,7 +62,7 @@ class FashionVisionCandidateAnalyzerTest {
     void acceptsAWornGarmentWhenItsMainSilhouetteIsVisible() {
         FashionVisionCandidateAnalyzer analyzer = new FashionVisionCandidateAnalyzer(mock(ImageInspectionService.class), new ObjectMapper());
 
-        FashionVisionCandidateAnalyzer.AnalysisResult result = analyzer.parse("""
+        WardrobePhotoAnalyzer.AnalysisResult result = analyzer.parse("""
                 {"summary":"person wearing an oversized polo and wide-leg trousers","candidates":[
                   {"displayName":"gray oversized polo","categoryCode":"T_SHIRT","colorPrimary":"GRAY",
                    "secondaryColors":[],"styleTags":["CASUAL"],"fitCode":"RELAXED","seasonTags":["SUMMER"],
@@ -91,7 +91,7 @@ class FashionVisionCandidateAnalyzerTest {
                 腰部被上衣覆盖但双腿和裤脚清晰可见；脚穿黑色厚底鞋，只露出鞋头部分。整体休闲简约。
                 """);
 
-        FashionVisionCandidateAnalyzer.AnalysisResult result = analyzer.analyze(source);
+        WardrobePhotoAnalyzer.AnalysisResult result = analyzer.analyze(source);
 
         assertEquals(3, result.candidates().size());
         assertEquals("T_SHIRT", result.candidates().getFirst().categoryCode());

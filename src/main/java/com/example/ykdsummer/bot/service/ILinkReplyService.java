@@ -190,8 +190,8 @@ public class ILinkReplyService {
         }
 
         /*
-         * 所有纯文本都进入同一模型入口。模型根据 Tool 描述决定是否调用 DocumentTools、ImageTools、
-         * SpeechTools 等能力；接入层不再解析 FILE_GEN 或依赖人工前缀。
+         * 所有纯文本都进入同一模型入口。模型根据 Tool 描述决定是否调用 ImageTools、WeatherTools、
+         * ReminderTools、fashion_consultant 等能力；接入层不再解析 FILE_GEN 或依赖人工前缀。
          */
         if (content.isPlainTextOnly()) {
             AiFile sourceFile = fileSessions.consume(userId).orElse(null);

@@ -53,3 +53,14 @@ progress.md
 # Runtime SQLite databases
 .db/
 /tianchi/
+
+# Maven settings with credentials (use ~/.m2/settings.xml instead)
+.m2-settings*.xml
+
+# Binary executables should not be version-controlled
+*.exe
+
+# Python cache and test artifacts
+__pycache__/
+*.pyc
+mcp-server/_tryon_test/

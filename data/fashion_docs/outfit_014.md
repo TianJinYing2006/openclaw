@@ -1,4 +1,4 @@
-# 穿搭方案 014：无业游男 - 黑色宽松T恤 + 蓝色宽松牛仔裤 + 黑色运动鞋
+# 穿搭方案 014：无业游男 - 黑T绿色牛仔裤
 
 ## 基本信息
 - 编号：014
@@ -19,37 +19,41 @@
 ## 单品1：黑色宽松T恤
 - 类别：上衣（T恤）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#1C1D1F
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#1C1D1F
 - 外观：图案=纯色, 版型=宽松, 轮廓=H型, 长度=常规长度
 - 材质：棉混纺
-- 面料属性：厚度=LIGHT, 弹性=MEDIUM, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
-- 结构：领型=CREW_NECK, 袖型=SHORT_SLEEVE, 开合方式=PULLOVER
+- 面料属性：thickness=LIGHT, stretch=MEDIUM, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=KNITTED
+- 结构：collar=CREW_NECK, sleeve=SHORT_SLEEVE, closure=PULLOVER
 - 风格：街头/学院/通勤
 - 季节：夏季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
+- 特征：无明显特征
 
 ## 单品2：蓝色宽松牛仔裤
 - 类别：下装（牛仔裤）
 - 适用性别：UNISEX
-- 颜色：主色=蓝色，辅色=绿色，色调=COOL，近似色值=#3B6F9E
+- 颜色：主色=蓝色, 辅色=绿色, 色调=COOL, 近似色值=#3B6F9E
 - 外观：图案=纯色, 版型=宽松, 轮廓=阔腿, 长度=全长
 - 材质：牛仔布
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
-- 结构：腰型=UNKNOWN, 裤型=WIDE_LEG
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=DENIM_TEXTURE
+- 结构：waist=UNKNOWN, legShape=WIDE_LEG
 - 风格：街头/学院/通勤
 - 季节：夏季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
+- 特征：无明显特征
 
 ## 单品3：黑色运动鞋
 - 类别：鞋子（运动鞋）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#1C1D1F
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#1C1D1F
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=NONE, 垂感=NONE, 光泽=MATTE, 透气性=LOW
+- 面料属性：thickness=MEDIUM, stretch=NONE, drape=NONE, sheen=MATTE, breathability=LOW, texture=UNKNOWN
+- 结构：shoeCut=LOW_TOP
 - 风格：街头/学院/通勤
 - 季节：夏季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
+- 特征：无明显特征

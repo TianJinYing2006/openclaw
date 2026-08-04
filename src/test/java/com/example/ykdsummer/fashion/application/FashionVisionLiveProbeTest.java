@@ -110,7 +110,7 @@ class FashionVisionLiveProbeTest {
         }
     }
 
-    private static String summarize(FashionVisionCandidateAnalyzer.AnalysisResult result) {
+    private static String summarize(WardrobePhotoAnalyzer.AnalysisResult result) {
         return result.candidates().stream()
                 .map(candidate -> candidate.categoryCode() + ':' + candidate.completenessStatus()
                         + ':' + candidate.qualityScore())

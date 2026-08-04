@@ -3,6 +3,7 @@ package com.example.ykdsummer.bot.service;
 import com.example.ykdsummer.admin.ilink.ManagedBotInstanceManager;
 import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
 import com.example.ykdsummer.fashion.runtime.FashionTryOnCompletedEvent;
+import com.example.ykdsummer.fashion.runtime.FashionTryOnFailedEvent;
 import com.example.ykdsummer.persistence.ManagedInstanceScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +43,27 @@ public class ILinkFashionTryOnCompletionListener {
                 log.warn("Could not auto-send fashion try-on, task={}, user={}", event.taskId(), anonymize(event.userId()), exception);
             }
         }, () -> log.warn("No iLink reply context for fashion try-on task {}, user={}", event.taskId(), anonymize(event.userId())));
+    }
+
+    @EventListener
+    public void notifyTryOnFailure(FashionTryOnFailedEvent event) {
+        if (event == null || event.userId().isBlank()) return;
+        contexts.find(event.userId()).ifPresentOrElse(contextToken -> {
+            try {
+                sendText(event.userId(), contextToken,
+                        "抱歉，刚才的试衣生成失败了（" + userFacingReason(event.reason()) + "）。请稍后再试一次。");
+            } catch (RuntimeException exception) {
+                log.warn("Could not notify fashion try-on failure, task={}, user={}", event.taskId(), anonymize(event.userId()), exception);
+            }
+        }, () -> log.warn("No iLink reply context for fashion try-on failure, task={}, user={}", event.taskId(), anonymize(event.userId())));
+    }
+
+    /** 把技术性失败原因转成用户能看懂的一句话；空原因给兜底文案。 */
+    private static String userFacingReason(String reason) {
+        if (reason == null || reason.isBlank()) return "服务暂时不可用";
+        String message = reason.strip().replaceAll("\\s+", " ");
+        if (message.length() > 60) message = message.substring(0, 60) + "…";
+        return message;
     }
 
     private void sendImage(String userId, String contextToken, byte[] bytes) {

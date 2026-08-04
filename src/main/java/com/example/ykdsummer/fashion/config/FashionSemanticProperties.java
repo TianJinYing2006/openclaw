@@ -2,10 +2,8 @@ package com.example.ykdsummer.fashion.config;
 
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /** Separate provider and vector-store settings for Fashion semantic retrieval. */
-@Component
 @ConfigurationProperties(prefix = "app.fashion.semantic")
 public class FashionSemanticProperties {
     private boolean enabled;

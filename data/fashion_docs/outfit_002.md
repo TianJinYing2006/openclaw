@@ -1,4 +1,4 @@
-# 穿搭方案 002：Nanase - 浅蓝白格纹长袖衬衫 + 黑色宽松阔腿牛仔裤 + 驼色低帮工装短靴
+# 穿搭方案 002：Nanase - 格纹衬衫阔腿裤
 
 ## 基本信息
 - 编号：002
@@ -19,40 +19,41 @@
 ## 单品1：浅蓝白格纹长袖衬衫
 - 类别：上衣（衬衫）
 - 适用性别：UNISEX
-- 颜色：主色=蓝灰色，辅色=白色，色调=NEUTRAL，近似色值=#B6C4D0
+- 颜色：主色=蓝灰色, 辅色=白色, 色调=NEUTRAL, 近似色值=#B6C4D0
 - 外观：图案=格纹, 版型=宽松, 轮廓=H型, 长度=常规长度
 - 材质：棉混纺
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
-- 结构：领型=SHIRT_COLLAR, 袖型=LONG_SLEEVE, 开合方式=BUTTON
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=WOVEN
+- 结构：collar=SHIRT_COLLAR, sleeve=LONG_SLEEVE, closure=BUTTON
 - 风格：休闲/简约/学院
 - 季节：春季/秋季
 - 场合：日常/通勤
-- 正式度：2/5（半休闲）
+- 正式度：2/5
 - 特征：细密小格纹; 纽扣门襟
 
 ## 单品2：黑色宽松阔腿牛仔裤
 - 类别：下装（牛仔裤）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#202225
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#202225
 - 外观：图案=纯色, 版型=宽松, 轮廓=阔腿, 长度=全长
 - 材质：牛仔布
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
-- 结构：腰型=MID_RISE, 裤型=WIDE_LEG
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=DENIM_TEXTURE
+- 结构：waist=MID_RISE, legShape=WIDE_LEG
 - 风格：休闲/街头
 - 季节：春季/秋季
 - 场合：日常/旅行
-- 正式度：2/5（半休闲）
+- 正式度：2/5
 - 特征：深色水洗纹理; 宽裤腿
 
 ## 单品3：驼色低帮工装短靴
 - 类别：鞋子（短靴）
 - 适用性别：UNISEX
-- 颜色：主色=驼色，色调=NEUTRAL，近似色值=#A87A50
+- 颜色：主色=驼色, 色调=NEUTRAL, 近似色值=#A87A50
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：麂皮
-- 面料属性：厚度=MEDIUM, 弹性=NONE, 垂感=NONE, 光泽=MATTE, 透气性=LOW
+- 面料属性：thickness=MEDIUM, stretch=NONE, drape=NONE, sheen=MATTE, breathability=LOW, texture=SUEDE_TEXTURE
+- 结构：shoeCut=ANKLE
 - 风格：工装/户外/休闲
 - 季节：春季/秋季
 - 场合：日常/户外
-- 正式度：2/5（半休闲）
+- 正式度：2/5
 - 特征：厚底纹路鞋底; 圆头

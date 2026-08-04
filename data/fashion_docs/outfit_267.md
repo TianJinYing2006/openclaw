@@ -1,4 +1,4 @@
-# 穿搭方案 267：一只蛋挞 - 棕灰色格纹衬衫 + 卡其色宽松休闲裤
+# 穿搭方案 267：一只蛋挞 - 棕灰格纹短袖衬衫_白色T恤_卡其阔腿长裤
 
 ## 基本信息
 - 编号：267
@@ -19,26 +19,27 @@
 ## 单品1：棕灰色格纹衬衫
 - 类别：上衣（衬衫）
 - 适用性别：UNISEX
-- 颜色：主色=棕灰色，辅色=灰色/白色，色调=NEUTRAL，近似色值=#756C60
+- 颜色：主色=棕灰色, 辅色=灰色/白色, 色调=NEUTRAL, 近似色值=#756C60
 - 外观：图案=格纹, 版型=常规, 轮廓=H型, 长度=常规长度
 - 材质：棉混纺
-- 面料属性：厚度=LIGHT, 弹性=MEDIUM, 垂感=LOW, 光泽=MATTE, 透气性=MEDIUM
-- 结构：领型=SHIRT_COLLAR, 袖型=SHORT_SLEEVE, 开合方式=BUTTON
+- 面料属性：thickness=LIGHT, stretch=MEDIUM, drape=LOW, sheen=MATTE, breathability=MEDIUM, texture=KNITTED
+- 结构：collar=SHIRT_COLLAR, sleeve=SHORT_SLEEVE, closure=BUTTON
 - 风格：街头/学院/通勤
 - 季节：夏季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
 - 特征：格纹结构
 
 ## 单品2：卡其色宽松休闲裤
 - 类别：下装（休闲裤）
 - 适用性别：UNISEX
-- 颜色：主色=卡其色，色调=NEUTRAL，近似色值=#9B8A69
+- 颜色：主色=卡其色, 色调=NEUTRAL, 近似色值=#9B8A69
 - 外观：图案=纯色, 版型=宽松, 轮廓=阔腿, 长度=全长
 - 材质：化纤混纺
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
-- 结构：腰型=UNKNOWN, 裤型=WIDE_LEG
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=WOVEN
+- 结构：waist=UNKNOWN, legShape=WIDE_LEG
 - 风格：街头/学院/通勤
 - 季节：夏季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
+- 特征：无明显特征

@@ -1,4 +1,4 @@
-# 穿搭方案 060：小R同学 - 牛仔夹克 + 黑色T恤 + 灰褐色超宽松休闲裤 + 黑色运动鞋
+# 穿搭方案 060：小R同学 - 深色牛仔夹克卡其阔腿裤_原图
 
 ## 基本信息
 - 编号：060
@@ -19,50 +19,55 @@
 ## 单品1：牛仔夹克
 - 类别：外套（牛仔夹克）
 - 适用性别：UNISEX
-- 颜色：主色=未知，色调=NEUTRAL
+- 颜色：主色=未知, 色调=NEUTRAL
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：牛仔布
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=LOW, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：领型=SHIRT_COLLAR, 袖型=LONG_SLEEVE, 开合方式=UNKNOWN
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=LOW, sheen=MATTE, breathability=UNKNOWN, texture=DENIM_TEXTURE
+- 结构：collar=SHIRT_COLLAR, sleeve=LONG_SLEEVE, closure=UNKNOWN
 - 风格：街头/复古/休闲
 - 季节：春季/秋季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品2：黑色T恤
 - 类别：上衣（T恤）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#1C1D1F
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#1C1D1F
 - 外观：图案=纯色, 版型=常规, 轮廓=H型, 长度=常规长度
 - 材质：棉混纺
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=LOW, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：领型=CREW_NECK, 袖型=UNKNOWN, 开合方式=PULLOVER
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=LOW, sheen=MATTE, breathability=UNKNOWN, texture=KNITTED
+- 结构：collar=CREW_NECK, sleeve=UNKNOWN, closure=PULLOVER
 - 风格：街头/复古/休闲
 - 季节：春季/秋季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品3：灰褐色超宽松休闲裤
 - 类别：下装（休闲裤）
 - 适用性别：UNISEX
-- 颜色：主色=灰褐色，辅色=灰色，色调=NEUTRAL，近似色值=#7C7468
+- 颜色：主色=灰褐色, 辅色=灰色, 色调=NEUTRAL, 近似色值=#7C7468
 - 外观：图案=纯色, 版型=超宽松, 轮廓=阔腿, 长度=全长
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：腰型=UNKNOWN, 裤型=WIDE_LEG
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=UNKNOWN, texture=WOVEN
+- 结构：waist=UNKNOWN, legShape=WIDE_LEG
 - 风格：街头/复古/休闲
 - 季节：春季/秋季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品4：黑色运动鞋
 - 类别：鞋子（运动鞋）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#1C1D1F
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#1C1D1F
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=NONE, 垂感=NONE, 光泽=MATTE, 透气性=LOW
+- 面料属性：thickness=MEDIUM, stretch=NONE, drape=NONE, sheen=MATTE, breathability=LOW, texture=UNKNOWN
+- 结构：shoeCut=LOW_TOP
 - 风格：街头/复古/休闲
 - 季节：春季/秋季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征

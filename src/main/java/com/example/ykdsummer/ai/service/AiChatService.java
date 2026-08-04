@@ -9,15 +9,14 @@ import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.ConversationMessage;
-import com.example.ykdsummer.fashion.application.FashionAgentWorkflowContextProvider;
+import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
+import com.example.ykdsummer.ai.fashion.agent.FashionAgentWorkflowContextProvider;
 import com.example.ykdsummer.fashion.application.FashionWardrobeDraftCommandHandler;
 import com.example.ykdsummer.fashion.tool.FashionWardrobeVisualCommandHandler;
 import com.example.ykdsummer.persistence.ConversationHistoryStore;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.BiConsumer;
-import java.util.function.Supplier;
 import com.example.ykdsummer.ai.config.AiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -177,6 +176,27 @@ public class AiChatService {
             return AssistantAnswer.text(DISABLED_REPLY);
         }
 
+        /*
+         * 工具调用（穿搭咨询、生图、TTS、提醒等）通过 AgentSessionContext 读取当前请求的
+         * userId。gateway 的模型调用是同步的，工具在调用线程内执行，因此在这里设置
+         * ThreadLocal、调用结束后在 finally 中清除，整条工具链就能拿到真实用户标识；
+         * 否则工具内始终是 anonymous，用户画像、反馈与用量都无法关联真实用户。
+         */
+        AgentSessionContext.set(userId, userId);
+        try {
+            return answerInternalInContext(userId, memoryPrompt, modelPrompt, images, files);
+        } finally {
+            AgentSessionContext.clear();
+        }
+    }
+
+    private AssistantAnswer answerInternalInContext(
+            String userId,
+            String memoryPrompt,
+            String modelPrompt,
+            List<AiImage> images,
+            List<AiFile> files
+    ) {
         // 追加待执行定时任务上下文，让 AI 自然感知即将触发的提醒
         String context = pendingTaskContext(userId);
         String enhancedPrompt = context.isEmpty() ? modelPrompt : modelPrompt + context;
@@ -272,68 +292,6 @@ public class AiChatService {
                 }
                 return AssistantAnswer.text(UNAVAILABLE_REPLY);
             }
-        }
-    }
-
-    /**
-     * 共享的网关调用模板方法。负责预算检查、用量计量、模型调用、历史保存和异常处理。
-     *
-     * @param historySupplier 获取历史记录列表
-     * @param historySaver    保存用户与助理消息的回调
-     */
-    private AssistantAnswer executeWithGateway(
-            String userId, String memoryPrompt, String modelPrompt,
-            List<AiImage> images, List<AiFile> files,
-            Supplier<List<ConversationMessage>> historySupplier,
-            BiConsumer<ConversationMessage, ConversationMessage> historySaver
-    ) {
-        List<ConversationMessage> history;
-        try {
-            history = historySupplier.get();
-        } catch (RuntimeException e) {
-            log.warn("Failed to load chat history, user={}", anonymize(userId), e);
-            return AssistantAnswer.text(UNAVAILABLE_REPLY);
-        }
-
-        trace.request(userId, memoryPrompt, modelPrompt, history.size(), images, files);
-        AiRequestBudget budget = budgetPolicy.plan(history, modelPrompt, images, files);
-        AiUsageMeter.Reservation reservation = usageMeter.reserve(userId, budget);
-        if (!reservation.allowed()) {
-            log.info("AI request rejected by budget, user={}, reason={}, taskClass={}",
-                    anonymize(userId), reservation.rejectReason(), budget.taskClass());
-            return AssistantAnswer.text(reservation.rejectReason() == AiUsageMeter.RejectReason.INPUT_TOO_LARGE
-                    ? AiUsageMeter.INPUT_TOO_LARGE_REPLY
-                    : AiUsageMeter.DAILY_LIMIT_REPLY);
-        }
-
-        try {
-            LlmGateway.ModelReply reply = gateway.generate(userId, history, modelPrompt, images, files, budget);
-            usageMeter.complete(reservation, reply.protocol(), reply.model(), reply.usage());
-
-            ConversationMessage userMsg = new ConversationMessage(
-                    ConversationMessage.Role.USER, memoryText(memoryPrompt, images, files));
-            ConversationMessage assistantMsg = new ConversationMessage(
-                    ConversationMessage.Role.ASSISTANT, reply.text());
-            try {
-                historySaver.accept(userMsg, assistantMsg);
-            } catch (RuntimeException e) {
-                log.warn("Failed to save chat history, user={}", anonymize(userId), e);
-            }
-
-            return new AssistantAnswer(reply.text(), reply.artifacts());
-        } catch (AiGatewayException exception) {
-            usageMeter.release(reservation);
-            log.warn("AI request failed, user={}, kind={}", anonymize(userId), exception.kind());
-            return AssistantAnswer.text(switch (exception.kind()) {
-                case AUTHENTICATION -> AUTH_ERROR_REPLY;
-                case EMPTY_RESPONSE -> EMPTY_REPLY;
-                case TEMPORARY_UNAVAILABLE -> UNAVAILABLE_REPLY;
-                case AGENT_ROUND_LIMIT -> AGENT_ROUND_LIMIT_REPLY;
-            });
-        } catch (RuntimeException exception) {
-            usageMeter.release(reservation);
-            log.warn("Unexpected AI failure, user={}, type={}", anonymize(userId), exception.getClass().getSimpleName());
-            return AssistantAnswer.text(UNAVAILABLE_REPLY);
         }
     }
 

@@ -2,10 +2,8 @@ package com.example.ykdsummer.bot.config;
 
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /** 微信长文本输出的交互式分流配置。 */
-@Component
 @ConfigurationProperties(prefix = "app.reply.long-text")
 public class LongTextOutputProperties {
     private boolean enabled = true;

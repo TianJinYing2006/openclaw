@@ -2,7 +2,6 @@ package com.example.ykdsummer.admin.config;
 
 import org.apache.catalina.connector.Connector;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
@@ -10,7 +9,6 @@ import org.springframework.context.annotation.Configuration;
 
 /** Adds an isolated localhost-only connector for the management site without moving the bot API off 8080. */
 @Configuration
-@EnableConfigurationProperties(AdminWebProperties.class)
 public class AdminWebConfiguration {
 
     @Bean

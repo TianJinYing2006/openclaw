@@ -1,5 +1,6 @@
 package com.example.ykdsummer.fashion.tool;
 
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.tool.AiTool;
 import com.example.ykdsummer.fashion.application.FashionCatalogService;
@@ -14,6 +15,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 /** Agent-facing read-only catalog search. The model cannot change product inventory or prices. */
+@AgentTool
 @Component
 @ConditionalOnBean(FashionCatalogService.class)
 public class FashionCatalogTools implements AiTool {
@@ -25,6 +27,7 @@ public class FashionCatalogTools implements AiTool {
         this.trace = trace;
     }
 
+    @AgentTool(enabled = false)
     @Tool(name = "search_fashion_products", description = "当用户需要购买建议、询问有什么商品、现有衣橱缺少单品，"
             + "或需要为一套穿搭召回在售商品候选时调用。只返回商品橱窗中状态为 ACTIVE 的真实结构化商品；"
             + "不能编造商品、价格、库存或图片。该工具用于候选召回，最终搭配理由仍需结合用户画像、衣橱、天气和场合。")

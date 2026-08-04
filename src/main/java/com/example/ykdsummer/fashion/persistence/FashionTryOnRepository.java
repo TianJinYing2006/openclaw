@@ -9,6 +9,14 @@ import java.util.Optional;
 /** Persistence boundary for durable, user-scoped virtual try-on work. */
 public interface FashionTryOnRepository {
     FashionTryOnTask submit(String externalUserId, long wardrobeItemId);
+
+    /**
+     * Submits a try-on task whose garment is an external reference outfit image (not a
+     * user wardrobe item). The image must already be persisted as an asset owned by the user.
+     */
+    FashionTryOnTask submitWithReferenceOutfit(String externalUserId, String referenceOutfitId,
+                                               String garmentAssetId, int garmentVersion, String garmentCategoryCode);
+
     List<String> pendingTaskIds(int limit);
     Optional<FashionTryOnWork> claim(String taskId, Instant now);
     void succeed(String taskId, String outputAssetId, int outputVersion, Instant completedAt);

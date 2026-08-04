@@ -3,9 +3,10 @@ package com.example.ykdsummer.persistence;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -20,11 +21,13 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
 
 @Configuration
-@EnableConfigurationProperties(PersistenceProperties.class)
 @ConditionalOnProperty(prefix = "app.persistence", name = "enabled", havingValue = "true")
 public class PersistenceConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(PersistenceConfiguration.class);
 
     @Bean(destroyMethod = "close")
     public HikariDataSource applicationDataSource(PersistenceProperties properties) {
@@ -36,6 +39,8 @@ public class PersistenceConfiguration {
         config.setMinimumIdle(1);
         config.setConnectionTimeout(safeTimeout(properties.getConnectionTimeout()));
         config.setPoolName("ykd-mysql");
+        // 延迟到启动连接检查再失败，让下面的 runner 输出可读的错误信息。
+        config.setInitializationFailTimeout(-1);
         return new HikariDataSource(config);
     }
 
@@ -65,6 +70,22 @@ public class PersistenceConfiguration {
 
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
+    public ApplicationRunner persistenceConnectivityCheck(DataSource applicationDataSource,
+                                                          PersistenceProperties properties) {
+        return args -> {
+            try (Connection connection = applicationDataSource.getConnection()) {
+                log.info("MySQL connectivity verified: {}", properties.getJdbcUrl());
+            } catch (Exception failure) {
+                throw new IllegalStateException(
+                        "无法连接 MySQL（" + properties.getJdbcUrl() + "）。"
+                                + "请确认 MySQL 已启动、账号密码正确，或设置 PERSISTENCE_ENABLED=false 跳过持久化。"
+                                + "原因：" + failure.getMessage(), failure);
+            }
+        };
+    }
+
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE + 1)
     public ApplicationRunner persistenceMigrationRunner(Flyway operationalFlyway) {
         return arguments -> operationalFlyway.migrate();
     }

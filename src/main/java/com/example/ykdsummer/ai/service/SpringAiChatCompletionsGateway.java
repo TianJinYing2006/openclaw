@@ -2,6 +2,7 @@ package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
 import com.example.ykdsummer.ai.model.ConversationMessage;
+import com.example.ykdsummer.ai.orchestration.BoundedToolCallingManager;
 import com.example.ykdsummer.ai.orchestration.ToolRegistry;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
 import org.slf4j.Logger;
@@ -16,6 +17,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -45,6 +47,12 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     /** 生产环境通过 ToolRegistry 自动发现所有 @Tool Bean；测试环境通过构造函数传入。 */
     private final ToolRegistry toolRegistry;
     private final Object[] testToolBeans;
+    /**
+     * 生产环境注入的 Agent 轮次守卫。generate() 结束后在 finally 中调用 clearRequest()，
+     * 防止池化线程复用时 ThreadLocal 的轮次计数跨请求累积导致后续请求立即触发上限异常。
+     * 测试环境为 null，因为测试用 Mock ChatModel 不经过 ToolCallingManager。
+     */
+    private final BoundedToolCallingManager toolCallingManager;
 
     /**
      * 生产环境构造器：工具由 {@link ToolRegistry} 自动扫描注册。
@@ -56,6 +64,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             ChatModel chatModel,
             AiProperties properties,
             ToolRegistry toolRegistry,
+            ObjectProvider<BoundedToolCallingManager> toolCallingManagerProvider,
             @Autowired(required = false) ToolArtifactCollector artifactCollector,
             @Autowired(required = false) AiTraceLogger trace
     ) {
@@ -63,6 +72,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         this.properties = properties;
         this.toolRegistry = toolRegistry;
         this.testToolBeans = null;
+        this.toolCallingManager = toolCallingManagerProvider.getIfAvailable();
         this.artifacts = artifactCollector;
         this.trace = trace != null ? trace : AiTraceLogger.disabled();
     }
@@ -81,6 +91,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         this.properties = properties;
         this.toolRegistry = null;
         this.testToolBeans = toolBeans != null ? toolBeans : new Object[0];
+        this.toolCallingManager = null;
         this.artifacts = artifactCollector;
         this.trace = trace != null ? trace : AiTraceLogger.disabled();
     }
@@ -138,6 +149,16 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                     ? AiGatewayException.Kind.AUTHENTICATION
                     : AiGatewayException.Kind.TEMPORARY_UNAVAILABLE;
             throw new AiGatewayException(kind, exception);
+        } finally {
+            /*
+             * BoundedToolCallingManager 用 ThreadLocal 计数 Agent 轮次。Tomcat 线程池会复用线程，
+             * 如果不在请求结束后清理，上一个请求的计数会残留到下一个请求，导致新请求立即触发
+             * AgentRoundLimitExceededException。只有经过 .tools().call() 才会触发 ToolCallingManager，
+             * 因此只需在此 gateway 清理。
+             */
+            if (toolCallingManager != null) {
+                toolCallingManager.clearRequest();
+            }
         }
     }
 

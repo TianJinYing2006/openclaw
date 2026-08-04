@@ -1,7 +1,6 @@
 package com.example.ykdsummer.ai.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /**
  * 模型用量与预算的本地保护配置。
@@ -10,7 +9,6 @@ import org.springframework.stereotype.Component;
  * “单个微信用户在当天最多可以占用多少 token”。计数只留在当前 Java 进程内存，重启后清空；
  * 后续接 SQL 时可替换 {@code AiUsageMeter} 的存储实现。</p>
  */
-@Component
 @ConfigurationProperties(prefix = "app.ai.usage")
 public class AiUsageProperties {
 

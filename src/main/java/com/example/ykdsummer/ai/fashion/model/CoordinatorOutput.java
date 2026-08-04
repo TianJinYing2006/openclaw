@@ -32,12 +32,15 @@ public record CoordinatorOutput(
 
     /**
      * 精炼后的最终穿搭方案（可能融合多套方案优点）。
+     *
+     * @param referenceOutfitId  最终方案主要参考的 RAG 知识条目编号（如 "002"），用于图片补发对齐
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record RefinedOutfit(
             String top,
             String bottom,
             String shoes,
-            String accessories
+            String accessories,
+            String referenceOutfitId
     ) {}
 }

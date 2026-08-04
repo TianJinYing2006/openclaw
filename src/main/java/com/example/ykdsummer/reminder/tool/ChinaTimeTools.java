@@ -1,5 +1,6 @@
 package com.example.ykdsummer.reminder.tool;
 
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.tool.AiTool;
 import java.time.ZoneId;
@@ -9,6 +10,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.stereotype.Component;
 
 /** Kept separate from reminder management so scheduled Agents can use time without rescheduling themselves. */
+@AgentTool
 @Component
 public class ChinaTimeTools implements AiTool {
     private static final ZoneId DISPLAY_ZONE = ZoneId.of("Asia/Shanghai");

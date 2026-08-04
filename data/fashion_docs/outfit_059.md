@@ -1,4 +1,4 @@
-# 穿搭方案 059：小R同学 - 驼色夹克 + 白色衬衫 + 炭灰色宽松休闲裤 + 黑色运动鞋
+# 穿搭方案 059：小R同学 - 驼色短夹克深灰阔腿裤_原图
 
 ## 基本信息
 - 编号：059
@@ -19,50 +19,55 @@
 ## 单品1：驼色夹克
 - 类别：外套（夹克）
 - 适用性别：UNISEX
-- 颜色：主色=驼色，色调=WARM，近似色值=#A77B55
+- 颜色：主色=驼色, 色调=WARM, 近似色值=#A77B55
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=短款
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=LOW, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：领型=SHIRT_COLLAR, 袖型=LONG_SLEEVE, 开合方式=UNKNOWN
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=LOW, sheen=MATTE, breathability=UNKNOWN, texture=WOVEN
+- 结构：collar=SHIRT_COLLAR, sleeve=LONG_SLEEVE, closure=UNKNOWN
 - 风格：街头/学院/通勤
 - 季节：春季/秋季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
+- 特征：无明显特征
 
 ## 单品2：白色衬衫
 - 类别：上衣（衬衫）
 - 适用性别：UNISEX
-- 颜色：主色=白色，色调=NEUTRAL，近似色值=#F2F2EF
+- 颜色：主色=白色, 色调=NEUTRAL, 近似色值=#F2F2EF
 - 外观：图案=纯色, 版型=常规, 轮廓=H型, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=LOW, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：领型=SHIRT_COLLAR, 袖型=UNKNOWN, 开合方式=BUTTON
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=LOW, sheen=MATTE, breathability=UNKNOWN, texture=WOVEN
+- 结构：collar=SHIRT_COLLAR, sleeve=UNKNOWN, closure=BUTTON
 - 风格：街头/学院/通勤
 - 季节：春季/秋季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
+- 特征：无明显特征
 
 ## 单品3：炭灰色宽松休闲裤
 - 类别：下装（休闲裤）
 - 适用性别：UNISEX
-- 颜色：主色=炭灰色，辅色=灰色，色调=NEUTRAL，近似色值=#3B3D40
+- 颜色：主色=炭灰色, 辅色=灰色, 色调=NEUTRAL, 近似色值=#3B3D40
 - 外观：图案=纯色, 版型=宽松, 轮廓=阔腿, 长度=全长
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：腰型=UNKNOWN, 裤型=WIDE_LEG
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=UNKNOWN, texture=WOVEN
+- 结构：waist=UNKNOWN, legShape=WIDE_LEG
 - 风格：街头/学院/通勤
 - 季节：春季/秋季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
+- 特征：无明显特征
 
 ## 单品4：黑色运动鞋
 - 类别：鞋子（运动鞋）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#1C1D1F
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#1C1D1F
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=NONE, 垂感=NONE, 光泽=MATTE, 透气性=LOW
+- 面料属性：thickness=MEDIUM, stretch=NONE, drape=NONE, sheen=MATTE, breathability=LOW, texture=UNKNOWN
+- 结构：shoeCut=LOW_TOP
 - 风格：街头/学院/通勤
 - 季节：春季/秋季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
+- 特征：无明显特征

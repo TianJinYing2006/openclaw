@@ -1,4 +1,4 @@
-# 穿搭方案 053：Han - 黑色连帽卫衣 + 深灰色宽松牛仔裤 + 黑色运动鞋
+# 穿搭方案 053：Han - 黑色连帽衫深灰牛仔裤_原图
 
 ## 基本信息
 - 编号：053
@@ -19,37 +19,41 @@
 ## 单品1：黑色连帽卫衣
 - 类别：上衣（连帽卫衣）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#1C1D1F
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#1C1D1F
 - 外观：图案=纯色, 版型=常规, 轮廓=H型, 长度=常规长度
 - 材质：棉混纺
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=LOW, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：领型=HOODED, 袖型=LONG_SLEEVE, 开合方式=ZIPPER
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=LOW, sheen=MATTE, breathability=UNKNOWN, texture=KNITTED
+- 结构：collar=HOODED, sleeve=LONG_SLEEVE, closure=ZIPPER
 - 风格：街头/学院/运动休闲
 - 季节：春季/秋季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品2：深灰色宽松牛仔裤
 - 类别：下装（牛仔裤）
 - 适用性别：UNISEX
-- 颜色：主色=深灰色，辅色=灰色，色调=NEUTRAL，近似色值=#46484B
+- 颜色：主色=深灰色, 辅色=灰色, 色调=NEUTRAL, 近似色值=#46484B
 - 外观：图案=纯色, 版型=宽松, 轮廓=直筒, 长度=全长
 - 材质：牛仔布
-- 面料属性：厚度=MEDIUM, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=UNKNOWN
-- 结构：腰型=UNKNOWN, 裤型=STRAIGHT
+- 面料属性：thickness=MEDIUM, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=UNKNOWN, texture=DENIM_TEXTURE
+- 结构：waist=UNKNOWN, legShape=STRAIGHT
 - 风格：街头/学院/运动休闲
 - 季节：春季/秋季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品3：黑色运动鞋
 - 类别：鞋子（运动鞋）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#1C1D1F
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#1C1D1F
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=NONE, 垂感=NONE, 光泽=MATTE, 透气性=LOW
+- 面料属性：thickness=MEDIUM, stretch=NONE, drape=NONE, sheen=MATTE, breathability=LOW, texture=UNKNOWN
+- 结构：shoeCut=LOW_TOP
 - 风格：街头/学院/运动休闲
 - 季节：春季/秋季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征

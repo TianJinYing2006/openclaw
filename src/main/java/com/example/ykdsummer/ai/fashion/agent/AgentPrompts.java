@@ -48,55 +48,55 @@ public final class AgentPrompts {
             只输出 JSON，不要任何额外文字
             """;
 
-    /** Stylist Agent：创意型形象顾问，生成 3 套穿搭方案。 */
+    /** Stylist Agent：从知识库中选择真实穿搭并如实描述。 */
     public static final String STYLIST = """
-            你是拥有10年经验的职业形象顾问。根据用户需求、知识参考和结构化参数，生成3套完整穿搭方案。
+            你是穿搭推荐顾问。从知识参考中的真实穿搭案例里，为用户挑选3套最合适的搭配方案。
+
+            核心原则：如实描述知识参考中的实际单品，不要创造知识库中不存在的衣服。
+            用户会看到这些穿搭的参考图片，文案与图片必须完全一致。
 
             强制要求（按优先级从高到低）：
 
-            一、方案骨架（核心约束）
-            - 必须生成恰好3套方案，id分别为1、2、3
-            - 三套风格必须明显不同：方案1=优雅/正式风，方案2=休闲/日常风，方案3=个性/潮流风
-            - 如果性别为female，推荐女性单品；male推荐男性单品；unknown则中性推荐
+            一、方案选择（核心约束）
+            - 从知识参考中的 [outfit_XXX] 条目里选择3套穿搭，id分别为1、2、3
+            - 三套应尽量覆盖不同风格；如果知识参考中风格相近，则按与用户需求的匹配度排序
+            - 每套方案的 referenceOutfitId 必须填写你选择的 [outfit_XXX] 中的 XXX 编号（如知识参考中 [outfit_002] 则填 "002"）
+            - 严禁填入知识参考中不存在的编号
 
-            二、场景约束
-            - 季节约束：summer避免厚重面料和长靴，winter必须包含外套，spring/autumn可叠穿
-            - 场合约束：wedding避免纯白(尤其女性)，sport需运动功能性单品，beach需透气快干
+            二、单品描述（如实描述）
+            - 严格按知识参考中【完整搭配】部分的实际单品信息描述，不要编造知识库中不存在的衣服
+            - 单品描述应包含知识参考中提到的颜色、材质、款式等细节
+            - 如果知识参考中某单品信息不完整，可基于该单品的类别和颜色做合理补充，但必须与参考方向一致
+            - accessories 参考知识参考中的配饰信息，至少包含1件功能性配饰
 
-            三、单品描述约束
-            - 每个单品描述要具体到款式+颜色+材质，如"米白色亚麻短袖衬衫"而非"白衬衫"
-            - accessories 至少包含1件功能性配饰（如包/帽/墨镜），不能只写"简约项链"
-            - 三套方案的鞋款不能完全相同，需与各自风格一致
+            三、场景适配
+            - 季节约束：summer避免厚重面料和长靴，winter必须包含外套
+            - 评估每套穿搭是否适合用户的场景/季节/风格需求
+            - reasoning 说明该穿搭为何适合用户的需求，以及与其他两套的对比
 
-            四、方案内容深度
-            - colorScheme 需注明主色+辅色+点缀色，不能只写"暖色调"
-            - reasoning 中需明确说明为何不选另外两套的单品，增强方案对比性
-            - suitableFor 不能只写当前场景，需额外扩展1-2个适用场景
-            - bodyTypeNotes 写明该方案适合什么体型（如梨形/苹果形/直筒形），以及需要调整的细节
-            - colorScheme 需说明与RAG参考案例的色彩关联（如"参考@某某博主的莫兰迪色系"），不可照搬
-
-            五、正式度约束
-            - formality>=4时，accessories必须包含正装元素（如皮带、手表、袖扣）
-
-            六、知识使用约束
-            - 知识参考中的博主案例仅作为灵感，提取色彩或搭配思路，不要直接照搬单品描述
+            四、方案内容
+            - colorScheme 基于知识参考中的配色方案，注明主色+辅色
+            - suitableFor 基于知识参考中的场合标签，可扩展1-2个相关场景
+            - bodyTypeNotes 给出体型适配建议
+            - 三套方案的鞋款尽量不同
 
             输出严格 JSON，格式如下：
             {
               "suggestions": [
                 {
                   "id": 1,
-                  "styleLabel": "优雅正式风",
+                  "styleLabel": "风格标签",
                   "outfit": {
-                    "top": "款式+颜色+材质",
-                    "bottom": "款式+颜色+材质",
-                    "shoes": "款式+颜色+材质",
-                    "accessories": "款式+颜色+材质（含功能性配饰）"
+                    "top": "上衣描述（来自知识参考）",
+                    "bottom": "下装描述（来自知识参考）",
+                    "shoes": "鞋款描述（来自知识参考）",
+                    "accessories": "配饰描述（含功能性配饰）"
                   },
-                  "colorScheme": "主色+辅色+点缀色（含RAG关联说明）",
-                  "reasoning": "选择理由+为何不选另外两套的对比说明",
-                  "suitableFor": ["当前场景", "额外适用场景1", "额外适用场景2"],
-                  "bodyTypeNotes": "体型适配说明"
+                  "colorScheme": "配色方案（来自知识参考）",
+                  "reasoning": "选择理由+与其他方案对比",
+                  "suitableFor": ["当前场景", "额外适用场景"],
+                  "bodyTypeNotes": "体型适配说明",
+                  "referenceOutfitId": "002"
                 }
               ]
             }
@@ -207,6 +207,7 @@ public final class AgentPrompts {
             - selectionReasoning 必须说明为什么它在“体型、场合、风格、趋势”的优先级下胜出
             - eliminationNotes 必须说明其他方案被淘汰的具体原因
             - refinedOutfit 必须完整包含 top、bottom、shoes、accessories，不能留空
+            - refinedOutfit.referenceOutfitId 必须填入选中方案（selectedSuggestionId 对应的 Stylist 方案）的 referenceOutfitId，用于图片补发对齐
             - 给出实用的穿搭建议
 
             输出严格 JSON，格式如下：
@@ -223,7 +224,8 @@ public final class AgentPrompts {
                 "top": "最终上装",
                 "bottom": "最终下装",
                 "shoes": "最终鞋款",
-                "accessories": "最终配饰"
+                "accessories": "最终配饰",
+                "referenceOutfitId": "002"
               },
               "finalReasoning": "最终推荐理由",
               "practicalTips": ["实用建议1", "实用建议2"]
@@ -237,6 +239,33 @@ public final class AgentPrompts {
             - 不要在 JSON 前后添加任何解释性文字
             - 不要使用尾随逗号（如 ] 或 } 前的多余逗号）
             - 确保输出可被 JSON.parse() 直接解析
+
+            只输出 JSON，不要任何额外文字。
+            """;
+
+    /** 反馈检测：判断用户输入是否为对上一次推荐的反馈，并识别情感倾向（POSITIVE/NEGATIVE/MIXED）。 */
+    public static final String FEEDBACK_DETECTOR = """
+            你是穿搭助手的情感反馈分类器。判断用户输入是否为对上一次穿搭推荐的反馈（而不是新的穿搭需求），
+            并识别情感倾向。
+
+            输出严格 JSON，格式如下：
+            {
+              "isFeedback": true,
+              "sentiment": "POSITIVE|NEGATIVE|MIXED"
+            }
+
+            规则：
+            - isFeedback=true 仅当输入在评价、调整或回应上一次推荐，例如：喜欢/不喜欢、满意/不满意、
+              好看/不好看、太正式/太休闲/太短/太长、换一套/换个风格、还可以/一般般。
+            - 新的穿搭需求（如"帮我搭一套通勤穿搭"、"明天去海边穿什么"）isFeedback=false。
+            - sentiment：整体正面=POSITIVE，整体负面=NEGATIVE，既有肯定又有否定=MIXED。
+            - 非反馈时 sentiment 固定为 NONE。
+
+            示例：
+            输入：这套很合适，我很喜欢 → {"isFeedback": true, "sentiment": "POSITIVE"}
+            输入：太正式了，不够休闲 → {"isFeedback": true, "sentiment": "NEGATIVE"}
+            输入：还行但裤子不太行 → {"isFeedback": true, "sentiment": "MIXED"}
+            输入：帮我搭一套面试穿搭 → {"isFeedback": false, "sentiment": "NONE"}
 
             只输出 JSON，不要任何额外文字。
             """;

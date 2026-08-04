@@ -52,7 +52,7 @@ class FashionOssHistoryLiveProbeTest {
         assertThat(bytes).isNotEmpty();
 
         long started = System.nanoTime();
-        FashionVisionCandidateAnalyzer.AnalysisResult result = analyzer.analyze(image);
+        WardrobePhotoAnalyzer.AnalysisResult result = analyzer.analyze(image);
         long analysisMs = java.time.Duration.ofNanos(System.nanoTime() - started).toMillis();
         System.out.printf("FASHION_OSS_HISTORY_PROBE asset=%s bytes=%d analysisMs=%d candidates=%s%n", assetId, bytes.length, analysisMs,
                 result.candidates().stream().map(candidate -> candidate.categoryCode() + ':'

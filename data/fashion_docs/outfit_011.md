@@ -1,4 +1,4 @@
-# 穿搭方案 011：先 - 黑色字母印花短袖T恤 + 黑色宽松运动裤 + 白色低帮运动鞋
+# 穿搭方案 011：先 - 黑色字母T黑色运动裤
 
 ## 基本信息
 - 编号：011
@@ -19,40 +19,41 @@
 ## 单品1：黑色字母印花短袖T恤
 - 类别：上衣（T恤）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#161719
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#161719
 - 外观：图案=字母印花, 版型=宽松, 轮廓=H型, 长度=常规长度
 - 材质：棉混纺
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
-- 结构：领型=CREW_NECK, 袖型=SHORT_SLEEVE, 开合方式=PULLOVER
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=SMOOTH
+- 结构：collar=CREW_NECK, sleeve=SHORT_SLEEVE, closure=PULLOVER
 - 风格：休闲/街头
 - 季节：夏季
 - 场合：日常/旅行
-- 正式度：2/5（半休闲）
+- 正式度：2/5
 - 特征：大号彩色字母
 
 ## 单品2：黑色宽松运动裤
 - 类别：下装（运动裤）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#171819
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#171819
 - 外观：图案=纯色, 版型=宽松, 轮廓=阔腿, 长度=全长
 - 材质：化纤混纺
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
-- 结构：腰型=MID_RISE, 裤型=JOGGER
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=SMOOTH
+- 结构：waist=MID_RISE, legShape=JOGGER
 - 风格：休闲/街头
 - 季节：夏季
 - 场合：日常/旅行
-- 正式度：2/5（半休闲）
+- 正式度：2/5
 - 特征：侧面文字装饰
 
 ## 单品3：白色低帮运动鞋
 - 类别：鞋子（运动鞋）
 - 适用性别：UNISEX
-- 颜色：主色=白色，色调=NEUTRAL，近似色值=#F2F1EB
+- 颜色：主色=白色, 色调=NEUTRAL, 近似色值=#F2F1EB
 - 外观：图案=纯色, 版型=常规, 轮廓=H型, 长度=常规长度
 - 材质：人造皮革
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=SMOOTH
+- 结构：shoeCut=LOW_TOP
 - 风格：休闲/街头
 - 季节：夏季
 - 场合：日常/旅行
-- 正式度：2/5（半休闲）
+- 正式度：2/5
 - 特征：低帮; 包趾

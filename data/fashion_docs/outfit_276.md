@@ -1,4 +1,4 @@
-# 穿搭方案 276：人工第2批 - T恤 + 蓝色牛仔短裤 + 白色运动鞋
+# 穿搭方案 276：人工第2批 - 米色T恤_蓝色牛仔短裤_左侧正面裁取
 
 ## 基本信息
 - 编号：276
@@ -19,37 +19,41 @@
 ## 单品1：T恤
 - 类别：上衣（T恤）
 - 适用性别：UNISEX
-- 颜色：主色=未知，色调=NEUTRAL
+- 颜色：主色=未知, 色调=NEUTRAL
 - 外观：图案=纯色, 版型=常规, 轮廓=H型, 长度=常规长度
 - 材质：棉混纺
-- 面料属性：厚度=LIGHT, 弹性=MEDIUM, 垂感=LOW, 光泽=MATTE, 透气性=MEDIUM
-- 结构：领型=CREW_NECK, 袖型=SHORT_SLEEVE, 开合方式=PULLOVER
+- 面料属性：thickness=LIGHT, stretch=MEDIUM, drape=LOW, sheen=MATTE, breathability=MEDIUM, texture=KNITTED
+- 结构：collar=CREW_NECK, sleeve=SHORT_SLEEVE, closure=PULLOVER
 - 风格：街头/运动休闲/休闲
 - 季节：夏季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品2：蓝色牛仔短裤
 - 类别：下装（牛仔短裤）
 - 适用性别：UNISEX
-- 颜色：主色=蓝色，色调=COOL，近似色值=#3B6F9E
+- 颜色：主色=蓝色, 色调=COOL, 近似色值=#3B6F9E
 - 外观：图案=纯色, 版型=常规, 轮廓=直筒, 长度=短裤长度
 - 材质：牛仔布
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=LOW, 光泽=MATTE, 透气性=MEDIUM
-- 结构：腰型=UNKNOWN, 裤型=STRAIGHT
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=LOW, sheen=MATTE, breathability=MEDIUM, texture=DENIM_TEXTURE
+- 结构：waist=UNKNOWN, legShape=STRAIGHT
 - 风格：街头/运动休闲/休闲
 - 季节：夏季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品3：白色运动鞋
 - 类别：鞋子（运动鞋）
 - 适用性别：UNISEX
-- 颜色：主色=白色，色调=NEUTRAL，近似色值=#F2F2EF
+- 颜色：主色=白色, 色调=NEUTRAL, 近似色值=#F2F2EF
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=NONE, 垂感=NONE, 光泽=MATTE, 透气性=LOW
+- 面料属性：thickness=MEDIUM, stretch=NONE, drape=NONE, sheen=MATTE, breathability=LOW, texture=UNKNOWN
+- 结构：shoeCut=LOW_TOP
 - 风格：街头/运动休闲/休闲
 - 季节：夏季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征

@@ -8,8 +8,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 基于 RAGFlow 的穿搭知识检索（主实现）。
@@ -23,17 +32,66 @@ import java.util.List;
  *
  * <p>检索词构建策略：RAGFlow 是语义检索，不需要像 MySQL FTS 那样拆词。
  * 直接用原始查询 + 场景/风格/季节参数拼成自然语言检索词。
+ *
+ * <p>上下文增强：RAGFlow 返回的是文档分块，可能只含部分单品信息。
+ * 启动时从 {@code data/fashion_docs/outfit_*.md} 加载每套穿搭的完整概览，
+ * 在 {@link #formatContext} 中为每个 chunk 补充完整搭配信息，确保 Stylist
+ * 能看到每套穿搭的全部单品（上衣+下装+鞋子），避免图文脱节。
  */
 @Component
 @ConditionalOnProperty(name = "app.fashion.rag.provider", havingValue = "ragflow")
 public class RagFlowKnowledgeService implements FashionKnowledgeService {
 
     private static final Logger log = LoggerFactory.getLogger(RagFlowKnowledgeService.class);
+    private static final String FASHION_DOCS_DIR = "data/fashion_docs";
+
+    /** 匹配 markdown 文档中的"整套搭配概览"段落。 */
+    private static final Pattern OVERVIEW_PATTERN = Pattern.compile(
+            "## 整套搭配概览\\s*\\n(.*?)(?=\\n## |\\Z)", Pattern.DOTALL);
 
     private final RagFlowClient ragFlowClient;
 
+    /** outfit_id → 完整搭配概览文本（从 markdown 文档提取）。 */
+    private volatile Map<String, String> outfitOverviews = Map.of();
+
     public RagFlowKnowledgeService(RagFlowClient ragFlowClient) {
         this.ragFlowClient = ragFlowClient;
+    }
+
+    @PostConstruct
+    public void loadOutfitOverviews() {
+        Map<String, String> overviews = new HashMap<>();
+        Path docsDir = Paths.get(FASHION_DOCS_DIR);
+        if (!Files.isDirectory(docsDir)) {
+            log.warn("Fashion docs directory not found: {} (outfit overview enrichment disabled)", FASHION_DOCS_DIR);
+            return;
+        }
+        try (var stream = Files.list(docsDir)) {
+            stream.filter(p -> p.getFileName().toString().matches("outfit_\\d+\\.md"))
+                    .forEach(p -> {
+                        String outfitId = extractOutfitIdFromFileName(p.getFileName().toString());
+                        if (outfitId == null) return;
+                        try {
+                            String md = Files.readString(p);
+                            Matcher m = OVERVIEW_PATTERN.matcher(md);
+                            if (m.find()) {
+                                overviews.put(outfitId, m.group(1).strip());
+                            }
+                        } catch (IOException e) {
+                            log.warn("Failed to read outfit doc {}: {}", p, e.getMessage());
+                        }
+                    });
+        } catch (IOException e) {
+            log.warn("Failed to list fashion docs: {}", e.getMessage());
+        }
+        this.outfitOverviews = overviews;
+        log.info("Loaded {} outfit overviews from {}", overviews.size(), FASHION_DOCS_DIR);
+    }
+
+    private static String extractOutfitIdFromFileName(String fileName) {
+        // outfit_003.md → 003
+        Matcher m = Pattern.compile("outfit_(\\d+)\\.md").matcher(fileName);
+        return m.matches() ? m.group(1) : null;
     }
 
     @Override
@@ -101,12 +159,18 @@ public class RagFlowKnowledgeService implements FashionKnowledgeService {
     /**
      * 将 RAGFlow chunk 转换为 SeedEntry（复用现有模型）。
      *
-     * <p>RAGFlow 返回的 content 是 Markdown 分块的原文，
-     * document_name 包含编号信息（如 outfit_002.md）。
-     * 我们把 content 放入 summary，从 document_name 提取 ID。
+     * <p>RAGFlow 返回的 content 是 Markdown 分块的原文，文档名在
+     * {@code document_keyword}（如 outfit_002.md）。我们把 content 放入 summary，
+     * 从文档名提取编号作为 ID。
      */
     private SeedEntry toSeedEntry(RagFlowClient.RagFlowChunk raw) {
-        String docName = raw.documentName() != null ? raw.documentName() : "unknown";
+        // retrieval 响应没有 document_name，文档名在 document_keyword
+        String docName = raw.documentName() != null && !raw.documentName().isBlank()
+                ? raw.documentName()
+                : raw.documentKeyword();
+        if (docName == null) {
+            docName = "unknown";
+        }
         // outfit_002.md → 002
         String id = extractIdFromDocName(docName);
 
@@ -125,11 +189,13 @@ public class RagFlowKnowledgeService implements FashionKnowledgeService {
 
     private String extractIdFromDocName(String docName) {
         if (docName == null) return "unknown";
-        // outfit_002.md → 002
+        // outfit_002.md → 002；兼容重名后的 outfit_002(1).md → 002
         int underscore = docName.lastIndexOf('_');
         int dot = docName.lastIndexOf('.');
         if (underscore >= 0 && dot > underscore) {
-            return docName.substring(underscore + 1, dot);
+            String id = docName.substring(underscore + 1, dot);
+            int paren = id.indexOf('(');
+            return paren > 0 ? id.substring(0, paren) : id;
         }
         return docName;
     }
@@ -143,13 +209,23 @@ public class RagFlowKnowledgeService implements FashionKnowledgeService {
         StringBuilder sb = new StringBuilder("## 穿搭知识参考\n\n");
         for (int i = 0; i < chunks.size(); i++) {
             RetrievedChunk chunk = chunks.get(i);
+            String outfitId = chunk.entry().id();
             sb.append(i + 1).append(". ");
 
+            // 前置 outfit 编号标记（如 [outfit_002]），供发图链路解析 top-1 参考穿搭
+            sb.append("[outfit_").append(outfitId).append("] ");
+
+            // 补充完整穿搭概览（RAGFlow chunk 可能只含部分单品信息）
+            String overview = outfitOverviews.get(outfitId);
+            if (overview != null && !overview.isBlank()) {
+                sb.append("\n【完整搭配】\n").append(overview).append("\n");
+            }
+
             // RAGFlow chunk 的 content 已经是格式化的 Markdown 文本
-            // 直接使用，不做二次格式化
+            // 作为单品详细信息附加在概览之后
             String content = chunk.entry().summary();
             if (content != null && !content.isBlank()) {
-                sb.append(content);
+                sb.append("\n【单品详情】\n").append(content);
             } else {
                 // 兜底：用 toPromptText
                 sb.append(chunk.toPromptText());

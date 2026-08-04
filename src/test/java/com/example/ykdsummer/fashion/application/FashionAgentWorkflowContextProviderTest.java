@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.example.ykdsummer.ai.fashion.agent.FashionAgentWorkflowContextProvider;
 import com.example.ykdsummer.fashion.domain.ClothingCandidate;
 import com.example.ykdsummer.fashion.domain.ClothingCandidateStatus;
 import com.example.ykdsummer.fashion.domain.ClothingCompletenessStatus;

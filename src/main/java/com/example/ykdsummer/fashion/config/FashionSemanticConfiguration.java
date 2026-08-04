@@ -40,8 +40,12 @@ public class FashionSemanticConfiguration {
 
     @Bean(destroyMethod = "close")
     QdrantClient fashionQdrantClient(FashionSemanticProperties properties) {
+        // checkCompatibility=false: skip client/server version mismatch check.
+        // Spring AI 1.1.8 pins Qdrant client 1.13.0 (API-compatible) while the
+        // Docker server runs 1.18.3; gRPC protocol remains backward compatible.
         QdrantGrpcClient.Builder builder = QdrantGrpcClient.newBuilder(
-                properties.getQdrantHost(), properties.getQdrantPort(), properties.isQdrantTls());
+                properties.getQdrantHost(), properties.getQdrantPort(),
+                properties.isQdrantTls(), false);
         if (!properties.getQdrantApiKey().isBlank()) {
             builder.withApiKey(properties.getQdrantApiKey());
         }

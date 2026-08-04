@@ -189,4 +189,57 @@ public class FashionConversationService {
         List<FashionConversation> list = findRecent(userId, 1);
         return list.isEmpty() ? null : list.get(0);
     }
+
+    /**
+     * 回填最近推荐方案命中的 outfit 编号（管道结束时调用）。
+     *
+     * @param conversationId 对话记录 ID
+     * @param outfitId       推荐方案中的 outfit 编号（如 002/177，兼容 outfit_002 前缀）
+     */
+    public void updateReferenceOutfit(Long conversationId, String outfitId) {
+        if (conversationId == null) return;
+        try {
+            jdbc.update("""
+                    UPDATE fashion_conversations
+                    SET reference_outfit_id = ?
+                    WHERE id = ?
+                    """, normalizeOutfitId(outfitId), conversationId);
+        } catch (Exception e) {
+            log.warn("Failed to update reference outfit for conversation {}: {}",
+                    conversationId, e.getMessage());
+        }
+    }
+
+    /**
+     * 查询用户最近一次穿搭推荐命中的 outfit 编号（用于"试穿"指代消解）。
+     *
+     * @param userId 用户 ID
+     * @return 最近一次推荐方案的 outfit 编号；无数据时返回 null
+     */
+    public String findLatestReferenceOutfit(String userId) {
+        if (userId == null || userId.isBlank()) return null;
+        try {
+            List<String> ids = jdbc.query("""
+                    SELECT reference_outfit_id FROM fashion_conversations
+                    WHERE user_id = ? AND reference_outfit_id <> ''
+                    ORDER BY id DESC LIMIT 1
+                    """, (rs, rowNum) -> rs.getString("reference_outfit_id"), userId);
+            return ids.isEmpty() ? null : ids.get(0);
+        } catch (Exception e) {
+            log.warn("Failed to find latest reference outfit for user {}: {}",
+                    userId, e.getMessage());
+            return null;
+        }
+    }
+
+    /** 将 "outfit_002"/"[outfit_002]"/"002" 统一为 "002" 零填充格式，与 image_urls.json 的 key 对齐。 */
+    private static String normalizeOutfitId(String raw) {
+        if (raw == null || raw.isBlank()) return "";
+        String cleaned = raw.replace("[outfit_", "").replace("outfit_", "").replace("]", "").trim();
+        try {
+            return String.format("%03d", Integer.parseInt(cleaned));
+        } catch (NumberFormatException e) {
+            return cleaned;
+        }
+    }
 }

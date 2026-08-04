@@ -2,10 +2,8 @@ package com.example.ykdsummer.ai.config;
 
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /** 图片资产专用的 OSS 连接配置；不与文字模型、iLink 登录或文档存储共用密钥。 */
-@Component
 @ConfigurationProperties(prefix = "oss.image")
 public class OssImageProperties {
     private String endpoint = "";

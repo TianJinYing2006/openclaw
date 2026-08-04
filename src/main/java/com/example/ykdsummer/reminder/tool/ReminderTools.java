@@ -1,5 +1,6 @@
 package com.example.ykdsummer.reminder.tool;
 
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.tool.AiTool;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
@@ -14,6 +15,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 /** Agent boundary: all reminder operations are scoped to the current WeChat user. */
+@AgentTool
 @Component
 @ConditionalOnBean(ReminderService.class)
 public class ReminderTools implements AiTool {

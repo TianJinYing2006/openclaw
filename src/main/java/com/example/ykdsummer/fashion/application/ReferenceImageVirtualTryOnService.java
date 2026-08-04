@@ -5,10 +5,13 @@ import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
 import java.time.Duration;
 import java.util.List;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /** First adapter: the configured OpenAI-compatible image-edit endpoint receives person and garment references. */
 @Service
+@ConditionalOnProperty(prefix = "app.fashion.tryon", name = "provider",
+        havingValue = "reference-image", matchIfMissing = true)
 public class ReferenceImageVirtualTryOnService implements VirtualTryOnService {
     private final AiImageGenerationService images;
     private final LocalImageAssetStore imageStore;

@@ -1,4 +1,4 @@
-# 穿搭方案 019：无业游男 - 黑色肌理图案衬衫 + 米白色宽松工装裤 + 驼色短靴
+# 穿搭方案 019：无业游男 - 黑色镂空衬衫米白工装裤
 
 ## 基本信息
 - 编号：019
@@ -19,39 +19,41 @@
 ## 单品1：黑色肌理图案衬衫
 - 类别：上衣（衬衫）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#1C1D1F
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#1C1D1F
 - 外观：图案=肌理图案, 版型=常规, 轮廓=H型, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=LOW, 光泽=MATTE, 透气性=MEDIUM
-- 结构：领型=SHIRT_COLLAR, 袖型=SHORT_SLEEVE, 开合方式=BUTTON
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=LOW, sheen=MATTE, breathability=MEDIUM, texture=WOVEN
+- 结构：collar=SHIRT_COLLAR, sleeve=SHORT_SLEEVE, closure=BUTTON
 - 风格：工装/街头/通勤
 - 季节：夏季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
 - 特征：镂空肌理
 
 ## 单品2：米白色宽松工装裤
 - 类别：下装（工装裤）
 - 适用性别：UNISEX
-- 颜色：主色=米白色，辅色=白色，色调=NEUTRAL，近似色值=#E8E3D8
+- 颜色：主色=米白色, 辅色=白色, 色调=NEUTRAL, 近似色值=#E8E3D8
 - 外观：图案=纯色, 版型=宽松, 轮廓=直筒, 长度=全长
 - 材质：化纤混纺
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
-- 结构：腰型=UNKNOWN, 裤型=STRAIGHT
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=WOVEN
+- 结构：waist=UNKNOWN, legShape=STRAIGHT
 - 风格：工装/街头/通勤
 - 季节：夏季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
 - 特征：工装口袋
 
 ## 单品3：驼色短靴
 - 类别：鞋子（短靴）
 - 适用性别：UNISEX
-- 颜色：主色=驼色，色调=WARM，近似色值=#A77B55
+- 颜色：主色=驼色, 色调=WARM, 近似色值=#A77B55
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=NONE, 垂感=NONE, 光泽=MATTE, 透气性=LOW
+- 面料属性：thickness=MEDIUM, stretch=NONE, drape=NONE, sheen=MATTE, breathability=LOW, texture=UNKNOWN
+- 结构：shoeCut=ANKLE
 - 风格：工装/街头/通勤
 - 季节：夏季
 - 场合：日常/通勤
-- 正式度：3/5（半正式）
+- 正式度：3/5
+- 特征：无明显特征

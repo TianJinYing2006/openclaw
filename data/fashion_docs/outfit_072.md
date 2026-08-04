@@ -1,4 +1,4 @@
-# 穿搭方案 072：Nanase - 白色Polo衫 + 黑色超宽松休闲裤 + 黑色运动鞋
+# 穿搭方案 072：Nanase - 白色马纹针织Polo黑阔腿裤_原图
 
 ## 基本信息
 - 编号：072
@@ -19,37 +19,41 @@
 ## 单品1：白色Polo衫
 - 类别：上衣（Polo衫）
 - 适用性别：UNISEX
-- 颜色：主色=白色，色调=NEUTRAL，近似色值=#F2F2EF
+- 颜色：主色=白色, 色调=NEUTRAL, 近似色值=#F2F2EF
 - 外观：图案=纯色, 版型=常规, 轮廓=H型, 长度=常规长度
 - 材质：未知成分针织面料
-- 面料属性：厚度=LIGHT, 弹性=MEDIUM, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
-- 结构：领型=POLO_COLLAR, 袖型=SHORT_SLEEVE, 开合方式=PULLOVER
+- 面料属性：thickness=LIGHT, stretch=MEDIUM, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=KNITTED
+- 结构：collar=POLO_COLLAR, sleeve=SHORT_SLEEVE, closure=PULLOVER
 - 风格：街头/学院/复古
 - 季节：夏季
 - 场合：日常/上学
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品2：黑色超宽松休闲裤
 - 类别：下装（休闲裤）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#1C1D1F
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#1C1D1F
 - 外观：图案=纯色, 版型=超宽松, 轮廓=阔腿, 长度=全长
 - 材质：化纤混纺
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=MEDIUM, 光泽=MATTE, 透气性=MEDIUM
-- 结构：腰型=UNKNOWN, 裤型=WIDE_LEG
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=MEDIUM, sheen=MATTE, breathability=MEDIUM, texture=WOVEN
+- 结构：waist=UNKNOWN, legShape=WIDE_LEG
 - 风格：街头/学院/复古
 - 季节：夏季
 - 场合：日常/上学
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品3：黑色运动鞋
 - 类别：鞋子（运动鞋）
 - 适用性别：UNISEX
-- 颜色：主色=黑色，色调=NEUTRAL，近似色值=#1C1D1F
+- 颜色：主色=黑色, 色调=NEUTRAL, 近似色值=#1C1D1F
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=NONE, 垂感=NONE, 光泽=MATTE, 透气性=LOW
+- 面料属性：thickness=MEDIUM, stretch=NONE, drape=NONE, sheen=MATTE, breathability=LOW, texture=UNKNOWN
+- 结构：shoeCut=LOW_TOP
 - 风格：街头/学院/复古
 - 季节：夏季
 - 场合：日常/上学
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征

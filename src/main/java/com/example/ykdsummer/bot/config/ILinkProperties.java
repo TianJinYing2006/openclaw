@@ -1,7 +1,6 @@
 package com.example.ykdsummer.bot.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 
@@ -15,7 +14,6 @@ import java.nio.file.Path;
  * <p>配置值还可以由环境变量或启动参数覆盖，常用的启动参数是
  * {@code --ilink.enabled=true}。这个类只保存配置，不负责建立网络连接。</p>
  */
-@Component
 @ConfigurationProperties(prefix = "ilink")
 public class ILinkProperties {
 

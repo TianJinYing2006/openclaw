@@ -40,7 +40,7 @@ public class FashionWardrobeIngestionService {
     private static final Duration DEFAULT_DRAFT_LIFETIME = Duration.ofMinutes(30);
     private final FashionWardrobeIngestionRepository repository;
     private final FashionCoreService fashion;
-    private final FashionVisionCandidateAnalyzer analyzer;
+    private final WardrobePhotoAnalyzer analyzer;
     private final GarmentCutoutService cutouts;
     private final LocalImageAssetStore imageStore;
     private final ObjectMapper objectMapper;
@@ -51,7 +51,7 @@ public class FashionWardrobeIngestionService {
     public FashionWardrobeIngestionService(
             FashionWardrobeIngestionRepository repository,
             FashionCoreService fashion,
-            FashionVisionCandidateAnalyzer analyzer,
+            WardrobePhotoAnalyzer analyzer,
             GarmentCutoutService cutouts,
             LocalImageAssetStore imageStore,
             ObjectMapper objectMapper
@@ -92,9 +92,9 @@ public class FashionWardrobeIngestionService {
         }
         StoredImage stored = imageStore.find(externalUserId, source.assetId(), source.version())
                 .orElseThrow(() -> new IllegalStateException("Image bytes are not available for garment analysis"));
-        FashionVisionCandidateAnalyzer.AnalysisResult analysis = analyzer.analyze(stored);
+        WardrobePhotoAnalyzer.AnalysisResult analysis = analyzer.analyze(stored);
         List<ClothingCandidate> candidates = repository.createCandidateDrafts(externalUserId, source, analysis.candidates(),
-                "chat-completions-vision", "", FashionVisionCandidateAnalyzer.PROMPT_VERSION, draftDeadline());
+                analyzer.providerName(), "", analyzer.promptVersion(), draftDeadline());
         return new IntakeResult(analysis.summary(), candidates, false);
     }
 

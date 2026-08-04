@@ -1,10 +1,8 @@
 package com.example.ykdsummer.ai.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /** Bounded local worker settings for image generation and image revision tasks. */
-@Component
 @ConfigurationProperties(prefix = "app.ai.image-background")
 public class ImageTaskExecutionProperties {
 

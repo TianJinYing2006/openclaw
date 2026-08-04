@@ -1,7 +1,6 @@
 package com.example.ykdsummer.bot.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -9,7 +8,6 @@ import java.util.Locale;
 import java.util.Map;
 
 /** iLink 入站消息的按用户、按类型限流配置。 */
-@Component
 @ConfigurationProperties(prefix = "ilink.rate-limit")
 public class ILinkRateLimitProperties {
 

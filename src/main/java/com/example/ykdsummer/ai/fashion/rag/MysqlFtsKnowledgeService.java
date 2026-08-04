@@ -190,6 +190,11 @@ public class MysqlFtsKnowledgeService implements FashionKnowledgeService {
 
         StringBuilder sb = new StringBuilder("## 穿搭知识参考\n\n");
         for (int i = 0; i < chunks.size(); i++) {
+            // 前置 outfit 编号标记（如 [outfit_002]），供发图链路解析 top-1 参考穿搭
+            String outfitId = chunks.get(i).entry().id();
+            if (outfitId != null && !outfitId.isBlank()) {
+                sb.append("[outfit_").append(outfitId).append("] ");
+            }
             sb.append(i + 1).append(". ").append(chunks.get(i).toPromptText()).append("\n\n");
         }
         return sb.toString().strip();

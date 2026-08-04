@@ -1,4 +1,4 @@
-# 穿搭方案 101：阿kong - 灰色T恤 + 灰色牛仔裤 + 白色帆布鞋
+# 穿搭方案 101：阿kong - 卡其亨利T灰色牛仔裤_正面裁切
 
 ## 基本信息
 - 编号：101
@@ -19,37 +19,41 @@
 ## 单品1：灰色T恤
 - 类别：上衣（T恤）
 - 适用性别：UNISEX
-- 颜色：主色=灰色，辅色=卡其色，色调=NEUTRAL，近似色值=#777A7D
+- 颜色：主色=灰色, 辅色=卡其色, 色调=NEUTRAL, 近似色值=#777A7D
 - 外观：图案=纯色, 版型=常规, 轮廓=H型, 长度=常规长度
 - 材质：棉混纺
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=LOW, 光泽=MATTE, 透气性=MEDIUM
-- 结构：领型=OTHER_COLLAR, 袖型=SHORT_SLEEVE, 开合方式=PULLOVER
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=LOW, sheen=MATTE, breathability=MEDIUM, texture=KNITTED
+- 结构：collar=OTHER_COLLAR, sleeve=SHORT_SLEEVE, closure=PULLOVER
 - 风格：街头/学院/复古
 - 季节：夏季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品2：灰色牛仔裤
 - 类别：下装（牛仔裤）
 - 适用性别：UNISEX
-- 颜色：主色=灰色，色调=NEUTRAL，近似色值=#777A7D
+- 颜色：主色=灰色, 色调=NEUTRAL, 近似色值=#777A7D
 - 外观：图案=纯色, 版型=常规, 轮廓=直筒, 长度=全长
 - 材质：牛仔布
-- 面料属性：厚度=LIGHT, 弹性=LOW, 垂感=LOW, 光泽=MATTE, 透气性=MEDIUM
-- 结构：腰型=UNKNOWN, 裤型=STRAIGHT
+- 面料属性：thickness=LIGHT, stretch=LOW, drape=LOW, sheen=MATTE, breathability=MEDIUM, texture=DENIM_TEXTURE
+- 结构：waist=UNKNOWN, legShape=STRAIGHT
 - 风格：街头/学院/复古
 - 季节：夏季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征
 
 ## 单品3：白色帆布鞋
 - 类别：鞋子（帆布鞋）
 - 适用性别：UNISEX
-- 颜色：主色=白色，辅色=黑色，色调=NEUTRAL，近似色值=#F2F2EF
+- 颜色：主色=白色, 辅色=黑色, 色调=NEUTRAL, 近似色值=#F2F2EF
 - 外观：图案=纯色, 版型=常规, 轮廓=挺括轮廓, 长度=常规长度
 - 材质：化纤混纺
-- 面料属性：厚度=MEDIUM, 弹性=NONE, 垂感=NONE, 光泽=MATTE, 透气性=LOW
+- 面料属性：thickness=MEDIUM, stretch=NONE, drape=NONE, sheen=MATTE, breathability=LOW, texture=UNKNOWN
+- 结构：shoeCut=LOW_TOP
 - 风格：街头/学院/复古
 - 季节：夏季
 - 场合：日常
-- 正式度：2/5（半休闲）
+- 正式度：2/5
+- 特征：无明显特征

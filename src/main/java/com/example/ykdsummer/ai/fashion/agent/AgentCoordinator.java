@@ -9,6 +9,7 @@ import com.example.ykdsummer.ai.fashion.rag.QueryAnalyzer;
 import com.example.ykdsummer.ai.fashion.FashionResponseFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -16,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * 多 Agent 编排器（核心）。
@@ -28,9 +28,12 @@ import java.util.concurrent.Executors;
  * Step 1: QueryAnalyzer 分析需求        → 失败则关键词兜底
  * Step 2: FashionKnowledgeService RAG   → 失败则空知识
  * Step 3: Stylist 生成方案（串行）       → 失败则安全兜底
- * Step 4: Critic ∥ Trend 并行评审       → 各自失败互不影响
- * Step 5: Coordinator 综合裁决          → 失败则降级 Stylist 首选
+ * Step 4: Critic ∥ Trend 并行评审       → 各自失败互不影响（仅复杂请求）
+ * Step 5: Coordinator 综合裁决          → 失败则降级 Stylist 首选（仅复杂请求）
  * </pre>
+ *
+ * <p>动态路由：简单请求（正式度 ≤3 且子查询 ≤3）跳过 Step 4/5，直接采用 Stylist 结果，
+ * 将 5 次 LLM 调用降为 2 次，显著降低延迟。
  *
  * <p>全链路降级链：
  * <pre>
@@ -46,7 +49,6 @@ import java.util.concurrent.Executors;
 public class AgentCoordinator {
 
     private static final Logger log = LoggerFactory.getLogger(AgentCoordinator.class);
-    private static final String MOCK_STYLIST_TRIGGER = "测试穿搭假数据";
 
     private final QueryAnalyzer queryAnalyzer;
     private final FashionKnowledgeService knowledgeService;
@@ -69,7 +71,8 @@ public class AgentCoordinator {
                             FashionConversationService conversationService,
                             FashionResponseFormatter formatter,
                             UserProfileService userProfileService,
-                            FashionEmbeddingService embeddingService) {
+                            FashionEmbeddingService embeddingService,
+                            @Qualifier("fashionAgentParallelExecutor") ExecutorService parallelExecutor) {
         this.queryAnalyzer = queryAnalyzer;
         this.knowledgeService = knowledgeService;
         this.stylistAgent = stylistAgent;
@@ -80,7 +83,7 @@ public class AgentCoordinator {
         this.formatter = formatter;
         this.userProfileService = userProfileService;
         this.embeddingService = embeddingService;
-        this.parallelExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        this.parallelExecutor = parallelExecutor;
     }
 
     /**
@@ -111,9 +114,11 @@ public class AgentCoordinator {
             query = AnalyzedQuery.fallback(request.userInput());
         }
         timings.put("query_analyze", System.currentTimeMillis() - step);
-        log.info("Step 1 done: scene={}, season={} ({}ms)",
+        boolean simpleRequest = isSimpleRequest(query);
+        log.info("Step 1 done: scene={}, season={}, simple={} ({}ms)",
                 query.params() != null ? query.params().scene() : "null",
                 query.params() != null ? query.params().season() : "null",
+                simpleRequest,
                 timings.get("query_analyze"));
 
         // ── 保存穿搭对话记录（用户画像数据源） ──
@@ -145,9 +150,7 @@ public class AgentCoordinator {
         step = System.currentTimeMillis();
         StylistOutput stylist;
         try {
-            stylist = shouldUseMockStylist(request)
-                    ? mockStylistOutput(query)
-                    : stylistAgent.execute(request, ragContext, query, profileContext);
+            stylist = stylistAgent.execute(request, ragContext, query, profileContext);
         } catch (Exception e) {
             log.warn("Step 3 Stylist exception: {}", e.getMessage());
             stylist = null;
@@ -163,10 +166,18 @@ public class AgentCoordinator {
             logTimings(timings);
             String scene = query.params() != null ? query.params().scene() : "DAILY";
             FashionResult fallback = FashionResult.safetyFallback(scene, query);
-            String summary = formatter.summarize(fallback);
-            conversationService.updateRecommendation(conversationId, summary);
-            saveEmbeddingAsync(conversationId, request.userInput(), summary);
+            persistConversation(conversationId, request.userInput(), fallback);
             return fallback;
+        }
+
+        // ── 动态路由：简单请求直接返回 Stylist 结果，跳过 Critic/Trend/Coordinator ──
+        if (simpleRequest) {
+            timings.put("total", System.currentTimeMillis() - pipelineStart);
+            logTimings(timings);
+            log.info("Simple request detected, skipping Critic/Trend/Coordinator");
+            FashionResult simple = buildSimpleResult(stylist, ragContext, query);
+            persistConversation(conversationId, request.userInput(), simple);
+            return simple;
         }
 
         // ── Step 4: Critic ∥ Trend 并行评审 ──
@@ -228,129 +239,53 @@ public class AgentCoordinator {
             log.warn("Coordinator failed, degrading to Stylist first suggestion");
             FashionResult degraded = buildDegradedResult(stylist, critic, trend, ragContext, query,
                     "Coordinator 超时，降级为 Stylist 首选方案");
-            String summary = formatter.summarize(degraded);
-            conversationService.updateRecommendation(conversationId, summary);
-            saveEmbeddingAsync(conversationId, request.userInput(), summary);
+            persistConversation(conversationId, request.userInput(), degraded);
             return degraded;
         }
 
         FashionResult finalResult = new FashionResult(
                 true, coordinator, stylist, critic, trend, ragContext, query, null, false
         );
-        String finalSummary = formatter.summarize(finalResult);
-        conversationService.updateRecommendation(conversationId, finalSummary);
-        saveEmbeddingAsync(conversationId, request.userInput(), finalSummary);
+        persistConversation(conversationId, request.userInput(), finalResult);
         return finalResult;
     }
 
-    private boolean shouldUseMockStylist(FashionRequest request) {
-        return request != null
-                && request.userInput() != null
-                && request.userInput().contains(MOCK_STYLIST_TRIGGER);
+    /**
+     * 简单请求判定：正式度 ≤3 且子查询 ≤3 视为简单，跳过 Critic/Trend/Coordinator。
+     *
+     * <p>以 {@link AnalyzedQuery} 的 formality 与 decomposedQueries 数量作为复杂度依据。
+     */
+    static boolean isSimpleRequest(AnalyzedQuery query) {
+        if (query == null || query.params() == null) return true;
+        int formality = query.params().formality();
+        int subQueries = query.decomposedQueries() == null ? 0 : query.decomposedQueries().size();
+        return formality <= 3 && subQueries <= 3;
     }
 
-    private StylistOutput mockStylistOutput(AnalyzedQuery query) {
-        String scene = query != null && query.params() != null ? query.params().scene() : "";
-        if ("wedding".equals(scene)) {
-            log.info("Using mock StylistOutput for wedding test");
-            return mockWeddingStylistOutput();
+    /** 构造简单请求结果：成功、未降级，Coordinator 用 Stylist 首选方案补齐。 */
+    private FashionResult buildSimpleResult(StylistOutput stylist, String ragContext, AnalyzedQuery query) {
+        return new FashionResult(
+                true, coordinatorFromStylist(stylist), stylist,
+                CriticOutput.empty(), TrendOutput.neutral(), ragContext, query, null, false
+        );
+    }
+
+    /** 统一保存对话摘要 + 异步 Embedding 回填。 */
+    private void persistConversation(Long conversationId, String userInput, FashionResult result) {
+        String summary = formatter.summarize(result);
+        conversationService.updateRecommendation(conversationId, summary);
+        conversationService.updateReferenceOutfit(conversationId, extractReferenceOutfitId(result));
+        saveEmbeddingAsync(conversationId, userInput, summary);
+    }
+
+    /** 从最终方案中提取 outfit 编号，供后续"试穿"指代消解（编号在 service 层统一规范化）。 */
+    private static String extractReferenceOutfitId(FashionResult result) {
+        if (result == null || result.coordinator() == null
+                || result.coordinator().refinedOutfit() == null) {
+            return "";
         }
-        log.info("Using mock StylistOutput for beach test");
-        return mockBeachStylistOutput();
-    }
-
-    private StylistOutput mockBeachStylistOutput() {
-        return new StylistOutput(List.of(
-                new StylistOutput.OutfitSuggestion(
-                        1,
-                        "清爽防晒风",
-                        new StylistOutput.Outfit(
-                                "浅蓝色宽松防晒衬衫，内搭白色吊带背心",
-                                "白色高腰短裤",
-                                "防水凉鞋",
-                                "草编遮阳帽、墨镜、防水斜挎包"
-                        ),
-                        "浅蓝、白色、米色",
-                        "适合海边防晒、散步和拍照，整体轻盈清爽。",
-                        List.of("海边散步", "拍照", "短途旅行"),
-                        "高腰短裤能提高腰线，宽松衬衫对肩臂线条更友好。"
-                ),
-                new StylistOutput.OutfitSuggestion(
-                        2,
-                        "度假连衣裙风",
-                        new StylistOutput.Outfit(
-                                "珊瑚橘吊带连衣裙外搭轻薄罩衫",
-                                "连衣裙一体式下装",
-                                "细带平底凉鞋",
-                                "贝壳项链、编织托特包、宽檐帽"
-                        ),
-                        "珊瑚橘、奶白、浅金色",
-                        "照片表现力强，适合海边咖啡店、落日拍照和轻度游玩。",
-                        List.of("度假拍照", "海边咖啡", "傍晚散步"),
-                        "外搭罩衫可以修饰手臂，连衣裙要注意腰线位置。"
-                ),
-                new StylistOutput.OutfitSuggestion(
-                        3,
-                        "基础运动休闲风",
-                        new StylistOutput.Outfit(
-                                "黑色紧身速干 T 恤",
-                                "深色五分运动短裤",
-                                "普通网面运动鞋",
-                                "棒球帽、运动手环"
-                        ),
-                        "黑色、深灰",
-                        "行动方便，但颜色偏深，在海边白天容易吸热，拍照氛围较弱。",
-                        List.of("赶路", "轻运动", "临时出行"),
-                        "紧身上衣对上半身线条要求较高，五分裤可能压低身高比例。"
-                )
-        ));
-    }
-
-    private StylistOutput mockWeddingStylistOutput() {
-        return new StylistOutput(List.of(
-                new StylistOutput.OutfitSuggestion(
-                        1,
-                        "热门露肤街头风",
-                        new StylistOutput.Outfit(
-                                "露脐吊带背心",
-                                "浅蓝色牛仔短裤",
-                                "厚底凉拖",
-                                "金属腰链、小腋下包"
-                        ),
-                        "浅蓝、银色、黑色",
-                        "趋势感强，但过于休闲和暴露，不适合正式婚礼。",
-                        List.of("音乐节", "海边派对", "街拍"),
-                        "露腰和短裤对身材要求高，也容易削弱正式感。"
-                ),
-                new StylistOutput.OutfitSuggestion(
-                        2,
-                        "优雅婚礼宾客风",
-                        new StylistOutput.Outfit(
-                                "香槟色缎面吊带裙，外搭轻薄短西装",
-                                "中长款连衣裙一体式下装",
-                                "裸色低跟凉鞋",
-                                "珍珠耳饰、精致手拿包"
-                        ),
-                        "香槟色、裸色、珍珠白",
-                        "兼顾婚礼场合得体度、轻盈感和当下缎面趋势。",
-                        List.of("婚礼宾客", "晚宴", "正式约会"),
-                        "短西装能修饰肩颈和手臂，中长裙摆更稳妥得体。"
-                ),
-                new StylistOutput.OutfitSuggestion(
-                        3,
-                        "正式通勤套装风",
-                        new StylistOutput.Outfit(
-                                "黑色修身西装外套，内搭白衬衫",
-                                "黑色直筒西裤",
-                                "黑色尖头高跟鞋",
-                                "极简腕表、黑色通勤包"
-                        ),
-                        "黑色、白色",
-                        "正式度足够，但婚礼氛围偏沉闷，喜庆感和轻盈感不足。",
-                        List.of("商务会议", "正式通勤", "面试"),
-                        "直线条显利落，但整体容易显严肃。"
-                )
-        ));
+        String refId = result.coordinator().refinedOutfit().referenceOutfitId();
+        return refId == null ? "" : refId;
     }
 
     /**
@@ -376,29 +311,30 @@ public class AgentCoordinator {
         }, parallelExecutor);
     }
 
+    /** 用 Stylist 第一个方案构造简易 CoordinatorOutput（简单请求与降级共用）。 */
+    private static CoordinatorOutput coordinatorFromStylist(StylistOutput stylist) {
+        StylistOutput.OutfitSuggestion first = stylist.suggestions().get(0);
+        CoordinatorOutput.RefinedOutfit refined = new CoordinatorOutput.RefinedOutfit(
+                first.outfit() != null ? first.outfit().top() : "",
+                first.outfit() != null ? first.outfit().bottom() : "",
+                first.outfit() != null ? first.outfit().shoes() : "",
+                first.outfit() != null ? first.outfit().accessories() : "",
+                first.referenceOutfitId()
+        );
+        CoordinatorOutput.FinalRecommendation rec = new CoordinatorOutput.FinalRecommendation(
+                first.id(), "直接采用 Stylist 首选方案", java.util.Map.of()
+        );
+        return new CoordinatorOutput(rec, refined, first.reasoning(), List.of());
+    }
+
     /**
      * 构造降级结果（Coordinator 失败时，用 Stylist 首选方案）。
      */
     private FashionResult buildDegradedResult(StylistOutput stylist, CriticOutput critic,
                                                TrendOutput trend, String ragContext,
                                                AnalyzedQuery query, String errorMessage) {
-        // 用 Stylist 第一个方案构造一个简易的 CoordinatorOutput
-        StylistOutput.OutfitSuggestion first = stylist.suggestions().get(0);
-        CoordinatorOutput.RefinedOutfit refined = new CoordinatorOutput.RefinedOutfit(
-                first.outfit() != null ? first.outfit().top() : "",
-                first.outfit() != null ? first.outfit().bottom() : "",
-                first.outfit() != null ? first.outfit().shoes() : "",
-                first.outfit() != null ? first.outfit().accessories() : ""
-        );
-        CoordinatorOutput.FinalRecommendation rec = new CoordinatorOutput.FinalRecommendation(
-                first.id(), "Coordinator 降级，直接采用 Stylist 首选方案", java.util.Map.of()
-        );
-        CoordinatorOutput coordOutput = new CoordinatorOutput(
-                rec, refined, first.reasoning(), List.of()
-        );
-
         return new FashionResult(
-                false, coordOutput, stylist, critic, trend, ragContext, query,
+                false, coordinatorFromStylist(stylist), stylist, critic, trend, ragContext, query,
                 errorMessage, true
         );
     }

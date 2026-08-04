@@ -1,7 +1,8 @@
 package com.example.ykdsummer.ai.tool;
 
 import com.example.ykdsummer.weather.WeatherInfo;
-import com.example.ykdsummer.weather.WeatherService;
+import com.example.ykdsummer.weather.WeatherProvider;
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.tool.annotation.Tool;
@@ -9,20 +10,21 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 /**
- * Spring AI 暴露给模型的天气工具边界。业务查询仍由 WeatherService 完成。
+ * Spring AI 暴露给模型的天气工具边界。业务查询仍由 WeatherProvider 完成。
  */
+@AgentTool
 @Component
 public class WeatherTools implements AiTool {
 
-    private final WeatherService weatherService;
+    private final WeatherProvider weatherService;
     private final AiTraceLogger trace;
 
-    public WeatherTools(WeatherService weatherService) {
+    public WeatherTools(WeatherProvider weatherService) {
         this(weatherService, AiTraceLogger.disabled());
     }
 
     @Autowired
-    public WeatherTools(WeatherService weatherService, AiTraceLogger trace) {
+    public WeatherTools(WeatherProvider weatherService, AiTraceLogger trace) {
         this.weatherService = weatherService;
         this.trace = trace;
     }

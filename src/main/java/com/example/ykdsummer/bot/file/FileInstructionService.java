@@ -16,8 +16,8 @@ import org.springframework.stereotype.Service;
  * 文件消息与 Agent 的桥梁。
  *
  * <p>本类不再解析 {@code FILE_GEN||JSON} 这种隐藏文本协议。文件先登记为用户自己的本地资产，
- * 再把“当前文档 ID、版本、可提取正文”作为模型上下文；模型若要新建、修改、转换或回退，会调用
- * {@code DocumentTools}，工具返回的真实文件由 {@link Result} 交给 iLink 发送。</p>
+ * 再把“当前文档 ID、版本、可提取正文”作为模型上下文；模型基于该上下文直接回答，
+ * 或调用已注册的 Agent 工具，真实文件由 {@link Result} 交给 iLink 发送。</p>
  */
 @Service
 public class FileInstructionService {

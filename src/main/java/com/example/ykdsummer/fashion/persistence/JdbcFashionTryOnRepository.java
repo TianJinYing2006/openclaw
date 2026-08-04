@@ -25,6 +25,7 @@ public class JdbcFashionTryOnRepository implements FashionTryOnRepository {
     private static final String TASK_COLUMNS = """
             id AS task_id, app_user_id AS task_app_user_id, instance_id AS task_instance_id,
             person_template_id, wardrobe_item_id, person_asset_version_id, garment_asset_version_id,
+            garment_source, reference_outfit_id, garment_category_code,
             task_status, attempt_count, output_asset_version_id, failure_summary, claimed_at, completed_at,
             created_at AS task_created_at, updated_at AS task_updated_at
             """;
@@ -50,10 +51,34 @@ public class JdbcFashionTryOnRepository implements FashionTryOnRepository {
             jdbc.update("""
                     INSERT INTO fashion_virtual_tryon_tasks(
                         id, app_user_id, instance_id, person_template_id, wardrobe_item_id,
-                        person_asset_version_id, garment_asset_version_id, task_status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'SUBMITTED')
+                        person_asset_version_id, garment_asset_version_id, garment_source, task_status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'wardrobe', 'SUBMITTED')
                     """, id, scope.appUserId(), scope.instanceId(), template.templateId(), garment.wardrobeItemId(),
                     template.image().assetVersionId(), garment.image().assetVersionId());
+            return require(id);
+        });
+    }
+
+    @Override
+    public FashionTryOnTask submitWithReferenceOutfit(String externalUserId, String referenceOutfitId,
+                                                      String garmentAssetId, int garmentVersion, String garmentCategoryCode) {
+        FashionUserScope scope = scopes.resolve(externalUserId);
+        return transactions.execute(status -> {
+            TemplateSource template = activeTemplate(scope);
+            Long garmentAssetVersionId = ownedAssetVersionId(scope, garmentAssetId, garmentVersion,
+                    "试穿参考单品图不可用");
+            Optional<FashionTryOnTask> existing = openReferenceTask(scope.appUserId(), template.templateId(), referenceOutfitId);
+            if (existing.isPresent()) return existing.orElseThrow();
+            String id = UUID.randomUUID().toString();
+            jdbc.update("""
+                    INSERT INTO fashion_virtual_tryon_tasks(
+                        id, app_user_id, instance_id, person_template_id, wardrobe_item_id,
+                        person_asset_version_id, garment_asset_version_id, garment_source,
+                        reference_outfit_id, garment_category_code, task_status)
+                    VALUES (?, ?, ?, ?, NULL, ?, ?, 'reference', ?, ?, 'SUBMITTED')
+                    """, id, scope.appUserId(), scope.instanceId(), template.templateId(),
+                    template.image().assetVersionId(), garmentAssetVersionId,
+                    text(referenceOutfitId, 64), text(garmentCategoryCode, 32));
             return require(id);
         });
     }
@@ -80,6 +105,7 @@ public class JdbcFashionTryOnRepository implements FashionTryOnRepository {
         return jdbc.query("""
                 SELECT t.id AS task_id, t.app_user_id AS task_app_user_id, t.instance_id AS task_instance_id,
                     t.person_template_id, t.wardrobe_item_id, t.person_asset_version_id, t.garment_asset_version_id,
+                    t.garment_source, t.reference_outfit_id, t.garment_category_code,
                     t.task_status, t.attempt_count, t.output_asset_version_id, t.failure_summary,
                     t.claimed_at, t.completed_at, t.created_at AS task_created_at, t.updated_at AS task_updated_at,
                     u.external_user_id,
@@ -87,12 +113,12 @@ public class JdbcFashionTryOnRepository implements FashionTryOnRepository {
                     person.mime_type AS person_mime_type,
                     garment.id AS garment_id, garment.asset_id AS garment_asset_id, garment.version AS garment_version,
                     garment.mime_type AS garment_mime_type,
-                    item.category_code
+                    COALESCE(item.category_code, t.garment_category_code) AS category_code
                 FROM fashion_virtual_tryon_tasks t
                 JOIN app_users u ON u.id = t.app_user_id
                 JOIN asset_versions person ON person.id = t.person_asset_version_id
                 JOIN asset_versions garment ON garment.id = t.garment_asset_version_id
-                JOIN fashion_wardrobe_items item ON item.id = t.wardrobe_item_id
+                LEFT JOIN fashion_wardrobe_items item ON item.id = t.wardrobe_item_id
                 WHERE t.id = ?
                 """, (rs, row) -> work(rs), id).stream().findFirst();
     }
@@ -176,6 +202,27 @@ public class JdbcFashionTryOnRepository implements FashionTryOnRepository {
                 (rs, row) -> task(rs), appUserId, templateId, wardrobeItemId).stream().findFirst();
     }
 
+    private Optional<FashionTryOnTask> openReferenceTask(long appUserId, String templateId, String referenceOutfitId) {
+        return jdbc.query("SELECT " + TASK_COLUMNS + " FROM fashion_virtual_tryon_tasks "
+                        + "WHERE app_user_id = ? AND person_template_id = ? AND reference_outfit_id = ? "
+                        + "AND task_status IN ('SUBMITTED', 'PROCESSING') ORDER BY created_at DESC LIMIT 1",
+                (rs, row) -> task(rs), appUserId, templateId, text(referenceOutfitId, 64)).stream().findFirst();
+    }
+
+    private Long ownedAssetVersionId(FashionUserScope scope, String assetId, int version, String message) {
+        Long assetVersionId = jdbc.query("""
+                SELECT asset.id
+                FROM asset_versions asset
+                JOIN app_users user_record ON user_record.external_user_id = asset.external_user_id
+                WHERE user_record.id = ? AND asset.asset_id = ? AND asset.version = ? AND asset.asset_kind = 'IMAGE'
+                """, (rs, row) -> rs.getLong("id"), scope.appUserId(), text(assetId, 64), Math.max(1, version))
+                .stream().findFirst().orElse(null);
+        if (assetVersionId == null) {
+            throw new IllegalArgumentException(message);
+        }
+        return assetVersionId;
+    }
+
     private FashionTryOnTask require(String taskId) {
         try {
             return jdbc.queryForObject("SELECT " + TASK_COLUMNS + " FROM fashion_virtual_tryon_tasks WHERE id = ?",
@@ -192,8 +239,9 @@ public class JdbcFashionTryOnRepository implements FashionTryOnRepository {
 
     private static FashionTryOnTask task(ResultSet rs) throws java.sql.SQLException {
         return new FashionTryOnTask(rs.getString("task_id"), rs.getLong("task_app_user_id"), rs.getString("task_instance_id"),
-                rs.getString("person_template_id"), rs.getLong("wardrobe_item_id"), rs.getLong("person_asset_version_id"),
-                rs.getLong("garment_asset_version_id"), FashionTryOnTaskStatus.valueOf(rs.getString("task_status")),
+                rs.getString("person_template_id"), longOrNull(rs.getObject("wardrobe_item_id")), rs.getLong("person_asset_version_id"),
+                rs.getLong("garment_asset_version_id"), rs.getString("garment_source"), rs.getString("reference_outfit_id"),
+                rs.getString("garment_category_code"), FashionTryOnTaskStatus.valueOf(rs.getString("task_status")),
                 rs.getInt("attempt_count"), longOrNull(rs.getObject("output_asset_version_id")), rs.getString("failure_summary"),
                 instant(rs.getTimestamp("claimed_at")), instant(rs.getTimestamp("completed_at")),
                 instant(rs.getTimestamp("task_created_at")), instant(rs.getTimestamp("task_updated_at")));

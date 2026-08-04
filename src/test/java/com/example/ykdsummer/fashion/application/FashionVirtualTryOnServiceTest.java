@@ -68,9 +68,49 @@ class FashionVirtualTryOnServiceTest {
         assertThat(completed.imageBytes()).containsExactly(9, 8, 7);
     }
 
+    @Test
+    void persistsReferenceOutfitGarmentThenSubmitsTask() {
+        FashionTryOnRepository tasks = mock(FashionTryOnRepository.class);
+        VirtualTryOnService renderer = mock(VirtualTryOnService.class);
+        LocalImageAssetStore assets = mock(LocalImageAssetStore.class);
+        FashionTryOnProperties properties = new FashionTryOnProperties();
+        FashionVirtualTryOnService service = new FashionVirtualTryOnService(tasks, renderer, assets, properties);
+        ImageAssetMetadataStore metadata = mock(ImageAssetMetadataStore.class);
+        service.setAssetMetadata(metadata);
+
+        StoredImage garment = image("img_reference", 1);
+        when(assets.saveGenerated(eq("managed:bot-a:user-a"), eq("fashion-tryon-reference:010"),
+                eq(new byte[]{5, 6, 7}), any())).thenReturn(garment);
+        when(tasks.submitWithReferenceOutfit(eq("managed:bot-a:user-a"), eq("010"),
+                eq("img_reference"), eq(1), eq("T_SHIRT"))).thenReturn(task());
+
+        FashionTryOnTask submitted = service.submitWithReferenceOutfit("managed:bot-a:user-a", "010",
+                new byte[]{5, 6, 7}, "T_SHIRT");
+
+        assertThat(submitted.id()).isEqualTo("task-tryon-1");
+        verify(metadata).record(eq("managed:bot-a:user-a"), eq(garment), eq("local"));
+        verify(tasks).submitWithReferenceOutfit(eq("managed:bot-a:user-a"), eq("010"),
+                eq("img_reference"), eq(1), eq("T_SHIRT"));
+    }
+
+    @Test
+    void rejectsBlankReferenceGarmentBytes() {
+        FashionTryOnRepository tasks = mock(FashionTryOnRepository.class);
+        VirtualTryOnService renderer = mock(VirtualTryOnService.class);
+        LocalImageAssetStore assets = mock(LocalImageAssetStore.class);
+        FashionTryOnProperties properties = new FashionTryOnProperties();
+        FashionVirtualTryOnService service = new FashionVirtualTryOnService(tasks, renderer, assets, properties);
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+                service.submitWithReferenceOutfit("user-a", "010", new byte[0], "T_SHIRT")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("内容为空");
+    }
+
     private static FashionTryOnTask task() {
         Instant now = Instant.now();
         return new FashionTryOnTask("task-tryon-1", 7L, "bot-a", "template-a", 41L, 11L, 12L,
+                "wardrobe", null, null,
                 FashionTryOnTaskStatus.PROCESSING, 1, null, "", now, null, now, now);
     }
 

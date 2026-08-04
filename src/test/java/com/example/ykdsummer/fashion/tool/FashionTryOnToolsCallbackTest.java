@@ -1,17 +1,20 @@
 package com.example.ykdsummer.fashion.tool;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.ykdsummer.ai.fashion.ReferenceImageResolver;
 import com.example.ykdsummer.ai.service.AiTraceLogger;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
 import com.example.ykdsummer.fashion.application.FashionVirtualTryOnService;
 import com.example.ykdsummer.fashion.domain.FashionTryOnTask;
 import com.example.ykdsummer.fashion.domain.FashionTryOnTaskStatus;
 import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
@@ -45,9 +48,53 @@ class FashionTryOnToolsCallbackTest {
         collector.finish();
     }
 
+    @Test
+    void submitsReferenceOutfitWithTopGarmentImage() throws java.io.IOException {
+        FashionVirtualTryOnService service = mock(FashionVirtualTryOnService.class);
+        ReferenceImageResolver resolver = mock(ReferenceImageResolver.class);
+        FashionTryOnTools.ReferenceImageDownloader downloader = mock(FashionTryOnTools.ReferenceImageDownloader.class);
+        ToolArtifactCollector collector = new ToolArtifactCollector();
+        collector.begin("managed:instance-a:wechat-user");
+        FashionTryOnTools tools = new FashionTryOnTools(service, collector, AiTraceLogger.disabled(), resolver);
+        tools.setDownloader(downloader);
+        when(resolver.garmentsFor("010")).thenReturn(List.of(
+                new ReferenceImageResolver.GarmentImage("bottom", "010_2_bottom.png",
+                        "https://cdn.example.com/010_2_bottom.png"),
+                new ReferenceImageResolver.GarmentImage("top", "010_1_top.png",
+                        "https://cdn.example.com/010_1_top.png")));
+        when(downloader.download(eq("https://cdn.example.com/010_1_top.png"), any()))
+                .thenReturn(new byte[]{1, 2, 3});
+        when(service.submitWithReferenceOutfit(eq("managed:instance-a:wechat-user"), eq("010"),
+                org.mockito.ArgumentMatchers.<byte[]>any(), eq("T_SHIRT")))
+                .thenReturn(task(FashionTryOnTaskStatus.SUBMITTED));
+
+        String result = callback(tools, "virtual_try_on_reference_outfit").call("{\"referenceOutfitId\":\"010\"}");
+
+        assertThat(result).contains("后台");
+        verify(service).submitWithReferenceOutfit(eq("managed:instance-a:wechat-user"), eq("010"),
+                org.mockito.ArgumentMatchers.<byte[]>any(), eq("T_SHIRT"));
+        collector.finish();
+    }
+
+    @Test
+    void reportsWhenReferenceOutfitHasNoUsableGarmentImage() {
+        FashionVirtualTryOnService service = mock(FashionVirtualTryOnService.class);
+        ReferenceImageResolver resolver = mock(ReferenceImageResolver.class);
+        ToolArtifactCollector collector = new ToolArtifactCollector();
+        collector.begin("user-c");
+        FashionTryOnTools tools = new FashionTryOnTools(service, collector, AiTraceLogger.disabled(), resolver);
+        when(resolver.garmentsFor("999")).thenReturn(List.of());
+
+        String result = callback(tools, "virtual_try_on_reference_outfit").call("{\"referenceOutfitId\":\"999\"}");
+
+        assertThat(result).contains("没有可用于试穿的单品图");
+        collector.finish();
+    }
+
     private static FashionTryOnTask task(FashionTryOnTaskStatus status) {
         Instant now = Instant.now();
         return new FashionTryOnTask("task-tryon-internal", 1L, "", "template", 42L, 2L, 3L,
+                "wardrobe", null, null,
                 status, 0, null, "图片服务超时", null, now, now, now);
     }
 

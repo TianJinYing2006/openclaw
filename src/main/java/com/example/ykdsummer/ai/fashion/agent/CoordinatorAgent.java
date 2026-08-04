@@ -132,6 +132,11 @@ public class CoordinatorAgent {
         StylistOutput.Outfit selectedOutfit = selected.outfit();
 
         CoordinatorOutput.RefinedOutfit refined = output.refinedOutfit();
+        // 优先用 Coordinator 输出的 referenceOutfitId，缺失时从选中的 Stylist 方案携带
+        String refinedOutfitId = refined != null ? refined.referenceOutfitId() : null;
+        if (refinedOutfitId == null || refinedOutfitId.isBlank()) {
+            refinedOutfitId = selected.referenceOutfitId();
+        }
         CoordinatorOutput.RefinedOutfit normalizedRefined = new CoordinatorOutput.RefinedOutfit(
                 chooseText(refined != null ? refined.top() : null,
                         selectedOutfit != null ? selectedOutfit.top() : ""),
@@ -140,7 +145,8 @@ public class CoordinatorAgent {
                 chooseText(refined != null ? refined.shoes() : null,
                         selectedOutfit != null ? selectedOutfit.shoes() : ""),
                 chooseText(refined != null ? refined.accessories() : null,
-                        selectedOutfit != null ? selectedOutfit.accessories() : "")
+                        selectedOutfit != null ? selectedOutfit.accessories() : ""),
+                refinedOutfitId
         );
 
         CoordinatorOutput.FinalRecommendation current = output.finalRecommendation();
