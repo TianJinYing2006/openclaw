@@ -6,16 +6,16 @@
 
 ## 功能概览
 
-| 能力域 | 说明 |
-|--------|------|
-| **穿搭推荐** | 多 Agent 管道（QueryAnalyzer → RAG → Stylist → Critic ∥ Trend → Coordinator），生成搭配方案并附带参考图 |
-| **个人衣橱** | 发送服装照片自动抠图入库，支持语义搜索（Qdrant）和关键词检索 |
-| **虚拟试衣** | 用户上传全身照作为人物模板，选择衣橱单品生成上身效果 |
-| **图片生成/编辑** | 文生图、图生图、图片改版、视觉识别，后台异步生成完成后自动回传 |
-| **语音/视频** | 语音转文字（腾讯云 ASR）、文字转语音（阿里云 TTS）、视频抽帧分析 |
-| **定时提醒** | 微信定时 Agent 任务，到点自动触发 AI 生成提醒内容 |
-| **联网搜索** | 博查搜索或 MCP 外部搜索服务 |
-| **多实例管理** | 通过本地管理站管理多个 iLink 微信实例 |
+| 能力域            | 说明                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------- |
+| **穿搭推荐**      | 多 Agent 管道（QueryAnalyzer → RAG → Stylist → Critic ∥ Trend → Coordinator），生成搭配方案并附带参考图 |
+| **个人衣橱**      | 发送服装照片自动抠图入库，支持语义搜索（Qdrant）和关键词检索                                            |
+| **虚拟试衣**      | 用户上传全身照作为人物模板，选择衣橱单品生成上身效果                                                    |
+| **图片生成/编辑** | 文生图、图生图、图片改版、视觉识别，后台异步生成完成后自动回传                                          |
+| **语音/视频**     | 语音转文字（腾讯云 ASR）、文字转语音（阿里云 TTS）、视频抽帧分析                                        |
+| **定时提醒**      | 微信定时 Agent 任务，到点自动触发 AI 生成提醒内容                                                       |
+| **联网搜索**      | 博查搜索或 MCP 外部搜索服务                                                                             |
+| **多实例管理**    | 通过本地管理站管理多个 iLink 微信实例                                                                   |
 
 ---
 
@@ -55,23 +55,23 @@ Step 5: CoordinatorAgent 综合裁决     → 失败则降级 Stylist 首选
 
 ### RAG 双轨检索
 
-| 检索方式 | 用途 | 数据源 |
-|----------|------|--------|
-| RAGFlow | 穿搭知识库向量检索 | `data/fashion_docs/` 174 套搭配文档 |
-| MySQL FULLTEXT | 降级关键词检索（默认） | `fashion_seed_fts` 表 |
-| Qdrant | 用户衣橱语义搜索 | 个人衣橱单品向量 |
+| 检索方式       | 用途                   | 数据源                              |
+| -------------- | ---------------------- | ----------------------------------- |
+| RAGFlow        | 穿搭知识库向量检索     | `data/fashion_docs/` 174 套搭配文档 |
+| MySQL FULLTEXT | 降级关键词检索（默认） | `fashion_seed_fts` 表               |
+| Qdrant         | 用户衣橱语义搜索       | 个人衣橱单品向量                    |
 
 ### MCP Provider 切换
 
 以下功能均支持通过 `@ConditionalOnProperty` 在本地实现和外部 MCP Server 之间切换，默认使用本地实现：
 
-| 功能 | 配置项 | 默认值 |
-|------|--------|--------|
-| 网页搜索 | `app.web-search.provider` | `bocha` |
-| 服装抠图 | `app.fashion.cutout.provider` | `reference-image` |
+| 功能         | 配置项                          | 默认值             |
+| ------------ | ------------------------------- | ------------------ |
+| 网页搜索     | `app.web-search.provider`       | `bocha`            |
+| 服装抠图     | `app.fashion.cutout.provider`   | `reference-image`  |
 | 衣橱照片分析 | `app.fashion.analysis.provider` | `chat-completions` |
-| 虚拟试衣 | `app.fashion.tryon.provider` | `reference-image` |
-| 天气查询 | `app.weather.provider` | `uapis` |
+| 虚拟试衣     | `app.fashion.tryon.provider`    | `reference-image`  |
+| 天气查询     | `app.weather.provider`          | `uapis`            |
 
 ---
 
@@ -79,42 +79,42 @@ Step 5: CoordinatorAgent 综合裁决     → 失败则降级 Stylist 首选
 
 工具通过 `@AgentTool` 注解自动注册到 `ToolRegistry`，未标注的 `@Tool` 方法默认拒绝。当前注册 34 个工具：
 
-| 工具 | 所属类 | 功能 |
-|------|--------|------|
-| `fashion_consultant` | `FashionAgentService` | 穿搭多 Agent 管道入口 |
-| `search_wardrobe_semantic` | `FashionSemanticTools` | 衣橱语义搜索（Qdrant） |
-| `add_wardrobe_item` | `FashionTools` | 添加衣橱单品 |
-| `search_wardrobe` | `FashionTools` | 搜索衣橱单品 |
-| `get_fashion_profile` | `FashionTools` | 查看穿搭偏好画像 |
-| `virtual_try_on_wardrobe_item` | `FashionTryOnTools` | 提交虚拟试衣任务 |
-| `check_virtual_tryon_status` | `FashionTryOnTools` | 查询试衣任务状态 |
-| `list_person_tryon_templates` | `FashionPersonTemplateTools` | 列出人物模板 |
-| `save_person_tryon_template` | `FashionPersonTemplateTools` | 保存人物模板 |
-| `select_person_tryon_template` | `FashionPersonTemplateTools` | 选择启用的人物模板 |
-| `select_wardrobe_preview_item` | `FashionVisualPreviewTools` | 预览衣橱单品 |
-| `show_current_tryon_template` | `FashionVisualPreviewTools` | 展示当前试衣模板 |
-| `show_wardrobe_items` | `FashionVisualPreviewTools` | 展示衣橱列表 |
-| `analyze_wardrobe_photo` | `FashionWardrobeIntakeTools` | 分析服装照片 |
-| `submit_garment_cutout` | `FashionWardrobeIntakeTools` | 提交服装抠图 |
-| `edit_garment_draft` | `FashionWardrobeIntakeTools` | 编辑草稿标签 |
-| `retry_garment_cutout` | `FashionWardrobeIntakeTools` | 重试抠图 |
-| `confirm_wardrobe_candidate` | `FashionWardrobeIntakeTools` | 确认入衣橱 |
-| `cancel_wardrobe_candidate` | `FashionWardrobeIntakeTools` | 取消候选 |
-| `list_wardrobe_photo_candidates` | `FashionWardrobeIntakeTools` | 列出待确认候选 |
-| `update_wardrobe_candidate_labels` | `FashionWardrobeIntakeTools` | 更新候选标签 |
-| `preview_garment_draft_version` | `FashionWardrobeIntakeTools` | 预览草稿版本 |
-| `list_garment_draft_versions` | `FashionWardrobeIntakeTools` | 列出草稿版本 |
-| `generate_image` | `ImageTools` | 文生图 |
-| `inspect_image` | `ImageTools` | 视觉识别图片内容 |
-| `get_current_image` | `ImageTools` | 获取当前图片 |
-| `list_recent_images` | `ImageTools` | 列出最近图片 |
-| `create_image_revision` | `ImageTools` | 基于已保存图片改图 |
-| `restore_image_version` | `ImageTools` | 回退图片版本 |
-| `get_current_weather` | `WeatherTools` | 查询实时天气 |
-| `get_current_china_time` | `ChinaTimeTools` | 获取中国当前时间 |
-| `create_scheduled_agent_task` | `ReminderTools` | 创建定时提醒 |
-| `list_wechat_reminders` | `ReminderTools` | 列出提醒 |
-| `cancel_wechat_reminder` | `ReminderTools` | 取消提醒 |
+| 工具                               | 所属类                       | 功能                   |
+| ---------------------------------- | ---------------------------- | ---------------------- |
+| `fashion_consultant`               | `FashionAgentService`        | 穿搭多 Agent 管道入口  |
+| `search_wardrobe_semantic`         | `FashionSemanticTools`       | 衣橱语义搜索（Qdrant） |
+| `add_wardrobe_item`                | `FashionTools`               | 添加衣橱单品           |
+| `search_wardrobe`                  | `FashionTools`               | 搜索衣橱单品           |
+| `get_fashion_profile`              | `FashionTools`               | 查看穿搭偏好画像       |
+| `virtual_try_on_wardrobe_item`     | `FashionTryOnTools`          | 提交虚拟试衣任务       |
+| `check_virtual_tryon_status`       | `FashionTryOnTools`          | 查询试衣任务状态       |
+| `list_person_tryon_templates`      | `FashionPersonTemplateTools` | 列出人物模板           |
+| `save_person_tryon_template`       | `FashionPersonTemplateTools` | 保存人物模板           |
+| `select_person_tryon_template`     | `FashionPersonTemplateTools` | 选择启用的人物模板     |
+| `select_wardrobe_preview_item`     | `FashionVisualPreviewTools`  | 预览衣橱单品           |
+| `show_current_tryon_template`      | `FashionVisualPreviewTools`  | 展示当前试衣模板       |
+| `show_wardrobe_items`              | `FashionVisualPreviewTools`  | 展示衣橱列表           |
+| `analyze_wardrobe_photo`           | `FashionWardrobeIntakeTools` | 分析服装照片           |
+| `submit_garment_cutout`            | `FashionWardrobeIntakeTools` | 提交服装抠图           |
+| `edit_garment_draft`               | `FashionWardrobeIntakeTools` | 编辑草稿标签           |
+| `retry_garment_cutout`             | `FashionWardrobeIntakeTools` | 重试抠图               |
+| `confirm_wardrobe_candidate`       | `FashionWardrobeIntakeTools` | 确认入衣橱             |
+| `cancel_wardrobe_candidate`        | `FashionWardrobeIntakeTools` | 取消候选               |
+| `list_wardrobe_photo_candidates`   | `FashionWardrobeIntakeTools` | 列出待确认候选         |
+| `update_wardrobe_candidate_labels` | `FashionWardrobeIntakeTools` | 更新候选标签           |
+| `preview_garment_draft_version`    | `FashionWardrobeIntakeTools` | 预览草稿版本           |
+| `list_garment_draft_versions`      | `FashionWardrobeIntakeTools` | 列出草稿版本           |
+| `generate_image`                   | `ImageTools`                 | 文生图                 |
+| `inspect_image`                    | `ImageTools`                 | 视觉识别图片内容       |
+| `get_current_image`                | `ImageTools`                 | 获取当前图片           |
+| `list_recent_images`               | `ImageTools`                 | 列出最近图片           |
+| `create_image_revision`            | `ImageTools`                 | 基于已保存图片改图     |
+| `restore_image_version`            | `ImageTools`                 | 回退图片版本           |
+| `get_current_weather`              | `WeatherTools`               | 查询实时天气           |
+| `get_current_china_time`           | `ChinaTimeTools`             | 获取中国当前时间       |
+| `create_scheduled_agent_task`      | `ReminderTools`              | 创建定时提醒           |
+| `list_wechat_reminders`            | `ReminderTools`              | 列出提醒               |
+| `cancel_wechat_reminder`           | `ReminderTools`              | 取消提醒               |
 
 ---
 
@@ -125,6 +125,7 @@ Step 5: CoordinatorAgent 综合裁决     → 失败则降级 Stylist 首选
 - JDK 21
 - Maven 3.9+
 - MySQL 8.0（必需，Flyway 自动建表）
+- Python 3.10+（必需，运行 MCP Server：抠图/试衣/识别/天气/搜索）
 - Redis（可选，停机时自动降级）
 - FFmpeg（视频处理用，可选）
 - Docker（Qdrant 语义检索用，可选）
@@ -168,21 +169,44 @@ app.ai.image-model=gpt-image-2
 
 可选项（按需开启）：百炼 TTS、腾讯云 ASR、阿里云 OSS、博查搜索、Qdrant 语义检索、RAGFlow、高德地图等，详见 `application-local.template.properties`。
 
-### 运行
+### MCP Server（必需）
+
+项目默认全量走 MCP provider（搜索/抠图/识别/试衣/天气）。**Spring Boot 启动前必须先启动 MCP Server**，否则会因连不上 8090 启动失败（`Client failed to initialize`）。
+
+```bash
+cd mcp-server
+python -m venv .venv
+# Windows: .venv\Scripts\activate ；macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+
+# 复制模板并填入 Key
+copy .env.example .env          # Windows；macOS/Linux 用 cp .env.example .env
+# 必填：DASHSCOPE_API_KEY（百炼）、ARK_API_KEY（火山引擎，虚拟试衣）
+# 可选：BOCHA_API_KEY（搜索，不填自动用 DuckDuckGo）
+
+# 启动（监听 8090）
+.venv\Scripts\python server.py
+```
+
+u2net 抠图模型（约 170MB）：首次调用 rembg 时自动下载到 `~/.u2net`。国内网络直连 GitHub 易超时，可设 `U2NET_HOME` 指向已下载目录，或从 `ghfast.top` 等镜像手动下载 `u2net.onnx` 放入该目录。
+
+### 启动顺序
+
+1. 启动 MySQL（Flyway 自动建表）
+2. 启动 MCP Server（`mcp-server`，8090）
+3. 启动 Spring Boot
 
 ```bash
 mvn spring-boot:run -Dmaven.test.skip=true
 ```
 
-启动后控制台输出二维码，微信扫码登录即可开始对话。
-
 ### Profile
 
-| Profile | 用途 | 说明 |
-|---------|------|------|
-| `local` | 全功能本地开发（默认） | 加载被 Git 忽略的 `application-local.properties` |
-| `minimal` | 仅穿搭管道，无媒体处理 | 关闭图片/视频/ASR/TTS |
-| `production` | 全功能 + 持久化 | 持久化默认开启 |
+| Profile      | 用途                   | 说明                                             |
+| ------------ | ---------------------- | ------------------------------------------------ |
+| `local`      | 全功能本地开发（默认） | 加载被 Git 忽略的 `application-local.properties` |
+| `minimal`    | 仅穿搭管道，无媒体处理 | 关闭图片/视频/ASR/TTS                            |
+| `production` | 全功能 + 持久化        | 持久化默认开启                                   |
 
 ```bash
 # 仅穿搭的轻量实例
@@ -308,23 +332,23 @@ CI 流水线配置见 `.github/workflows/build.yml`。
 
 ## 依赖
 
-| 依赖 | 版本 | 用途 |
-|------|------|------|
-| Spring Boot | 3.5.16 | 应用框架 |
-| Spring AI | 1.1.8 | OpenAI 兼容接口 + Function Calling + Qdrant + MCP Client |
-| weixin-ilink-sdk | 1.0.0 | 微信 iLink 协议 |
-| openai-java | 4.43.0 | OpenAI 兼容客户端（Responses 通道） |
-| Qdrant | gRPC 1.65.1 | 衣橱语义向量检索 |
-| MySQL + Flyway | 8.0 | 持久化 + 自动迁移（18 migrations） |
-| Redis | — | 消息去重/限流/缓存（可选） |
-| 阿里云 OSS | 3.17.4 | 图片/文档存储 |
-| 阿里云百炼 | — | 文字模型 / 图片生成 / Embedding / TTS |
-| 腾讯云 ASR | 3.1.1500 | 语音识别 |
-| Apache PDFBox | 3.0.5 | PDF 文本提取 |
-| x-easypdf-pdfbox | 3.5.5 | PDF 生成（内置中文字体） |
-| Apache POI | 5.4.1 | Office 文档读写 |
-| FFmpeg | — | 视频抽帧 + 音频提取 |
-| ZXing | 3.5.3 | 二维码生成（iLink 登录） |
+| 依赖             | 版本        | 用途                                                     |
+| ---------------- | ----------- | -------------------------------------------------------- |
+| Spring Boot      | 3.5.16      | 应用框架                                                 |
+| Spring AI        | 1.1.8       | OpenAI 兼容接口 + Function Calling + Qdrant + MCP Client |
+| weixin-ilink-sdk | 1.0.0       | 微信 iLink 协议                                          |
+| openai-java      | 4.43.0      | OpenAI 兼容客户端（Responses 通道）                      |
+| Qdrant           | gRPC 1.65.1 | 衣橱语义向量检索                                         |
+| MySQL + Flyway   | 8.0         | 持久化 + 自动迁移（18 migrations）                       |
+| Redis            | —           | 消息去重/限流/缓存（可选）                               |
+| 阿里云 OSS       | 3.17.4      | 图片/文档存储                                            |
+| 阿里云百炼       | —           | 文字模型 / 图片生成 / Embedding / TTS                    |
+| 腾讯云 ASR       | 3.1.1500    | 语音识别                                                 |
+| Apache PDFBox    | 3.0.5       | PDF 文本提取                                             |
+| x-easypdf-pdfbox | 3.5.5       | PDF 生成（内置中文字体）                                 |
+| Apache POI       | 5.4.1       | Office 文档读写                                          |
+| FFmpeg           | —           | 视频抽帧 + 音频提取                                      |
+| ZXing            | 3.5.3       | 二维码生成（iLink 登录）                                 |
 
 ---
 
@@ -332,16 +356,16 @@ CI 流水线配置见 `.github/workflows/build.yml`。
 
 详细文档位于 `docs/` 目录，导航索引见 [docs/README.md](docs/README.md)。
 
-| 主题 | 文档 |
-|------|------|
-| 入门运行 | [iLink 指南](docs/getting-started/ILINK_GUIDE.md) |
-| 代码导读 | [代码走读](docs/getting-started/ILINK_CODE_WALKTHROUGH.md) |
-| 项目结构 | [结构说明](docs/architecture/PROJECT_STRUCTURE.md) |
-| Agent 编排 | [编排设计](docs/AGENT_ORCHESTRATION.md) → [穿搭 Agent 设计](docs/fashion-agent-design.md) |
-| 穿搭业务 | [业务逻辑](docs/fashion-business-logic.md) → [演示用例](docs/features/FASHION_AGENT_DEMO_CASES.md) |
-| RAG 检索 | [衣橱 RAG 设计](docs/wardrobe-rag-design.md) |
+| 主题         | 文档                                                                                                                                                                                                                                                                                |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 入门运行     | [iLink 指南](docs/getting-started/ILINK_GUIDE.md)                                                                                                                                                                                                                                   |
+| 代码导读     | [代码走读](docs/getting-started/ILINK_CODE_WALKTHROUGH.md)                                                                                                                                                                                                                          |
+| 项目结构     | [结构说明](docs/architecture/PROJECT_STRUCTURE.md)                                                                                                                                                                                                                                  |
+| Agent 编排   | [编排设计](docs/AGENT_ORCHESTRATION.md) → [穿搭 Agent 设计](docs/fashion-agent-design.md)                                                                                                                                                                                           |
+| 穿搭业务     | [业务逻辑](docs/fashion-business-logic.md) → [演示用例](docs/features/FASHION_AGENT_DEMO_CASES.md)                                                                                                                                                                                  |
+| RAG 检索     | [衣橱 RAG 设计](docs/wardrobe-rag-design.md)                                                                                                                                                                                                                                        |
 | MCP 替换方案 | [01-网页搜索](docs/mcp-replacement-01-web-search.md) → [02-抠图](docs/mcp-replacement-02-garment-cutout.md) → [03-衣橱分析](docs/mcp-replacement-03-wardrobe-analysis.md) → [04-天气](docs/mcp-replacement-04-weather.md) → [05-虚拟试衣](docs/mcp-replacement-05-virtual-tryon.md) |
-| 统筹方案 | [穿搭统筹方案](docs/fashion-master-plan.md) |
+| 统筹方案     | [穿搭统筹方案](docs/fashion-master-plan.md)                                                                                                                                                                                                                                         |
 
 ---
 
