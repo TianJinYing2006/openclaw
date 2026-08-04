@@ -200,6 +200,8 @@ u2net 抠图模型（约 170MB）：首次调用 rembg 时自动下载到 `~/.u2
 mvn spring-boot:run -Dmaven.test.skip=true
 ```
 
+启动后控制台输出二维码，微信扫码登录即可开始对话。
+
 ### Profile
 
 | Profile      | 用途                   | 说明                                             |
