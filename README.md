@@ -190,6 +190,39 @@ copy .env.example .env          # Windows；macOS/Linux 用 cp .env.example .env
 
 u2net 抠图模型（约 170MB）：首次调用 rembg 时自动下载到 `~/.u2net`。国内网络直连 GitHub 易超时，可设 `U2NET_HOME` 指向已下载目录，或从 `ghfast.top` 等镜像手动下载 `u2net.onnx` 放入该目录。
 
+### 可选：RAGFlow 穿搭知识检索
+
+RAGFlow 为 FashionAgent 提供穿搭知识库向量检索（出方案前检索穿搭规则）。默认 `app.fashion.rag.provider=mysql`（MySQL FULLTEXT 降级）；启用 RAGFlow 需先部署服务（默认 `http://127.0.0.1:9380`）并创建知识库数据集：
+
+```properties
+app.fashion.rag.provider=ragflow
+# api-key 与 dataset-id 也可用环境变量 RAGFLOW_API_KEY / RAGFLOW_DATASET_ID 注入
+app.fashion.rag.ragflow.api-key=ragflow-xxxxxxxxxxxxxxxx
+app.fashion.rag.ragflow.dataset-id=xxxxxxxxxxxxxxxxxxxxxxxx
+# 可选调优
+app.fashion.rag.ragflow.top-k=5
+app.fashion.rag.ragflow.similarity-threshold=0.2
+app.fashion.rag.ragflow.vector-similarity-weight=0.3
+app.fashion.rag.ragflow.timeout=15s
+```
+
+### 可选：阿里云 OSS（图片/文档存储）
+
+默认图片保存在本地磁盘；开启 OSS 后，生成/上传的图片与文档改走阿里云对象存储，并可经 CDN 公网 URL 下发微信：
+
+```properties
+oss.image.enabled=true
+oss.image.endpoint=oss-cn-{region}.aliyuncs.com
+oss.image.access-key-id=LTAIxxxxxxxxxx
+oss.image.access-key-secret=xxxxxxxxxxxxxxxx
+oss.image.bucket-name=your-bucket
+oss.image.prefix=ilink-bot/images
+oss.image.signed-url-ttl=10m
+# 文档存储（可选，默认关闭）
+oss.document.enabled=false
+oss.document.prefix=ilink-bot/documents
+```
+
 ### 启动顺序
 
 1. 启动 MySQL（Flyway 自动建表）
