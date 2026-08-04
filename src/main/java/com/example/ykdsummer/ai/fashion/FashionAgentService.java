@@ -6,6 +6,7 @@ import com.example.ykdsummer.ai.fashion.model.FashionRequest;
 import com.example.ykdsummer.ai.fashion.model.FashionResult;
 import com.example.ykdsummer.ai.fashion.model.FeedbackDetection;
 import com.example.ykdsummer.ai.fashion.profile.FashionConversationService;
+import com.example.ykdsummer.ai.fashion.profile.PreferenceInferenceService;
 import com.example.ykdsummer.ai.fashion.rag.QueryAnalyzer;
 import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
 import com.example.ykdsummer.ai.orchestration.AgentTool;
@@ -75,6 +76,7 @@ public class FashionAgentService {
     private final ImageTaskRunner imageTaskRunner;
     private final ImageTaskCompletionPublisher completionPublisher;
     private final RestClient httpClient;
+    private volatile PreferenceInferenceService preferenceInference;
 
     public FashionAgentService(AgentCoordinator coordinator,
                                FashionResponseFormatter formatter,
@@ -95,6 +97,12 @@ public class FashionAgentService {
         factory.setConnectTimeout(5000);
         factory.setReadTimeout(15000);
         this.httpClient = RestClient.builder().requestFactory(factory).build();
+    }
+
+    /** 偏好推断（反馈 → 规范化偏好画像）由 Spring 注入；测试等直接 new 场景可缺省。 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPreferenceInference(PreferenceInferenceService preferenceInference) {
+        this.preferenceInference = preferenceInference;
     }
 
     /**
@@ -329,6 +337,11 @@ public class FashionAgentService {
             }
         } catch (Exception e) {
             log.debug("Failed to record fashion feedback: {}", e.getMessage());
+        }
+        // 反馈命中后：把反馈转成规范化偏好画像（COLOR/STYLE/FIT 等），供衣橱排序加权。
+        PreferenceInferenceService inference = preferenceInference;
+        if (inference != null) {
+            inference.inferAndRecord(userId, userInput, detection.sentiment());
         }
     }
 }

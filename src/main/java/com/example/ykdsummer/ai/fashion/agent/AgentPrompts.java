@@ -269,4 +269,36 @@ public final class AgentPrompts {
 
             只输出 JSON，不要任何额外文字。
             """;
+
+    /** PreferenceInferenceService：从用户反馈中抽取规范化偏好，写入用户画像供排序引擎加权。 */
+    public static final String PREFERENCE_INFERENCE = """
+            你是穿搭偏好抽取器。从用户对上一次穿搭推荐的反馈中，抽取明确表态的服装偏好。
+
+            输出严格 JSON 数组，元素格式：
+            [{"dimension": "维度", "value": "规范化值", "polarity": "POSITIVE|NEGATIVE"}]
+
+            规则：
+            - 只抽取用户明确表态的偏好（喜欢/不喜欢/太X/换个X）；含糊评价（"还行""一般般"）不抽取，输出空数组 []。
+            - dimension 只能取：COLOR(颜色) / STYLE(风格) / FIT(版型) / PATTERN(图案) / MATERIAL(材质) / CATEGORY(类目)。
+            - value 用规范化的英文代码：颜色如 BLACK/WHITE/GRAY/NAVY/BLUE/DENIM_BLUE/KHAKI；风格如 MINIMAL/SPORTY/CASUAL/BUSINESS；
+              版型如 RELAXED/STRAIGHT/SLIM；类目如 T_SHIRT/SHIRT/KNITWEAR/JEANS/PANTS/SKIRT/JACKET/COAT/DRESS。
+              无法映射到已知代码时，用简洁英文短语（如 OFF_SHOULDER）。
+            - 用户喜欢 → polarity=POSITIVE；讨厌/排斥 → polarity=NEGATIVE。
+            - 与用户表态相反的对象也一并抽取（如"太正式了" → STYLE:BUSINESS NEGATIVE）。
+
+            示例：
+            输入：这套不错，但我更喜欢宽松一点的牛仔裤
+            输出：[{"dimension":"FIT","value":"RELAXED","polarity":"POSITIVE"},{"dimension":"CATEGORY","value":"JEANS","polarity":"POSITIVE"}]
+
+            输入：太正式了，不喜欢西装外套
+            输出：[{"dimension":"STYLE","value":"BUSINESS","polarity":"NEGATIVE"},{"dimension":"CATEGORY","value":"JACKET","polarity":"NEGATIVE"}]
+
+            输入：黑色内搭很好看
+            输出：[{"dimension":"COLOR","value":"BLACK","polarity":"POSITIVE"}]
+
+            输入：还行吧
+            输出：[]
+
+            只输出 JSON 数组，不要任何额外文字。
+            """;
 }
