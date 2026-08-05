@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -39,8 +40,8 @@ class FashionWardrobeIntakeToolsCallbackTest {
         FashionWardrobeIntakeTools tools = new FashionWardrobeIntakeTools(service, collector, AiTraceLogger.disabled());
         ClothingCandidate candidate = candidate("candidate-1", ClothingCandidateStatus.PENDING_SELECTION,
                 ClothingCompletenessStatus.READY, null);
-        when(service.analyzePhoto(eq(userId), eq("img_shirt"), eq(1)))
-                .thenReturn(new FashionWardrobeIngestionService.IntakeResult("识别到一件完整上衣", List.of(candidate), false));
+        when(service.candidatesForPhoto(eq(userId), eq("img_shirt"), eq(1)))
+                .thenReturn(List.of(candidate));
         ClothingCandidate ready = candidate("candidate-ready", ClothingCandidateStatus.AWAITING_FINAL_CONFIRMATION,
                 ClothingCompletenessStatus.READY, 12L);
         when(service.candidate(eq(userId), eq("candidate-ready"))).thenReturn(Optional.of(ready));
@@ -53,8 +54,25 @@ class FashionWardrobeIntakeToolsCallbackTest {
 
         assertThat(analysis).contains("内部候选", "candidate-1", "可提交抠图", "用户只需用名称");
         assertThat(confirmed).contains("已加入个人衣橱", "短袖上衣").doesNotContain("#23");
-        verify(service).analyzePhoto(userId, "img_shirt", 1);
+        verify(service).candidatesForPhoto(userId, "img_shirt", 1);
         verify(service).confirmCandidate(userId, "candidate-ready");
+        collector.finish();
+    }
+
+    @Test
+    void reportsThatPhotoAnalysisIsRunningInTheBackgroundWhenNoCandidateExistsYet() {
+        FashionWardrobeIngestionService service = mock(FashionWardrobeIngestionService.class);
+        ToolArtifactCollector collector = collectorFor("wechat-user");
+        FashionWardrobeIntakeTools tools = new FashionWardrobeIntakeTools(service, collector, AiTraceLogger.disabled());
+        when(service.candidatesForPhoto(eq("wechat-user"), eq("img_shirt"), isNull()))
+                .thenReturn(List.of());
+        when(service.submitPhotoAnalysis(eq("wechat-user"), eq("img_shirt"), isNull()))
+                .thenReturn(true);
+
+        String analysis = callback(tools, "analyze_wardrobe_photo").call("{\"imageAssetId\":\"img_shirt\"}");
+
+        assertThat(analysis).contains("正在识别图片中");
+        verify(service).submitPhotoAnalysis("wechat-user", "img_shirt", null);
         collector.finish();
     }
 

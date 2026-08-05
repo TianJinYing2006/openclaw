@@ -22,14 +22,18 @@ import org.springframework.stereotype.Service;
 @ConditionalOnProperty(prefix = "app.fashion.analysis", name = "provider",
         havingValue = "chat-completions", matchIfMissing = true)
 public class FashionVisionCandidateAnalyzer implements WardrobePhotoAnalyzer {
-    static final String PROMPT_VERSION = "fashion-wardrobe-v2";
+    static final String PROMPT_VERSION = "fashion-wardrobe-v3";
     private static final BigDecimal MINIMUM_USABLE_QUALITY = new BigDecimal("0.45");
     private static final String ANALYSIS_PROMPT = """
             You are a garment intake analyst. Inspect the uploaded photo and return JSON only, without Markdown.
-            Identify every separately usable clothing item visible in the image. Do not invent hidden details.
+            If the photo shows a complete coordinated outfit worn or laid out together as one set (for example a top
+            combined with bottoms, or a full look with shoes and accessories), return a SINGLE candidate representing
+            the whole outfit, with categoryCode OUTFIT. Do not split an outfit into separate garment candidates.
+            Only when the photo clearly shows separate, uncoordinated single garments should you list each one.
+            Otherwise identify every separately usable clothing item visible in the image. Do not invent hidden details.
             For each candidate, return: displayName, categoryCode, colorPrimary, secondaryColors, styleTags, fitCode,
             seasonTags, attributes, confidence, qualityScore, completenessStatus, retakeGuidance.
-            categoryCode must be one of UNKNOWN,T_SHIRT,SHIRT,KNITWEAR,JACKET,JEANS,STRAIGHT_PANTS,SKIRT,DRESS,SHOES,BAG,ACCESSORY.
+            categoryCode must be one of OUTFIT,UNKNOWN,T_SHIRT,SHIRT,KNITWEAR,JACKET,JEANS,STRAIGHT_PANTS,SKIRT,DRESS,SHOES,BAG,ACCESSORY.
             completenessStatus must be READY, RETAKE_REQUIRED, or UNSUPPORTED.
             A garment being worn on a person is normal and is NOT a reason to reject it. Use READY when its category,
             main color, major visible silhouette and enough of its shape can be identified to create a conservative wardrobe
@@ -96,7 +100,91 @@ public class FashionVisionCandidateAnalyzer implements WardrobePhotoAnalyzer {
         addSummaryCandidate(drafts, summary, "SHOES", "鞋子", "厚底鞋", "运动鞋", "皮鞋", "鞋");
         addSummaryCandidate(drafts, summary, "BAG", "包包", "手提包", "背包", "包");
         if (drafts.isEmpty()) return new WardrobePhotoAnalyzer.AnalysisResult("", List.of());
+        if (drafts.size() > 1) {
+            // 摘要描述的是整套穿搭（上衣+裤子等）：合并为单个整套候选，不拆件
+            return new WardrobePhotoAnalyzer.AnalysisResult(
+                    "已复用这张图片已保存的视觉摘要，识别为一整套穿搭。",
+                    List.of(mergeOutfitCandidate(drafts)));
+        }
         return new WardrobePhotoAnalyzer.AnalysisResult("已复用这张图片已保存的视觉摘要，生成待确认的服装候选。", List.copyOf(drafts));
+    }
+
+    /** 合并多个候选为单个 OUTFIT 整套候选；主色取第一个可见值，标签与季节去重合并。 */
+    private ClothingCandidateDraft mergeOutfitCandidate(List<ClothingCandidateDraft> drafts) {
+        String displayName = drafts.stream()
+                .map(ClothingCandidateDraft::displayName)
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .collect(java.util.stream.Collectors.joining("+"));
+        if (displayName.length() > 128) displayName = displayName.substring(0, 128);
+        String color = drafts.stream()
+                .map(ClothingCandidateDraft::colorPrimary)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst().orElse("");
+        List<String> styles = drafts.stream().flatMap(value -> value.styleTags().stream()).distinct().toList();
+        List<String> seasons = drafts.stream().flatMap(value -> value.seasonTags().stream()).distinct().toList();
+        // 整套穿搭的完整度由主体衣物决定：只要有一个主体候选可识别（如被遮挡的鞋不影响上衣+裤子），整套即可入库
+        boolean anyReady = drafts.stream()
+                .anyMatch(value -> value.completenessStatus() == ClothingCompletenessStatus.READY);
+        String guidance = drafts.stream()
+                .map(ClothingCandidateDraft::retakeGuidance)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst().orElse("");
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("visibility", "derived from saved visual summary");
+        attributes.put("notes", "整一套穿搭作为一个整体入库");
+        String pattern = drafts.stream().map(draft -> patternOf(draft.analysisAttributesJson())).filter(v -> !v.isBlank()).findFirst().orElse("");
+        if (!pattern.isBlank()) attributes.put("patternCode", pattern);
+        String material = drafts.stream().map(draft -> materialOf(draft.analysisAttributesJson())).filter(v -> !v.isBlank()).findFirst().orElse("");
+        if (!material.isBlank()) attributes.put("material", material);
+        List<String> occasions = drafts.stream().flatMap(draft -> occasionsOf(draft.analysisAttributesJson()).stream()).distinct().toList();
+        if (!occasions.isEmpty()) attributes.put("occasionTags", occasions);
+        BigDecimal confidence = drafts.stream().map(ClothingCandidateDraft::analysisConfidence)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(drafts.size()), 4, java.math.RoundingMode.HALF_UP);
+        BigDecimal quality = drafts.stream().map(ClothingCandidateDraft::qualityScore)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(drafts.size()), 4, java.math.RoundingMode.HALF_UP);
+        try {
+            return new ClothingCandidateDraft(0, displayName, "OUTFIT", color, List.of(), styles,
+                    "", seasons, objectMapper.writeValueAsString(attributes), confidence, quality,
+                    anyReady ? ClothingCompletenessStatus.READY : ClothingCompletenessStatus.RETAKE_REQUIRED, guidance);
+        } catch (JsonProcessingException ignored) {
+            return new ClothingCandidateDraft(0, displayName, "OUTFIT", color, List.of(), styles,
+                    "", seasons, "{}", confidence, quality,
+                    anyReady ? ClothingCompletenessStatus.READY : ClothingCompletenessStatus.RETAKE_REQUIRED, guidance);
+        }
+    }
+
+    private static String patternOf(String attributesJson) {
+        try {
+            JsonNode node = new ObjectMapper().readTree(attributesJson == null ? "{}" : attributesJson);
+            return node.path("patternCode").asText("");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static String materialOf(String attributesJson) {
+        try {
+            JsonNode node = new ObjectMapper().readTree(attributesJson == null ? "{}" : attributesJson);
+            return node.path("material").asText("");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static List<String> occasionsOf(String attributesJson) {
+        try {
+            JsonNode node = new ObjectMapper().readTree(attributesJson == null ? "{}" : attributesJson);
+            JsonNode values = node.path("occasionTags");
+            if (!values.isArray()) return List.of();
+            List<String> result = new ArrayList<>();
+            values.forEach(value -> { if (value.isTextual() && !value.asText().isBlank()) result.add(value.asText()); });
+            return List.copyOf(result);
+        } catch (Exception ignored) {
+            return List.of();
+        }
     }
 
     private void addSummaryCandidate(List<ClothingCandidateDraft> drafts, String summary, String category,
@@ -279,6 +367,7 @@ public class FashionVisionCandidateAnalyzer implements WardrobePhotoAnalyzer {
 
     private static String category(String value) {
         return switch (text(value, 64).toUpperCase(Locale.ROOT)) {
+            case "OUTFIT", "SUIT", "SET", "套装", "整套" -> "OUTFIT";
             case "T_SHIRT", "TEE", "TOP", "T恤", "短袖", "上衣" -> "T_SHIRT";
             case "SHIRT", "衬衫" -> "SHIRT";
             case "KNITWEAR", "针织衫", "毛衣" -> "KNITWEAR";

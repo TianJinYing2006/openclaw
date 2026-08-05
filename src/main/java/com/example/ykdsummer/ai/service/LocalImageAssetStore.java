@@ -136,6 +136,31 @@ public class LocalImageAssetStore {
         }
     }
 
+    /**
+     * 彻底删除该图片资源：移除该 assetId 的所有版本文件与元数据索引（不可恢复）。
+     * 供衣橱单品彻底删除使用；仅当该资产已无任何引用时由上层调用，不存在时静默返回。
+     */
+    public void deleteAsset(String userId, String assetId) {
+        if (!validAssetId(assetId)) return;
+        currentCache.remove(safeUser(userId));
+        Path directory = userDirectory(userId).resolve(assetId);
+        try {
+            if (Files.isDirectory(directory)) {
+                try (var paths = Files.walk(directory)) {
+                    paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException ignored) {
+                            // 单个文件清理失败不阻断其余清理；残留文件不可见
+                        }
+                    });
+                }
+            }
+        } catch (IOException ignored) {
+            // 目录清理失败不影响主流程
+        }
+    }
+
     public Optional<StoredImage> find(String userId, String assetId, int version) {
         if (!validAssetId(assetId) || version < 1) {
             return Optional.empty();

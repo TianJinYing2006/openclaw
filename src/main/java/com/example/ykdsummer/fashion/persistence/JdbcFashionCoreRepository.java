@@ -276,6 +276,60 @@ public class JdbcFashionCoreRepository implements FashionCoreRepository {
     }
 
     @Override
+    public boolean archiveWardrobeItem(String externalUserId, long wardrobeItemId) {
+        FashionUserScope scope = scopes.resolve(externalUserId);
+        requireOwnedWardrobeItem(scope.appUserId(), wardrobeItemId);
+        return jdbc.update("""
+                UPDATE fashion_wardrobe_items
+                SET item_status = 'ARCHIVED'
+                WHERE id = ? AND app_user_id = ? AND item_status = 'ACTIVE'
+                """, wardrobeItemId, scope.appUserId()) > 0;
+    }
+
+    @Override
+    public List<String> purgeWardrobeItem(String externalUserId, long wardrobeItemId) {
+        FashionUserScope scope = scopes.resolve(externalUserId);
+        requireOwnedWardrobeItem(scope.appUserId(), wardrobeItemId);
+        long tryOnRefs = count("SELECT COUNT(*) FROM fashion_virtual_tryon_tasks WHERE wardrobe_item_id = ?", wardrobeItemId);
+        long runRefs = count("SELECT COUNT(*) FROM fashion_outfit_recommendation_runs WHERE anchor_wardrobe_item_id = ?",
+                wardrobeItemId);
+        long itemRefs = count("SELECT COUNT(*) FROM fashion_outfit_recommendation_items WHERE wardrobe_item_id = ?",
+                wardrobeItemId);
+        if (tryOnRefs + runRefs + itemRefs > 0) {
+            throw new IllegalArgumentException("这件衣服存在试穿或搭配推荐记录，不能彻底删除");
+        }
+        return transactions.execute(status -> {
+            List<Long> assetVersionIds = jdbc.queryForList(
+                    "SELECT asset_version_id FROM fashion_wardrobe_item_assets WHERE wardrobe_item_id = ?",
+                    Long.class, wardrobeItemId);
+            jdbc.update("DELETE FROM fashion_wardrobe_items WHERE id = ? AND app_user_id = ?",
+                    wardrobeItemId, scope.appUserId());
+            List<String> purged = new ArrayList<>();
+            for (Long assetVersionId : assetVersionIds) {
+                if (assetVersionId == null) continue;
+                String assetId = jdbc.query("""
+                                SELECT asset_id FROM asset_versions WHERE id = ?
+                                """, (rs, row) -> rs.getString("asset_id"), assetVersionId)
+                        .stream().findFirst().orElse(null);
+                if (assetId == null || assetId.isBlank()) continue;
+                try {
+                    // RESTRICT 外键自动保护仍被模板/试衣/分析等引用的共享资产
+                    jdbc.update("DELETE FROM asset_versions WHERE id = ?", assetVersionId);
+                    if (!purged.contains(assetId)) purged.add(assetId);
+                } catch (org.springframework.dao.DataIntegrityViolationException ignored) {
+                    // 该资产仍被其他记录引用：保留，不清存储对象
+                }
+            }
+            return List.copyOf(purged);
+        });
+    }
+
+    private long count(String sql, Object... arguments) {
+        Long value = jdbc.queryForObject(sql, Long.class, arguments);
+        return value == null ? 0 : value;
+    }
+
+    @Override
     public Optional<FashionImageAsset> primaryWardrobeImage(String externalUserId, long wardrobeItemId) {
         return Optional.ofNullable(primaryWardrobeImages(externalUserId, List.of(wardrobeItemId))
                 .get(wardrobeItemId));

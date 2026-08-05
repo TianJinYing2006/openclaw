@@ -38,8 +38,9 @@ public class FashionWardrobeIntakeTools implements AiTool {
     }
 
     @Tool(name = "analyze_wardrobe_photo", description = "仅当用户明确要求识别、提取或把已上传服装照片加入衣橱时调用。"
-            + "必须先获得 img_ 图片编号。工具会识别一张图中的多个可用单品并检查完整度；不能因为用户只发图而自动保存。"
-            + "衣服穿在人身上、被手或其他衣物轻微遮挡时仍可识别；只有主要轮廓或类别无法可靠判断时才返回重拍要求。")
+            + "必须先获得 img_ 图片编号。工具会把识别任务放入后台：首次调用返回“正在识别”，识别完成后会自动把候选和"
+            + "完整度发给用户；同一张照片已有候选时直接返回候选列表。衣服穿在人身上、被手或其他衣物轻微遮挡时仍可识别；"
+            + "只有主要轮廓或类别无法可靠判断时才返回重拍要求。整套穿搭照片会作为一个整体候选识别，不拆分单件。")
     public String analyzeWardrobePhoto(
             @ToolParam(description = "服装照片编号，必须来自当前或已保存的 img_ 图片。") String imageAssetId,
             @ToolParam(required = false, description = "图片版本；为空时使用最新版本。") Integer imageVersion
@@ -48,8 +49,25 @@ public class FashionWardrobeIntakeTools implements AiTool {
         if (userId == null) return unavailable();
         trace.toolCall("analyze_wardrobe_photo", "hasImage=true");
         try {
-            FashionWardrobeIngestionService.IntakeResult result = intake.analyzePhoto(userId, imageAssetId, imageVersion);
-            String message = describeCandidates(result.summary(), result.candidates(), result.reusedExistingDrafts());
+            List<ClothingCandidate> existing = intake.candidatesForPhoto(userId, imageAssetId, imageVersion);
+            if (!existing.isEmpty()) {
+                String message = describeCandidates("", existing, true);
+                trace.toolResult("analyze_wardrobe_photo", message);
+                return message;
+            }
+            boolean submitted = intake.submitPhotoAnalysis(userId, imageAssetId, imageVersion);
+            if (!submitted) {
+                List<ClothingCandidate> ready = intake.candidatesForPhoto(userId, imageAssetId, imageVersion);
+                if (!ready.isEmpty()) {
+                    String message = describeCandidates("", ready, true);
+                    trace.toolResult("analyze_wardrobe_photo", message);
+                    return message;
+                }
+                String message = "正在识别图片中，识别完成后会自动把候选和完整度发给你。";
+                trace.toolResult("analyze_wardrobe_photo", message);
+                return message;
+            }
+            String message = "正在识别图片中，识别完成后会自动把候选和完整度发给你。";
             trace.toolResult("analyze_wardrobe_photo", message);
             return message;
         } catch (IllegalArgumentException failure) {
@@ -117,9 +135,14 @@ public class FashionWardrobeIntakeTools implements AiTool {
         }
     }
 
-    @Tool(name = "submit_garment_cutout", description = "仅当用户已经查看识别候选并明确选择要提取的单品时调用。"
+    @Tool(name = "submit_garment_cutout", description = "当用户看完识别候选后表达确认/选择/加入衣橱意图时调用，提交选定的单品抠图任务。"
+            + "识别候选推送后，用户说\"确认/就它了/确认加入/加入衣柜/帮我抠图\"等表达时，默认理解为用户确认选择该候选，"
+            + "必须调用本工具提交抠图，不得只口头承诺\"正在抠图/马上发给你\"。"
             + "只可提交完整度 READY 的候选；任务在后台执行，完成后会主动发送草稿图、识别属性和最终确认提示。"
-            + "用户尚未确认、候选要求重拍或只是询问时不可调用。当前仅有一个待选候选时 candidateIds 可为空，工具会安全恢复。")
+            + "候选要求重拍或用户只是询问（未表达确认/选择意图）时不可调用。"
+            + "当前仅有一个待选候选时 candidateIds 可为空，工具会安全恢复。"
+            + "注意区分：抠图完成后用户确认最终草稿才调用 confirm_wardrobe_candidate 入衣橱；"
+            + "此刻尚无抠图草稿，用户\"确认加入\"对应的是提交抠图，而不是直接入衣橱。")
     public String submitGarmentCutout(
             @ToolParam(required = false, description = "用户明确选中的一个或多个完整候选 UUID；唯一待选候选时可为空。")
             List<String> candidateIds

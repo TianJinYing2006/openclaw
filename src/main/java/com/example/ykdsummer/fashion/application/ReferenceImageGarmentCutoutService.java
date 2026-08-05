@@ -23,7 +23,17 @@ public class ReferenceImageGarmentCutoutService implements GarmentCutoutService 
     @Override
     public CutoutResult cutout(String externalUserId, StoredImage source, ClothingCandidate candidate, String instruction) {
         if (source == null || candidate == null) return CutoutResult.failed("Source image or candidate is missing");
-        String prompt = "Create a clean standalone product image from the referenced clothing photo. Preserve only the selected garment "
+        boolean outfit = "OUTFIT".equalsIgnoreCase(candidate.categoryCode());
+        String prompt = outfit
+                ? "Create a clean standalone product image of the WHOLE coordinated outfit from the referenced photo. "
+                + "Keep the complete outfit as a set: every garment visible in the photo (tops, bottoms, shoes, accessories) "
+                + "together, preserving its silhouette, colors, texture, patterns, seams, proportions and all original visual details. "
+                + "Remove people, hands, hangers, backgrounds, and unrelated objects, but keep the entire outfit intact. "
+                + "Preserve any original print, lettering, graphic, logo, symbol, or decorative mark exactly as visible. "
+                + "Remove only text, logos, or watermarks newly invented by the model; never remove, replace, or redraw original details. "
+                + "Use a simple neutral light background. Outfit: " + candidate.displayName()
+                + "; user refinement: " + safe(instruction)
+                : "Create a clean standalone product image from the referenced clothing photo. Preserve only the selected garment "
                 + "and its visible silhouette, color, texture, pattern, seams, proportions, and all original visual details except changes "
                 + "that the user explicitly requests below. "
                 + "Preserve any original print, lettering, graphic, logo, symbol, or decorative mark exactly as visible on the garment. "

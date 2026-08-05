@@ -141,6 +141,7 @@ public class McpWardrobePhotoAnalyzer implements WardrobePhotoAnalyzer {
 
     private static String category(String value) {
         return switch (text(value, 64).toUpperCase(Locale.ROOT)) {
+            case "OUTFIT", "SUIT", "SET", "套装", "整套" -> "OUTFIT";
             case "T_SHIRT", "TEE", "TOP", "T恤", "短袖", "上衣" -> "T_SHIRT";
             case "SHIRT", "衬衫" -> "SHIRT";
             case "KNITWEAR", "针织衫", "毛衣" -> "KNITWEAR";

@@ -21,10 +21,14 @@ logger = logging.getLogger(__name__)
 _ANALYSIS_PROMPT = """你是一个专业的服装识别助手。请仔细分析图片中的服装单品，返回 JSON 格式的识别结果。
 
 要求：
-1. 识别图片中所有可提取的服装单品（最多 8 件）
-2. 每件单品返回以下字段：
+1. 如果图片展示的是一整套完整穿搭（例如上衣+裤子的套装，或包含鞋和配饰的整套造型），只返回一个代表整套的候选：
+   - categoryCode 使用 OUTFIT
+   - displayName 描述整套（如"深蓝色格子衬衫+黑色直筒长裤"）
+   - 不要把一个套装拆成多件单品候选
+2. 只有当图片中的多件衣物是相互独立、不成套的单件时，才分别返回候选（最多 8 件）
+3. 每件单品返回以下字段：
    - displayName: 中文显示名（如"白色宽松T恤"）
-   - categoryCode: 类目代码，从以下选择：T_SHIRT/SHIRT/KNITWEAR/JACKET/JEANS/STRAIGHT_PANTS/SKIRT/DRESS/SHOES/BAG/ACCESSORY
+   - categoryCode: 类目代码，从以下选择：OUTFIT/T_SHIRT/SHIRT/KNITWEAR/JACKET/JEANS/STRAIGHT_PANTS/SKIRT/DRESS/SHOES/BAG/ACCESSORY
    - colorPrimary: 主色代码（如 WHITE/BLACK/BLUE/RED/GREEN/GRAY/BROWN/BEIGE/PINK/YELLOW/ORANGE/PURPLE）
    - secondaryColors: 辅助色数组
    - styleTags: 风格标签数组（如 CASUAL/FORMAL/STREET/SPORTY/MINIMAL）

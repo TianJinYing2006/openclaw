@@ -1,5 +1,6 @@
 package com.example.ykdsummer.fashion.tool;
 
+import com.example.ykdsummer.ai.fashion.FashionAgentService;
 import com.example.ykdsummer.ai.fashion.ReferenceImageResolver;
 import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import com.example.ykdsummer.ai.orchestration.AgentTool;
@@ -13,6 +14,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +27,7 @@ import org.springframework.stereotype.Component;
 @Component
 @ConditionalOnBean(FashionVirtualTryOnService.class)
 public class FashionTryOnTools implements AiTool {
+    private static final Logger log = LoggerFactory.getLogger(FashionTryOnTools.class);
     private static final Duration IMAGE_DOWNLOAD_TIMEOUT = Duration.ofSeconds(30);
 
     /** 参考单品图下载器；默认走 {@link McpToolSupport#downloadImage}，测试可注入替身。 */
@@ -110,9 +114,13 @@ public class FashionTryOnTools implements AiTool {
     }
 
     @Tool(name = "virtual_try_on_reference_outfit", description = "把用户刚获得的穿搭推荐方案中的单品穿到当前试衣模板上。"
-            + "仅当用户明确引用刚才的推荐方案时调用，如\"试试这套/穿刚才那套/这套衣服上身效果\"，且上下文[内部最近穿搭推荐方案]中存在该编号。"
+            + "在用户刚通过 fashion_consultant 获得推荐方案后，说\"试穿/穿一下/试试/上身效果\"等表达、且未明确指向衣橱单品（未提\"衣柜/衣橱里的\"）时，"
+            + "默认指刚推荐的方案，必须调用本工具，不得只口头承诺试穿。上下文[内部最近穿搭推荐方案]中存在该编号。"
+            + "用户未指明具体单品（如\"试穿这套/试穿一下吧\"）时不要传 garmentType：默认整套试穿，把方案中的上衣与下装拼成一张穿搭图，"
+            + "后台一次生成一张全套上身效果图并推送；"
+            + "用户明确说\"试穿上衣/裤子/连衣裙\"时才传对应 garmentType，只试穿那一件。"
             + "前提：用户已通过 fashion_consultant 获得推荐方案，且用户已上传并启用人物模板。"
-            + "排除规则：若用户最近一步操作是加入/预览衣橱单品后说\"试穿一下/穿一下\"（未指明推荐方案），必须调用 virtual_try_on_wardrobe_item，不得调用本工具；"
+            + "排除规则：若用户最近一步操作是加入/预览衣橱单品后说\"试穿一下/穿一下/试试\"（未指明推荐方案），必须调用 virtual_try_on_wardrobe_item，不得调用本工具；"
             + "不得从历史对话中自行挑选 outfit 编号，只能使用上下文[内部最近穿搭推荐方案]中刚产生的那一个。"
             + "入参 referenceOutfitId 使用上下文[内部最近穿搭推荐方案]中的 outfit 编号（如 002/153），即用户刚看到的那套推荐；"
             + "系统自动从参考库下载该方案的单品图并配合当前启用的人物模板在后台生成，用户无需重新发图。"
@@ -120,7 +128,7 @@ public class FashionTryOnTools implements AiTool {
     public String virtualTryOnReferenceOutfit(
             @ToolParam(description = "穿搭推荐方案中的 outfit 编号，例如 002、010、153。") String referenceOutfitId,
             @ToolParam(required = false, description = "要试穿的单品类型：top（上衣）、bottom（下装）、overall（连衣裙/连体裤）。"
-                    + "默认 top。用户说\"试穿上衣\"传 top，\"试穿裤子\"传 bottom，\"试穿连衣裙\"传 overall。") String garmentType
+                    + "留空=整套试穿（方案中全部单品逐件生成效果图并逐张推送）；用户明确说\"试穿上衣/裤子/连衣裙\"时传 top/bottom/overall 只试那一件。") String garmentType
     ) {
         String userId = currentUser();
         if (userId == null) return unavailable();
@@ -130,25 +138,17 @@ public class FashionTryOnTools implements AiTool {
                     "参考穿搭图库暂不可用，请稍后再试。" );
         }
         try {
-            ReferenceImageResolver.GarmentImage garment = pickGarment(
-                    imageResolver.garmentsFor(referenceOutfitId), safe(garmentType));
-            if (garment == null) {
-                return "这套推荐方案暂没有可用于试穿的单品图。";
+            List<ReferenceImageResolver.GarmentImage> garments = imageResolver.garmentsFor(referenceOutfitId);
+            if (!safe(garmentType).isBlank()) {
+                // 用户明确指定单品：只试穿那一件
+                ReferenceImageResolver.GarmentImage garment = pickGarment(garments, garmentType);
+                if (garment == null) {
+                    return "这套推荐方案暂没有可用于试穿的单品图。";
+                }
+                return submitOne(userId, referenceOutfitId, garment);
             }
-            byte[] bytes;
-            try {
-                bytes = downloader.download(garment.url(), IMAGE_DOWNLOAD_TIMEOUT);
-            } catch (java.io.IOException failure) {
-                return failed("virtual_try_on_reference_outfit", new IllegalStateException("参考单品图下载失败", failure),
-                        "参考单品图下载失败，请稍后重试。" );
-            }
-            FashionTryOnTask task = tryOn.submitWithReferenceOutfit(userId, referenceOutfitId, bytes,
-                    categoryCode(garment.garment()));
-            String message = task.status() == FashionTryOnTaskStatus.PROCESSING
-                    ? "这件推荐单品正在生成上身效果，完成后会自动发给你。"
-                    : "已开始生成这件推荐单品的上身效果。后台完成后会自动把图片发给你。";
-            trace.toolResult("virtual_try_on_reference_outfit", message);
-            return message;
+            // 用户未指明单品：整套试穿，上衣 + 下装拼成一张穿搭图一次出图
+            return submitFullOutfit(userId, referenceOutfitId, garments);
         } catch (IllegalArgumentException failure) {
             return failed("virtual_try_on_reference_outfit", failure,
                     "暂时不能试穿这套推荐方案：参考单品图下载或保存失败，请稍后重试。" );
@@ -158,6 +158,80 @@ public class FashionTryOnTools implements AiTool {
         } catch (RuntimeException failure) {
             return failed("virtual_try_on_reference_outfit", failure, "提交试衣任务失败，请稍后重试。" );
         }
+    }
+
+    /** 单件试穿：下载指定单品图并提交一个后台试衣任务。 */
+    private String submitOne(String userId, String referenceOutfitId, ReferenceImageResolver.GarmentImage garment) {
+        byte[] bytes;
+        try {
+            bytes = downloader.download(garment.url(), IMAGE_DOWNLOAD_TIMEOUT);
+        } catch (java.io.IOException failure) {
+            return failed("virtual_try_on_reference_outfit", new IllegalStateException("参考单品图下载失败", failure),
+                    "参考单品图下载失败，请稍后重试。" );
+        }
+        FashionTryOnTask task = tryOn.submitWithReferenceOutfit(userId, referenceOutfitId, bytes,
+                categoryCode(garment.garment()));
+        return task.status() == FashionTryOnTaskStatus.PROCESSING
+                ? "这件推荐单品正在生成上身效果，完成后会自动发给你。"
+                : "已开始生成这件推荐单品的上身效果。后台完成后会自动把图片发给你。";
+    }
+
+    /** 整套试穿：把上衣 + 下装上下拼成一张穿搭图，作为单件一次提交，后台一次出图回一张全套效果图。 */
+    private String submitFullOutfit(String userId, String referenceOutfitId,
+                                    List<ReferenceImageResolver.GarmentImage> garments) {
+        if (garments == null || garments.isEmpty()) {
+            return "这套推荐方案暂没有可用于试穿的单品图。";
+        }
+        // 优先取上衣 + 下装各一件，上下拼接成一张穿搭图（上衣在上、下装在下）
+        ReferenceImageResolver.GarmentImage top = null;
+        ReferenceImageResolver.GarmentImage bottom = null;
+        for (ReferenceImageResolver.GarmentImage garment : garments) {
+            String role = safe(garment.garment()).toLowerCase(Locale.ROOT);
+            if (top == null && isTop(role)) top = garment;
+            else if (bottom == null && isBottom(role)) bottom = garment;
+        }
+        if (top != null && bottom != null) {
+            byte[] collage = buildCollage(top.url(), bottom.url());
+            if (collage != null) {
+                FashionTryOnTask task = tryOn.submitWithReferenceOutfit(userId, referenceOutfitId, collage,
+                        "FULL_OUTFIT");
+                return task.status() == FashionTryOnTaskStatus.PROCESSING
+                        ? "已开始整套试穿：上衣和下装会一次性穿上，完成后会把全套效果图发给你。"
+                        : "已开始整套试穿：上衣和下装会一次性穿上，后台完成后会自动把全套效果图发给你。";
+            }
+            log.warn("Full-outfit collage failed, falling back to single garment: outfit={}", referenceOutfitId);
+        }
+        // 缺少上/下装（如连衣裙方案）或拼图失败：退回单件试穿，保证用户仍能拿到上身效果
+        ReferenceImageResolver.GarmentImage only = top != null ? top : (bottom != null ? bottom : garments.getFirst());
+        return submitOne(userId, referenceOutfitId, only);
+    }
+
+    /** 下载上衣与下装图并上下拼接成一张穿搭拼图；下载或解码失败返回 null。 */
+    private byte[] buildCollage(String topUrl, String bottomUrl) {
+        byte[] top;
+        byte[] bottom;
+        try {
+            top = downloader.download(topUrl, IMAGE_DOWNLOAD_TIMEOUT);
+            bottom = downloader.download(bottomUrl, IMAGE_DOWNLOAD_TIMEOUT);
+        } catch (java.io.IOException failure) {
+            log.warn("Full-outfit garment download failed: {}", failure.getMessage());
+            return null;
+        }
+        return FashionAgentService.buildGarmentCollage(top, bottom);
+    }
+
+    private static boolean isTop(String role) {
+        return switch (role) {
+            case "top", "shirt", "blouse", "sweater", "hoodie", "outerwear", "jacket", "coat", "dress", "overall" -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isBottom(String role) {
+        return switch (role) {
+            case "bottom", "pants", "jeans", "trousers", "shorts", "skirt", "leggings" -> true;
+            default -> false;
+        };
     }
 
     private static ReferenceImageResolver.GarmentImage pickGarment(

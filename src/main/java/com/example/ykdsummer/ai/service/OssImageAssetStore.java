@@ -138,6 +138,33 @@ public class OssImageAssetStore extends LocalImageAssetStore {
     }
 
     @Override
+    public void deleteAsset(String userId, String assetId) {
+        if (useLocalFallback()) {
+            super.deleteAsset(userId, assetId);
+            return;
+        }
+        if (!validAssetId(assetId)) return;
+        currentCache.remove(safeUser(userId));
+        String metaKey = metadataKey(userId, assetId);
+        try {
+            readProperties(metaKey).ifPresent(metadata -> {
+                int latest = integer(metadata, "latestVersion", 0);
+                for (int version = 1; version <= latest; version++) {
+                    String key = metadata.getProperty("v" + version + ".key");
+                    if (key != null && !key.isBlank() && exists(key)) {
+                        client().deleteObject(properties.getBucketName(), key);
+                    }
+                }
+            });
+            if (exists(metaKey)) {
+                client().deleteObject(properties.getBucketName(), metaKey);
+            }
+        } catch (RuntimeException ignored) {
+            // 索引读取/单个对象清理失败不影响主流程；残留对象不可见
+        }
+    }
+
+    @Override
     public Optional<StoredImage> find(String userId, String assetId, int version) {
         if (useLocalFallback()) return super.find(userId, assetId, version);
         if (!validAssetId(assetId) || version < 1) return Optional.empty();

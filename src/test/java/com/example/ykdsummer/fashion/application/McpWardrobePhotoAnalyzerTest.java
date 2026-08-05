@@ -136,7 +136,7 @@ class McpWardrobePhotoAnalyzerTest {
     @Test
     void providerNameAndPromptVersionAreExposed() {
         assertThat(analyzer.providerName()).isEqualTo("mcp");
-        assertThat(analyzer.promptVersion()).isEqualTo("mcp-v1");
+        assertThat(analyzer.promptVersion()).isEqualTo("mcp-v2");
 
         properties.getMcp().setPromptVersion("external-v2");
         assertThat(analyzer.promptVersion()).isEqualTo("external-v2");

@@ -1,5 +1,6 @@
 package com.example.ykdsummer.fashion.application;
 
+import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.fashion.domain.ClothingAnalysis;
 import com.example.ykdsummer.fashion.domain.ClothingAnalysisDraft;
 import com.example.ykdsummer.fashion.domain.FashionPreferenceUpdate;
@@ -15,6 +16,8 @@ import com.example.ykdsummer.fashion.persistence.FashionSemanticIndexJobReposito
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -25,8 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @ConditionalOnProperty(prefix = "app.persistence", name = "enabled", havingValue = "true")
 public class FashionCoreService {
+    private static final Logger log = LoggerFactory.getLogger(FashionCoreService.class);
     private final FashionCoreRepository repository;
     private final FashionSemanticIndexJobRepository semanticJobs;
+    private volatile LocalImageAssetStore imageStore;
 
     public FashionCoreService(FashionCoreRepository repository) {
         this.repository = repository;
@@ -40,6 +45,11 @@ public class FashionCoreService {
     ) {
         this.repository = repository;
         this.semanticJobs = semanticJobs.getIfAvailable();
+    }
+
+    @Autowired(required = false)
+    public void setImageStore(LocalImageAssetStore imageStore) {
+        this.imageStore = imageStore;
     }
 
     public FashionUserProfile profile(String externalUserId) { return repository.profile(externalUserId); }
@@ -67,6 +77,35 @@ public class FashionCoreService {
     }
     public void attachWardrobeAsset(String externalUserId, long itemId, long assetVersionId, String role, boolean primary) {
         repository.attachWardrobeAsset(externalUserId, itemId, assetVersionId, role, primary);
+    }
+
+    /** 归档（软删除）衣橱单品；删除后同步使语义索引失效，避免已删除的单品被自然语言检索到。 */
+    @Transactional
+    public boolean archiveWardrobeItem(String externalUserId, long wardrobeItemId) {
+        boolean changed = repository.archiveWardrobeItem(externalUserId, wardrobeItemId);
+        if (changed && semanticJobs != null) semanticJobs.enqueueDelete(wardrobeItemId);
+        return changed;
+    }
+
+    /**
+     * 彻底删除衣橱单品（不可恢复）：引用预检后删除单品行与资产记录，
+     * 并在数据库事务之外清理图片存储对象（OSS/本地）。存在试穿或推荐记录时抛异常拒绝。
+     */
+    public List<String> purgeWardrobeItem(String externalUserId, long wardrobeItemId) {
+        List<String> purgedAssetIds = repository.purgeWardrobeItem(externalUserId, wardrobeItemId);
+        if (semanticJobs != null) semanticJobs.enqueueDelete(wardrobeItemId);
+        LocalImageAssetStore store = imageStore;
+        if (store != null) {
+            for (String assetId : purgedAssetIds) {
+                try {
+                    store.deleteAsset(externalUserId, assetId);
+                } catch (RuntimeException failure) {
+                    log.warn("Wardrobe purge: failed to delete asset {}, wardrobeItem={}: {}",
+                            assetId, wardrobeItemId, failure.getMessage());
+                }
+            }
+        }
+        return purgedAssetIds;
     }
     public ClothingAnalysis saveClothingAnalysis(String externalUserId, long assetVersionId, ClothingAnalysisDraft draft) {
         return repository.recordAnalysis(externalUserId, assetVersionId, draft);

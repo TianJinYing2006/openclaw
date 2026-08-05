@@ -128,6 +128,57 @@ public class FashionTools implements AiTool {
         }
     }
 
+    @Tool(name = "delete_wardrobe_item", description = "当用户明确要求删除/移除衣橱里的某件衣服时调用。"
+            + "调用前应先用 search_wardrobe 或 select_wardrobe_preview_item 确认目标单品的内部 wardrobeItemId，"
+            + "绝不能猜测或使用历史对话中的编号。"
+            + "删除后这件衣服会从衣橱展示与后续搭配推荐中移除；"
+            + "仅当用户明确表达删除意图（如\"删掉/不要这件/从衣橱移除\"）时才调用，"
+            + "不能因为用户只是讨论或展示衣服就删除。")
+    public String deleteWardrobeItem(
+            @ToolParam(description = "来自 search_wardrobe 或 select_wardrobe_preview_item 的内部 wardrobeItemId。") long wardrobeItemId
+    ) {
+        String userId = currentUser();
+        if (userId == null) return unavailableIdentity();
+        trace.toolCall("delete_wardrobe_item", "wardrobeItem=" + wardrobeItemId);
+        try {
+            boolean removed = fashion.archiveWardrobeItem(userId, wardrobeItemId);
+            String result = removed
+                    ? "已把这件衣服从衣橱中移除，之后不会再出现在展示和搭配推荐里。"
+                    : "这件衣服已不在当前衣橱中，无需重复移除。";
+            trace.toolResult("delete_wardrobe_item", result);
+            return result;
+        } catch (IllegalArgumentException failure) {
+            return failed("delete_wardrobe_item", failure, "没有找到这件衣服，请先确认它属于你的衣橱。");
+        } catch (RuntimeException failure) {
+            return failed("delete_wardrobe_item", failure, "删除衣橱单品失败，请稍后再试。");
+        }
+    }
+
+    @Tool(name = "purge_wardrobe_item", description = "当用户明确要求\"彻底删除/永久删除/连图片一起删掉\"衣橱里的某件衣服时调用。"
+            + "与 delete_wardrobe_item（归档、可恢复）不同，本工具会把该单品及其图片数据（OSS）一并彻底清除，不可恢复。"
+            + "调用前应先用 search_wardrobe 或 select_wardrobe_preview_item 确认目标单品的内部 wardrobeItemId，"
+            + "绝不能猜测或使用历史对话中的编号。"
+            + "仅当用户明确表达彻底删除意图（如\"彻底删掉/永久删除/把图也删了\"）时才调用；"
+            + "若这件衣服存在试穿或搭配推荐记录，会拒绝删除并提示。")
+    public String purgeWardrobeItem(
+            @ToolParam(description = "来自 search_wardrobe 或 select_wardrobe_preview_item 的内部 wardrobeItemId。") long wardrobeItemId
+    ) {
+        String userId = currentUser();
+        if (userId == null) return unavailableIdentity();
+        trace.toolCall("purge_wardrobe_item", "wardrobeItem=" + wardrobeItemId);
+        try {
+            fashion.purgeWardrobeItem(userId, wardrobeItemId);
+            String result = "已彻底删除这件衣服，相关图片数据也已一并清除（不可恢复）。";
+            trace.toolResult("purge_wardrobe_item", result);
+            return result;
+        } catch (IllegalArgumentException failure) {
+            return failed("purge_wardrobe_item", failure,
+                    "无法彻底删除这件衣服：可能不存在、不属于当前衣橱，或存在试穿/搭配记录。");
+        } catch (RuntimeException failure) {
+            return failed("purge_wardrobe_item", failure, "彻底删除失败，请稍后再试。");
+        }
+    }
+
     private String currentUser() {
         String userId = artifacts.userId();
         return userId == null || userId.isBlank() || "unknown".equals(userId) ? null : userId;
@@ -262,12 +313,13 @@ public class FashionTools implements AiTool {
             case "衬衫", "SHIRT" -> "SHIRT";
             case "针织衫", "毛衣", "KNITWEAR" -> "KNITWEAR";
             case "外套", "夹克", "JACKET" -> "JACKET";
-            case "裤子", "长裤", "直筒裤", "STRAIGHT_PANTS" -> "STRAIGHT_PANTS";
+            case "裤子", "长裤", "直筒裤", "PANTS", "STRAIGHT_PANTS" -> "STRAIGHT_PANTS";
             case "牛仔裤", "JEANS" -> "JEANS";
             case "裙子", "半身裙", "SKIRT" -> "SKIRT";
             case "连衣裙", "DRESS" -> "DRESS";
             case "鞋", "鞋子", "SHOES" -> "SHOES";
             case "包", "包袋", "BAG" -> "BAG";
+            case "套装", "整套", "OUTFIT", "SUIT", "SET" -> "OUTFIT";
             case "未知", "UNKNOWN" -> "UNKNOWN";
             default -> raw.toUpperCase(Locale.ROOT);
         };
@@ -280,6 +332,7 @@ public class FashionTools implements AiTool {
             case "JEANS", "STRAIGHT_PANTS", "SKIRT" -> "BOTTOM";
             case "DRESS" -> "ONE_PIECE";
             case "SNEAKERS", "LOAFERS" -> "SHOES";
+            case "OUTFIT", "SUIT", "SET" -> "OUTFIT";
             default -> safe(category).toUpperCase(Locale.ROOT);
         };
     }

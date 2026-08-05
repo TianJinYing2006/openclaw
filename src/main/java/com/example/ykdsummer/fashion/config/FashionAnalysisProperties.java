@@ -26,7 +26,7 @@ public class FashionAnalysisProperties {
         /** 外部识别 MCP Server 提供的工具名。 */
         private String toolName = "wardrobe_photo_analysis";
         /** 分析版本标识，持久化为候选 metadata。 */
-        private String promptVersion = "mcp-v1";
+        private String promptVersion = "mcp-v2";
         /** MCP 调用超时（秒）；0 或负数表示使用默认超时。 */
         private long timeoutSeconds = 60;
 

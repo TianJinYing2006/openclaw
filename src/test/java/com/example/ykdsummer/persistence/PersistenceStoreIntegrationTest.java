@@ -7,6 +7,8 @@ import com.example.ykdsummer.ai.service.ImageTaskStatusStore.ImageTask;
 import com.example.ykdsummer.ai.service.ImageTaskStatusStore.Operation;
 import com.example.ykdsummer.ai.service.ImageTaskStatusStore.Status;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
+import com.example.ykdsummer.common.security.TokenCipher;
+import com.example.ykdsummer.common.security.TokenEncryptionProperties;
 import com.example.ykdsummer.reminder.domain.Reminder;
 import com.example.ykdsummer.reminder.domain.ReminderDelivery;
 import com.example.ykdsummer.reminder.domain.ReminderScheduleType;
@@ -146,7 +148,8 @@ class PersistenceStoreIntegrationTest {
         assertEquals("SENT", jdbc.queryForObject("SELECT status FROM reminder_deliveries WHERE id = ?", String.class,
                 deliveries.getFirst().id()));
 
-        JdbcILinkReplyContextPersistence contexts = new JdbcILinkReplyContextPersistence(jdbc);
+        JdbcILinkReplyContextPersistence contexts = new JdbcILinkReplyContextPersistence(jdbc,
+                new TokenCipher(new TokenEncryptionProperties()));
         contexts.save(userId, "test-context-token");
         assertEquals("test-context-token", contexts.find(userId).orElseThrow());
     }

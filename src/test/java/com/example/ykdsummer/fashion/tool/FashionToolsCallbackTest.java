@@ -12,6 +12,7 @@ import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
 import com.example.ykdsummer.fashion.application.FashionCoreService;
 import com.example.ykdsummer.fashion.domain.FashionUserProfile;
 import com.example.ykdsummer.fashion.domain.WardrobeItem;
+import com.example.ykdsummer.fashion.domain.WardrobeItemDraft;
 import com.example.ykdsummer.fashion.domain.WardrobeSearchCriteria;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -69,6 +70,85 @@ class FashionToolsCallbackTest {
 
         assertThat(callback(tools, "add_wardrobe_item").call("{\"categoryCode\":\"T_SHIRT\"}"))
                 .contains("当前会话身份不可用");
+    }
+
+    @Test
+    void mapsPantsCategoryToValidTaxonomyBeforeSaving() {
+        FashionCoreService service = mock(FashionCoreService.class);
+        ToolArtifactCollector collector = new ToolArtifactCollector();
+        collector.begin("managed:instance-a:wechat-user");
+        FashionTools tools = new FashionTools(service, collector, AiTraceLogger.disabled());
+        WardrobeItem item = item(18L, "STRAIGHT_PANTS", "黑色", List.of("休闲"), List.of(), List.of());
+        when(service.addWardrobeItem(eq("managed:instance-a:wechat-user"), any()))
+                .thenReturn(item);
+
+        String added = callback(tools, "add_wardrobe_item").call(
+                "{\"categoryCode\":\"PANTS\",\"colorPrimary\":\"黑色\",\"styleTags\":[\"休闲\"]}");
+
+        ArgumentCaptor<WardrobeItemDraft> draft = ArgumentCaptor.forClass(WardrobeItemDraft.class);
+        verify(service).addWardrobeItem(eq("managed:instance-a:wechat-user"), draft.capture());
+        assertThat(draft.getValue().categoryCode()).isEqualTo("STRAIGHT_PANTS");
+        assertThat(draft.getValue().parentCategoryCode()).isEqualTo("BOTTOM");
+        assertThat(added).contains("已加入个人衣橱").contains("暂未关联展示图");
+    }
+
+    @Test
+    void deletesWardrobeItemWhenUserExplicitlyAsks() {
+        FashionCoreService service = mock(FashionCoreService.class);
+        ToolArtifactCollector collector = new ToolArtifactCollector();
+        collector.begin("managed:instance-a:wechat-user");
+        FashionTools tools = new FashionTools(service, collector, AiTraceLogger.disabled());
+        when(service.archiveWardrobeItem("managed:instance-a:wechat-user", 17L)).thenReturn(true);
+
+        String result = callback(tools, "delete_wardrobe_item").call("{\"wardrobeItemId\":17}");
+
+        assertThat(result).contains("已把这件衣服从衣橱中移除").doesNotContain("17");
+        verify(service).archiveWardrobeItem("managed:instance-a:wechat-user", 17L);
+        collector.finish();
+    }
+
+    @Test
+    void reportsWhenDeletingAnItemAlreadyRemovedFromWardrobe() {
+        FashionCoreService service = mock(FashionCoreService.class);
+        ToolArtifactCollector collector = new ToolArtifactCollector();
+        collector.begin("managed:instance-a:wechat-user");
+        FashionTools tools = new FashionTools(service, collector, AiTraceLogger.disabled());
+        when(service.archiveWardrobeItem("managed:instance-a:wechat-user", 99L)).thenReturn(false);
+
+        String result = callback(tools, "delete_wardrobe_item").call("{\"wardrobeItemId\":99}");
+
+        assertThat(result).contains("已不在当前衣橱中");
+        collector.finish();
+    }
+
+    @Test
+    void purgesWardrobeItemWhenUserExplicitlyAsksForPermanentDeletion() {
+        FashionCoreService service = mock(FashionCoreService.class);
+        ToolArtifactCollector collector = new ToolArtifactCollector();
+        collector.begin("managed:instance-a:wechat-user");
+        FashionTools tools = new FashionTools(service, collector, AiTraceLogger.disabled());
+        when(service.purgeWardrobeItem("managed:instance-a:wechat-user", 17L)).thenReturn(List.of("img_asset_1"));
+
+        String result = callback(tools, "purge_wardrobe_item").call("{\"wardrobeItemId\":17}");
+
+        assertThat(result).contains("彻底删除").doesNotContain("img_asset_1");
+        verify(service).purgeWardrobeItem("managed:instance-a:wechat-user", 17L);
+        collector.finish();
+    }
+
+    @Test
+    void reportsWhenPurgeIsRejectedDueToTryOnHistory() {
+        FashionCoreService service = mock(FashionCoreService.class);
+        ToolArtifactCollector collector = new ToolArtifactCollector();
+        collector.begin("managed:instance-a:wechat-user");
+        FashionTools tools = new FashionTools(service, collector, AiTraceLogger.disabled());
+        when(service.purgeWardrobeItem("managed:instance-a:wechat-user", 18L))
+                .thenThrow(new IllegalArgumentException("这件衣服存在试穿或搭配推荐记录，不能彻底删除"));
+
+        String result = callback(tools, "purge_wardrobe_item").call("{\"wardrobeItemId\":18}");
+
+        assertThat(result).contains("无法彻底删除");
+        collector.finish();
     }
 
     private static WardrobeItem item(long id, String category, String color, List<String> styles, List<String> seasons, List<String> occasions) {

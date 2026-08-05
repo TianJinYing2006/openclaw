@@ -27,4 +27,5 @@ public record FashionTryOnTask(
         Instant completedAt,
         Instant createdAt,
         Instant updatedAt
-) { }
+) {
+}

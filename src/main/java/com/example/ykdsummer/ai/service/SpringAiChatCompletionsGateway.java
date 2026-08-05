@@ -124,6 +124,18 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                     .chatResponse();
             String text = extractText(response);
             if (text.isBlank()) {
+                // 工具调用轮（模型本轮只有 tool_calls 无文本）由 Spring AI 内部工具循环继续处理，不重试；
+                // 无工具调用的真空响应多为偶发，重试一次避免直接打断用户请求。
+                if (!hasToolCalls(response)) {
+                    log.warn("Chat completion returned empty text without tool calls, retrying once: usage={}",
+                            extractUsage(response));
+                    response = request.call().chatResponse();
+                    text = extractText(response);
+                }
+            }
+            if (text.isBlank()) {
+                log.warn("Chat completion returned empty text after retry: finishReason={}, toolCalls={}, usage={}",
+                        finishReason(response), hasToolCalls(response), extractUsage(response));
                 throw new AiGatewayException(AiGatewayException.Kind.EMPTY_RESPONSE);
             }
             String actualModel = response.getMetadata() == null || response.getMetadata().getModel() == null
@@ -204,6 +216,23 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         }
         String text = response.getResult().getOutput().getText();
         return text == null ? "" : text.strip();
+    }
+
+    /** 响应是否为工具调用轮（模型只回了 tool_calls、没有文本内容）。 */
+    private static boolean hasToolCalls(ChatResponse response) {
+        if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+            return false;
+        }
+        if (response.getResult().getOutput() instanceof AssistantMessage assistant) {
+            List<?> toolCalls = assistant.getToolCalls();
+            return toolCalls != null && !toolCalls.isEmpty();
+        }
+        return false;
+    }
+
+    private static String finishReason(ChatResponse response) {
+        // Spring AI 1.1.8 的 ChatResponseMetadata 未暴露 finishReason；诊断以 hasToolCalls + usage 为主。
+        return "n/a";
     }
 
     private AiModelUsage extractUsage(ChatResponse response) {

@@ -26,6 +26,7 @@ public final class FashionItemNamer {
                     : contains(details, "直筒") ? "直筒裤" : "长裤";
             case "SKIRT" -> "半身裙";
             case "DRESS" -> "连衣裙";
+            case "OUTFIT", "套装", "整套", "SUIT" -> "整套穿搭";
             case "SHOES" -> contains(details, "帆布") ? "帆布鞋"
                     : contains(details, "运动") ? "运动鞋"
                     : contains(details, "皮鞋") ? "皮鞋" : "鞋子";

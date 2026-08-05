@@ -36,6 +36,16 @@ public class JdbcFashionSemanticIndexJobRepository implements FashionSemanticInd
     }
 
     @Override
+    public void enqueueDelete(long wardrobeItemId) {
+        jdbc.update("""
+                INSERT INTO fashion_semantic_index_jobs(wardrobe_item_id, operation, status, attempts, next_attempt_at)
+                VALUES (?, 'DELETE', 'PENDING', 0, CURRENT_TIMESTAMP)
+                ON DUPLICATE KEY UPDATE operation = 'DELETE', status = 'PENDING', attempts = 0,
+                    next_attempt_at = CURRENT_TIMESTAMP, lease_until = NULL, failure_summary = ''
+                """, wardrobeItemId);
+    }
+
+    @Override
     public List<FashionSemanticIndexJob> claimPending(int limit, Duration lease, int maxAttempts) {
         int boundedLimit = Math.max(1, Math.min(limit, 100));
         Duration effectiveLease = lease == null || lease.isNegative() || lease.isZero()

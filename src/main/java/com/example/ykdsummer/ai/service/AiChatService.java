@@ -10,6 +10,7 @@ import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
+import com.example.ykdsummer.ai.fashion.FashionFeedbackRecorder;
 import com.example.ykdsummer.ai.fashion.agent.FashionAgentWorkflowContextProvider;
 import com.example.ykdsummer.fashion.application.FashionWardrobeDraftCommandHandler;
 import com.example.ykdsummer.fashion.tool.FashionWardrobeVisualCommandHandler;
@@ -54,6 +55,7 @@ public class AiChatService {
     private volatile FashionAgentWorkflowContextProvider fashionWorkflowContext;
     private volatile FashionWardrobeDraftCommandHandler wardrobeDraftCommands;
     private volatile FashionWardrobeVisualCommandHandler wardrobeVisualCommands;
+    private volatile FashionFeedbackRecorder feedbackRecorder;
     /** key 是 iLink fromUserId，value 是该微信用户自己的最近对话。 */
     private final Cache<String, UserConversation> conversations;
     private final ScheduledTaskRepository taskRepository;
@@ -124,6 +126,11 @@ public class AiChatService {
     @Autowired(required = false)
     void setWardrobeVisualCommands(FashionWardrobeVisualCommandHandler wardrobeVisualCommands) {
         this.wardrobeVisualCommands = wardrobeVisualCommands;
+    }
+
+    @Autowired(required = false)
+    void setFeedbackRecorder(FashionFeedbackRecorder feedbackRecorder) {
+        this.feedbackRecorder = feedbackRecorder;
     }
 
     /**
@@ -197,6 +204,11 @@ public class AiChatService {
             List<AiImage> images,
             List<AiFile> files
     ) {
+        // 先采集穿搭反馈（关键词预过滤 + LLM 分类），失败静默，不打断本轮对话
+        FashionFeedbackRecorder recorder = feedbackRecorder;
+        if (recorder != null) {
+            recorder.maybeRecord(userId, memoryPrompt);
+        }
         // 追加待执行定时任务上下文，让 AI 自然感知即将触发的提醒
         String context = pendingTaskContext(userId);
         String enhancedPrompt = context.isEmpty() ? modelPrompt : modelPrompt + context;

@@ -82,7 +82,7 @@ class FashionVisionCandidateAnalyzerTest {
     }
 
     @Test
-    void reusesDetailedSavedVisualSummaryBeforeCallingVisionAgain() {
+    void reusesDetailedSavedVisualSummaryAndMergesAnOutfitIntoOneCandidate() {
         ImageInspectionService inspection = mock(ImageInspectionService.class);
         FashionVisionCandidateAnalyzer analyzer = new FashionVisionCandidateAnalyzer(inspection, new ObjectMapper());
         StoredImage source = new StoredImage("img_123456789012", 1, Path.of("summary-only.jpg"), "", null,
@@ -93,14 +93,27 @@ class FashionVisionCandidateAnalyzerTest {
 
         WardrobePhotoAnalyzer.AnalysisResult result = analyzer.analyze(source);
 
-        assertEquals(3, result.candidates().size());
-        assertEquals("T_SHIRT", result.candidates().getFirst().categoryCode());
-        assertEquals("灰色宽松Polo衫", result.candidates().getFirst().displayName());
+        assertEquals(1, result.candidates().size());
+        assertEquals("OUTFIT", result.candidates().getFirst().categoryCode());
+        assertTrue(result.candidates().getFirst().displayName().contains("Polo衫"));
+        assertTrue(result.candidates().getFirst().displayName().contains("裤"));
         assertEquals(ClothingCompletenessStatus.READY, result.candidates().getFirst().completenessStatus());
-        assertTrue(result.candidates().getFirst().seasonTags().contains("SUMMER"));
-        assertEquals("STRAIGHT_PANTS", result.candidates().get(1).categoryCode());
-        assertEquals(ClothingCompletenessStatus.READY, result.candidates().get(1).completenessStatus());
-        assertEquals("SHOES", result.candidates().get(2).categoryCode());
-        assertEquals(ClothingCompletenessStatus.RETAKE_REQUIRED, result.candidates().get(2).completenessStatus());
+    }
+
+    @Test
+    void keepsSingleGarmentSummaryAsOneCandidate() {
+        ImageInspectionService inspection = mock(ImageInspectionService.class);
+        FashionVisionCandidateAnalyzer analyzer = new FashionVisionCandidateAnalyzer(inspection, new ObjectMapper());
+        StoredImage source = new StoredImage("img_single_top", 1, Path.of("single.jpg"), "", null,
+                Instant.now(), "image/jpeg", "uploaded", """
+                一件白色短袖T恤，胸前有简约的字母印花图案，版型宽松，适合夏季日常通勤穿着。
+                整体画面中只有这一件单独的上衣，没有其他衣物搭配，也没有人物入镜，轮廓清晰完整，
+                可以直接作为单件单品提取入库，不需要拆分处理。
+                """);
+
+        WardrobePhotoAnalyzer.AnalysisResult result = analyzer.analyze(source);
+
+        assertEquals(1, result.candidates().size());
+        assertEquals("T_SHIRT", result.candidates().getFirst().categoryCode());
     }
 }

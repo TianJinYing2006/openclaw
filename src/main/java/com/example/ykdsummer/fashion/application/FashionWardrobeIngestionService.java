@@ -3,6 +3,7 @@ package com.example.ykdsummer.fashion.application;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
 import com.example.ykdsummer.ai.service.OssImageAssetStore;
+import com.example.ykdsummer.ai.tool.ImageTaskRunner;
 import com.example.ykdsummer.fashion.domain.ClothingCandidate;
 import com.example.ykdsummer.fashion.domain.ClothingCandidateLabels;
 import com.example.ykdsummer.fashion.domain.ClothingCandidateStatus;
@@ -15,6 +16,8 @@ import com.example.ykdsummer.fashion.domain.WardrobeItemDraft;
 import com.example.ykdsummer.fashion.persistence.FashionWardrobeIngestionRepository;
 import com.example.ykdsummer.fashion.runtime.FashionGarmentCutoutCompletedEvent;
 import com.example.ykdsummer.fashion.runtime.FashionGarmentCutoutFailedEvent;
+import com.example.ykdsummer.fashion.runtime.FashionWardrobePhotoAnalyzedEvent;
+import com.example.ykdsummer.fashion.runtime.FashionWardrobePhotoAnalysisFailedEvent;
 import com.example.ykdsummer.persistence.ImageAssetMetadataStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +27,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -46,6 +51,8 @@ public class FashionWardrobeIngestionService {
     private final ObjectMapper objectMapper;
     private volatile ImageAssetMetadataStore assetMetadata = ImageAssetMetadataStore.disabled();
     private volatile ApplicationEventPublisher completionPublisher = event -> { };
+    private volatile ImageTaskRunner analysisRunner = ImageTaskRunner.inline();
+    private final Set<String> inFlightPhotoAnalyses = ConcurrentHashMap.newKeySet();
     private volatile Duration draftLifetime = DEFAULT_DRAFT_LIFETIME;
 
     public FashionWardrobeIngestionService(
@@ -74,6 +81,11 @@ public class FashionWardrobeIngestionService {
         this.completionPublisher = completionPublisher == null ? event -> { } : completionPublisher;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setAnalysisRunner(ImageTaskRunner analysisRunner) {
+        this.analysisRunner = analysisRunner == null ? ImageTaskRunner.inline() : analysisRunner;
+    }
+
     @Value("${app.fashion.ingestion.draft-lifetime:30m}")
     void setDraftLifetime(Duration draftLifetime) {
         if (draftLifetime != null && !draftLifetime.isNegative() && !draftLifetime.isZero()) {
@@ -96,6 +108,34 @@ public class FashionWardrobeIngestionService {
         List<ClothingCandidate> candidates = repository.createCandidateDrafts(externalUserId, source, analysis.candidates(),
                 analyzer.providerName(), "", analyzer.promptVersion(), draftDeadline());
         return new IntakeResult(analysis.summary(), candidates, false);
+    }
+
+    /**
+     * Submits a background photo analysis that replies with candidates once ready.
+     * Returns {@code true} when a new analysis task was queued (or is already running), and
+     * {@code false} when usable candidate drafts already exist for this photo.
+     */
+    public boolean submitPhotoAnalysis(String externalUserId, String imageAssetId, Integer imageVersion) {
+        FashionImageAsset source = repository.requireOwnedImage(externalUserId, imageAssetId, imageVersion);
+        if (!repository.candidatesForSource(externalUserId, source.assetVersionId()).isEmpty()) {
+            return false;
+        }
+        String key = externalUserId + ":" + source.assetVersionId();
+        if (!inFlightPhotoAnalyses.add(key)) {
+            return true; // 同一张照片的分析已经在进行中
+        }
+        boolean submitted = analysisRunner.submit(() -> {
+            try {
+                IntakeResult result = analyzePhoto(externalUserId, imageAssetId, imageVersion);
+                publishPhotoAnalyzed(externalUserId, imageAssetId, imageVersion, result);
+            } catch (RuntimeException failure) {
+                publishPhotoAnalysisFailed(externalUserId, imageAssetId, imageVersion, failure);
+            } finally {
+                inFlightPhotoAnalyses.remove(key);
+            }
+        });
+        if (!submitted) inFlightPhotoAnalyses.remove(key);
+        return submitted;
     }
 
     public List<ClothingCandidate> candidatesForPhoto(String externalUserId, String imageAssetId, Integer imageVersion) {
@@ -303,6 +343,36 @@ public class FashionWardrobeIngestionService {
 
     private Instant draftDeadline() { return Instant.now().plus(draftLifetime); }
 
+    private void publishPhotoAnalyzed(String externalUserId, String imageAssetId, int imageVersion, IntakeResult result) {
+        List<String> names = result.candidates().stream()
+                .map(ClothingCandidate::displayName)
+                .filter(name -> name != null && !name.isBlank())
+                .toList();
+        try {
+            completionPublisher.publishEvent(new FashionWardrobePhotoAnalyzedEvent(
+                    externalUserId, imageAssetId, imageVersion, result.summary(), names));
+        } catch (RuntimeException exception) {
+            // The candidates are already durable; the user can still inspect them via list_wardrobe_photo_candidates.
+            log.warn("Could not publish wardrobe photo analysis completion, user={}, image={}",
+                    anonymize(externalUserId), imageAssetId, exception);
+        }
+    }
+
+    private void publishPhotoAnalysisFailed(String externalUserId, String imageAssetId, int imageVersion,
+                                            RuntimeException failure) {
+        try {
+            completionPublisher.publishEvent(new FashionWardrobePhotoAnalysisFailedEvent(
+                    externalUserId, imageAssetId, imageVersion, failure.getMessage()));
+        } catch (RuntimeException exception) {
+            log.warn("Could not publish wardrobe photo analysis failure, user={}, image={}",
+                    anonymize(externalUserId), imageAssetId, exception);
+        }
+    }
+
+    private static String anonymize(String userId) {
+        return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
+    }
+
     private void publishCompletion(GarmentCutoutWork work, StoredImage output, byte[] imageBytes) {
         try {
             completionPublisher.publishEvent(new FashionGarmentCutoutCompletedEvent(
@@ -340,6 +410,7 @@ public class FashionWardrobeIngestionService {
             case "JEANS", "STRAIGHT_PANTS", "SKIRT" -> "BOTTOM";
             case "DRESS" -> "ONE_PIECE";
             case "SNEAKERS", "LOAFERS" -> "SHOES";
+            case "OUTFIT", "SUIT", "SET" -> "OUTFIT";
             default -> text(category, 64).toUpperCase(java.util.Locale.ROOT);
         };
     }
@@ -380,6 +451,7 @@ public class FashionWardrobeIngestionService {
             case "STRAIGHT_PANTS" -> "长裤";
             case "SKIRT" -> "半身裙";
             case "DRESS" -> "连衣裙";
+            case "OUTFIT", "SUIT", "SET" -> "整套穿搭";
             case "SHOES" -> "鞋子";
             case "BAG" -> "包";
             case "ACCESSORY" -> "配饰";

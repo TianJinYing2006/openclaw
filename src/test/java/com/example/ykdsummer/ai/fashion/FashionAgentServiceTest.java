@@ -11,21 +11,32 @@ import com.example.ykdsummer.ai.fashion.model.TrendOutput;
 import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
 import com.example.ykdsummer.ai.tool.ImageTaskCompletionEvent;
 import com.example.ykdsummer.ai.tool.ImageTaskCompletionPublisher;
-import com.example.ykdsummer.ai.tool.ImageTaskRunner;
+import com.example.ykdsummer.fashion.application.FashionVisualPreviewService;
+import com.example.ykdsummer.fashion.application.FashionVisualPreviewService.WardrobePreview;
+import com.example.ykdsummer.fashion.domain.WardrobeItem;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.annotation.Tool;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.imageio.ImageIO;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -78,27 +89,23 @@ class FashionAgentServiceTest {
     }
 
     @Test
-    void consultReturnsTextBeforeReferenceImagesAreDownloaded() {
-        List<Runnable> scheduled = new ArrayList<>();
-        ImageTaskRunner runner = scheduled::add;
+    void sendsReferenceImagesBeforeReturningText() {
         AtomicReference<ImageTaskCompletionEvent> published = new AtomicReference<>();
         FashionAgentService service = new FashionAgentService(
                 stubCoordinatorWithReferenceImage(), new FashionResponseFormatter(),
-                null, null, mock(ReferenceImageResolver.class), runner, published::set);
+                null, null, mock(ReferenceImageResolver.class), null, published::set);
+        service.setReferenceImageDownloader(url -> new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47});
 
         String reply = service.consult("今天去海边穿什么");
 
-        // 文案立即可用，图片下载被异步调度且尚未发布完成事件。
+        // 同步发送：图片已下载并发布（先发图），文案随后可用（后发文本）。
         assertTrue(reply.contains("这套更适合户外"));
-        assertEquals(1, scheduled.size());
-        assertNull(published.get());
+        assertNotNull(published.get());
     }
 
     @Test
     void doesNotRepublishSameReferenceOutfitWithinDedupWindow() {
-        List<Runnable> scheduled = new ArrayList<>();
-        ImageTaskRunner runner = scheduled::add;
-        AtomicReference<ImageTaskCompletionEvent> published = new AtomicReference<>();
+        List<ImageTaskCompletionEvent> published = new ArrayList<>();
         ReferenceImageResolver resolver = mock(ReferenceImageResolver.class);
         when(resolver.urlsFor("034")).thenReturn(List.of(
                 "https://example.com/fashion-reference/outfits/034/overview.webp",
@@ -106,15 +113,144 @@ class FashionAgentServiceTest {
                 "https://example.com/fashion-reference/outfits/034/034_2_bottom.png"));
         FashionAgentService service = new FashionAgentService(
                 stubCoordinatorWithOutfitId("034"), new FashionResponseFormatter(),
-                null, null, resolver, runner, published::set);
+                null, null, resolver, null, published::add);
+        service.setReferenceImageDownloader(url -> new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47});
 
-        // 第一次 consult 发布 3 张参考图
+        // 第一次 consult 同步发送 3 张参考图
         service.consult("今天去海边穿什么");
-        assertEquals(3, scheduled.size());
+        assertEquals(3, published.size());
 
-        // 用户随后说"试穿一下"触发第二次 consult，仍是同一 outfit，窗口期内不重复补发
+        // 用户随后说"试穿一下"触发第二次 consult，仍是同一 outfit，窗口期内不重复发送
         service.consult("试穿一下这套");
-        assertEquals(3, scheduled.size());
+        assertEquals(3, published.size());
+    }
+
+    @Test
+    void collagesTopAndBottomGarmentsIntoOneImage() throws IOException {
+        List<ImageTaskCompletionEvent> published = new ArrayList<>();
+        ReferenceImageResolver resolver = mock(ReferenceImageResolver.class);
+        when(resolver.urlsFor("034")).thenReturn(List.of(
+                "https://example.com/fashion-reference/outfits/034/overview.webp",
+                "https://example.com/fashion-reference/outfits/034/034_1_top.png",
+                "https://example.com/fashion-reference/outfits/034/034_2_bottom.png"));
+        when(resolver.garmentsFor("034")).thenReturn(List.of(
+                new ReferenceImageResolver.GarmentImage("top", "034_1_top.png",
+                        "https://example.com/fashion-reference/outfits/034/034_1_top.png"),
+                new ReferenceImageResolver.GarmentImage("bottom", "034_2_bottom.png",
+                        "https://example.com/fashion-reference/outfits/034/034_2_bottom.png")));
+        byte[] png = tinyPng();
+        FashionAgentService service = new FashionAgentService(
+                stubCoordinatorWithOutfitId("034"), new FashionResponseFormatter(),
+                null, null, resolver, null, published::add);
+        service.setReferenceImageDownloader(url -> png);
+
+        service.consult("今天去海边穿什么");
+
+        // overview 单独一张 + top/bottom 拼成一张 = 共 2 次发送
+        assertEquals(2, published.size());
+        BufferedImage collage = ImageIO.read(new ByteArrayInputStream(published.get(1).imageBytes()));
+        assertNotNull(collage);
+        assertEquals(1, collage.getWidth()); // 两张 1x1 上下拼接
+        assertEquals(2, collage.getHeight());
+    }
+
+    @Test
+    void fallsBackToSeparateImagesWhenCollageDecodeFails() {
+        List<ImageTaskCompletionEvent> published = new ArrayList<>();
+        ReferenceImageResolver resolver = mock(ReferenceImageResolver.class);
+        when(resolver.urlsFor("034")).thenReturn(List.of(
+                "https://example.com/fashion-reference/outfits/034/034_1_top.png",
+                "https://example.com/fashion-reference/outfits/034/034_2_bottom.png"));
+        when(resolver.garmentsFor("034")).thenReturn(List.of(
+                new ReferenceImageResolver.GarmentImage("top", "034_1_top.png",
+                        "https://example.com/fashion-reference/outfits/034/034_1_top.png"),
+                new ReferenceImageResolver.GarmentImage("bottom", "034_2_bottom.png",
+                        "https://example.com/fashion-reference/outfits/034/034_2_bottom.png")));
+        FashionAgentService service = new FashionAgentService(
+                stubCoordinatorWithOutfitId("034"), new FashionResponseFormatter(),
+                null, null, resolver, null, published::add);
+        // 下载的是无法解码的伪图片字节：拼图失败，降级逐张发送
+        service.setReferenceImageDownloader(url -> new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47});
+
+        service.consult("今天去海边穿什么");
+
+        // 拼图解码失败，降级为逐张发送：top、bottom 各自单独 publish
+        assertEquals(2, published.size());
+    }
+
+    @Test
+    void sendsWardrobeItemImageWhenConsultMatchesWardrobeItem() {
+        List<ImageTaskCompletionEvent> published = new ArrayList<>();
+        WardrobeItem redTee = wardrobeItem(42L, "红色条纹T恤", "T_SHIRT", "红色", List.of(), "条纹");
+        FashionVisualPreviewService previews = mock(FashionVisualPreviewService.class);
+        when(previews.wardrobeItems(anyString(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(new WardrobePreview(redTee, "asset-1", 1, new byte[]{1, 2, 3})));
+        FashionAgentService service = new FashionAgentService(
+                stubCoordinatorWithRag("1. [outfit_034] 海边参考\n\n2. 其他"), new FashionResponseFormatter(),
+                null, null, mock(ReferenceImageResolver.class), null, published::add);
+        service.setVisualPreviews(previews);
+
+        String reply = service.consult("用我的红色条纹T恤搭配一套");
+
+        // 匹配到衣橱单品：只发该单品自己的图片（先发图），不再发 RAG 参考图
+        assertEquals(1, published.size());
+        assertEquals("wardrobe_42", published.get(0).taskId());
+        assertEquals(3, published.get(0).imageBytes().length);
+        assertTrue(reply.contains("这套更适合户外"));
+    }
+
+    @Test
+    void skipsReferenceImagesWhenWardrobeItemMatched() {
+        List<ImageTaskCompletionEvent> published = new ArrayList<>();
+        // 若误走参考图链路，会下载并发布 3 张参考图；衣橱匹配成功时应全部跳过
+        ReferenceImageResolver resolver = mock(ReferenceImageResolver.class);
+        when(resolver.urlsFor("034")).thenReturn(List.of(
+                "https://example.com/fashion-reference/outfits/034/overview.webp",
+                "https://example.com/fashion-reference/outfits/034/034_1_top.png",
+                "https://example.com/fashion-reference/outfits/034/034_2_bottom.png"));
+        WardrobeItem redTee = wardrobeItem(7L, "红色条纹T恤", "T_SHIRT", "红色", List.of(), "条纹");
+        FashionVisualPreviewService previews = mock(FashionVisualPreviewService.class);
+        when(previews.wardrobeItems(anyString(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(new WardrobePreview(redTee, "asset-1", 1, new byte[]{1, 2, 3})));
+        FashionAgentService service = new FashionAgentService(
+                stubCoordinatorWithOutfitId("034"), new FashionResponseFormatter(),
+                null, null, resolver, null, published::add);
+        service.setVisualPreviews(previews);
+        service.setReferenceImageDownloader(url -> new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47});
+
+        service.consult("用红色条纹T恤搭配一套");
+
+        // 衣橱单品图优先，参考图完全不发送
+        assertEquals(1, published.size());
+        assertEquals("wardrobe_7", published.get(0).taskId());
+    }
+
+    @Test
+    void matchesWardrobeItemWithEncodedAttributes() {
+        // 真实数据：colorPrimary/patternCode 是英文编码（RED/STRIPES），用户输入是中文（"红色"）
+        List<ImageTaskCompletionEvent> published = new ArrayList<>();
+        WardrobeItem redTee = wardrobeItem(1L, "红色条纹T恤", "T_SHIRT", "RED", List.of(), "STRIPES");
+        FashionVisualPreviewService previews = mock(FashionVisualPreviewService.class);
+        when(previews.wardrobeItems(anyString(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(new WardrobePreview(redTee, "asset-1", 1, new byte[]{1, 2, 3})));
+        FashionAgentService service = new FashionAgentService(
+                stubCoordinatorWithRag("海边穿搭参考"), new FashionResponseFormatter(),
+                null, null, mock(ReferenceImageResolver.class), null, published::add);
+        service.setVisualPreviews(previews);
+
+        String reply = service.consult("用红色T恤帮我搭一套");
+
+        assertEquals(1, published.size());
+        assertEquals("wardrobe_1", published.get(0).taskId());
+        assertTrue(reply.contains("这套更适合户外"));
+    }
+
+    private static WardrobeItem wardrobeItem(long id, String displayName, String categoryCode, String color,
+                                             List<String> secondaryColors, String patternCode) {
+        return new WardrobeItem(
+                id, 1L, "inst", displayName, "", categoryCode, color, secondaryColors, List.of("CASUAL"), "",
+                patternCode, List.of("SUMMER"), List.of("DAILY"), "棉", "ACTIVE", "COMPLETE", 1,
+                BigDecimal.ONE, "upload", "", "1.0.0", "{}", Instant.now(), Instant.now());
     }
 
     private static AgentCoordinator stubCoordinator() {
@@ -191,5 +327,13 @@ class FashionAgentServiceTest {
                 List.of("今天去海边穿什么", scene),
                 new AnalyzedQuery.QueryParams(scene, "SUMMER", 2, "unknown", "")
         );
+    }
+
+    /** 生成 1x1 白色 PNG 字节，用于拼图测试的下载替身。 */
+    private static byte[] tinyPng() throws IOException {
+        BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", output);
+        return output.toByteArray();
     }
 }

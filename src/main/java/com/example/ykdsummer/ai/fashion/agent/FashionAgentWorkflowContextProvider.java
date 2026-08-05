@@ -70,7 +70,8 @@ public class FashionAgentWorkflowContextProvider {
                 最近一次推荐方案的 outfit 编号=""").append(outfitId).append("""
                 ，用户刚才看到的参考图片就是该方案。
                 处理规则：
-                1. 仅当用户本轮明确引用这套推荐方案（如"试试这套/穿刚才那套/这套衣服上身效果"）时，才用该编号调用 virtual_try_on_reference_outfit。
+                1. 用户刚获得该推荐方案后，本轮说"试穿/穿一下/试试/上身效果"等表达且未明确指向衣橱单品（未提"衣柜/衣橱里的"）时，
+                   默认指这套最近推荐方案，必须用该编号调用 virtual_try_on_reference_outfit，不得只口头承诺试穿。
                 2. 若用户最近一步操作是加入/预览衣橱单品（见[内部衣橱流程状态]），说"试穿一下/穿一下/试试"等未指明出处的表达，默认指刚处理的衣橱单品，
                    必须调用 virtual_try_on_wardrobe_item，绝不调用本工具，也不要从历史对话中自行挑选其他 outfit 编号。
                 3. 不得为了试穿重新调用 fashion_consultant（那会生成一套新方案并发来新图片）；只有从未推荐过任何方案时才调用 fashion_consultant 获取。

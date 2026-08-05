@@ -36,6 +36,7 @@ _DOWNLOAD_TIMEOUT = 30.0
 _GENERATE_ENDPOINT = f"{_ARK_BASE_URL}/images/generations"
 # 衣物类目 → 提示词里的中文品类词
 _CATEGORY_LABELS = {
+    "FULL_OUTFIT": "整套穿搭",
     "T_SHIRT": "上衣",
     "SHIRT": "上衣",
     "TOP": "上衣",
@@ -64,6 +65,15 @@ _CATEGORY_LABELS = {
 _PROMPT_TEMPLATE = (
     "图1是模特的全身照，图2是{label}单品图。请把图2的{label}穿到图1模特身上，"
     "生成一张逼真的虚拟试穿效果图。保持模特的身份、面部特征、发型、姿态、光影和背景不变，"
+    "服装自然贴合身体，褶皱、材质细节真实。输出保持图1的构图与宽高比。"
+)
+
+# 整套试穿：图2 是"上衣在上、下装在下"的穿搭拼图，一次把整套穿到模特身上
+_FULL_OUTFIT_PROMPT = (
+    "图1是模特的全身照，图2是一套完整穿搭的拼图（上方是上衣、下方是下装）。"
+    "请把图2中的这套上衣和下装分别完整穿到图1模特身上，上衣穿在上半身、下装穿在下半身，"
+    "保持上下装的搭配关系正确，生成一张逼真的整套虚拟试穿效果图。"
+    "保持模特的身份、面部特征、发型、姿态、光影和背景不变，"
     "服装自然贴合身体，褶皱、材质细节真实。输出保持图1的构图与宽高比。"
 )
 
@@ -96,8 +106,9 @@ def virtual_try_on(personImageUrl: str, garmentImageUrl: str,
         logger.warning("试衣素材下载失败: %s", exc)
         return json.dumps({"error": f"试衣素材图片下载失败: {exc}"}, ensure_ascii=False)
 
-    label = _CATEGORY_LABELS.get(garmentCategory.upper(), "服装")
-    prompt = _PROMPT_TEMPLATE.format(label=label)
+    category = garmentCategory.upper()
+    label = _CATEGORY_LABELS.get(category, "服装")
+    prompt = _FULL_OUTFIT_PROMPT if category == "FULL_OUTFIT" else _PROMPT_TEMPLATE.format(label=label)
 
     body = {
         "model": _ARK_MODEL,
