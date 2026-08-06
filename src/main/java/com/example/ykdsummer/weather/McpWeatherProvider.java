@@ -1,10 +1,10 @@
 package com.example.ykdsummer.weather;
 
+import com.example.ykdsummer.ai.mcp.McpConnectionManager;
 import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -20,11 +20,11 @@ import org.springframework.stereotype.Service;
 public class McpWeatherProvider implements WeatherProvider {
     private static final Logger log = LoggerFactory.getLogger(McpWeatherProvider.class);
 
-    private final SyncMcpToolCallbackProvider toolProvider;
+    private final McpConnectionManager mcp;
     private final WeatherProperties properties;
 
-    public McpWeatherProvider(SyncMcpToolCallbackProvider toolProvider, WeatherProperties properties) {
-        this.toolProvider = toolProvider;
+    public McpWeatherProvider(McpConnectionManager mcp, WeatherProperties properties) {
+        this.mcp = mcp;
         this.properties = properties;
     }
 
@@ -33,15 +33,14 @@ public class McpWeatherProvider implements WeatherProvider {
         String normalizedCity = normalizeCity(city);
         String toolName = properties.getMcp().getToolName();
         try {
-            ToolCallback tool = McpToolSupport.findTool(toolProvider, toolName);
-            if (tool == null) {
-                log.warn("Weather MCP tool not found, tool={}", toolName);
-                throw new IllegalStateException("天气服务未配置: " + toolName);
-            }
             String jsonArgs = McpToolSupport.objectMapper().createObjectNode()
                     .put("city", normalizedCity)
                     .toString();
-            String raw = tool.call(jsonArgs);
+            String raw = mcp.callTool(toolName, jsonArgs);
+            if (raw == null) {
+                log.warn("Weather MCP tool not found, tool={}", toolName);
+                throw new IllegalStateException("天气服务未配置: " + toolName);
+            }
             return parse(raw);
         } catch (IllegalStateException exception) {
             throw exception;

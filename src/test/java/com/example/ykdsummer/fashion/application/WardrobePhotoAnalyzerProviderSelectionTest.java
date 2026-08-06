@@ -3,12 +3,12 @@ package com.example.ykdsummer.fashion.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import com.example.ykdsummer.ai.mcp.McpConnectionManager;
 import com.example.ykdsummer.ai.service.ImageInspectionService;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.fashion.config.FashionAnalysisProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -49,7 +49,7 @@ class WardrobePhotoAnalyzerProviderSelectionTest {
         LocalImageAssetStore localImageAssetStore() { return mock(LocalImageAssetStore.class); }
 
         @Bean
-        SyncMcpToolCallbackProvider toolProvider() { return mock(SyncMcpToolCallbackProvider.class); }
+        McpConnectionManager mcpManager() { return mock(McpConnectionManager.class); }
 
         @Bean
         FashionAnalysisProperties fashionAnalysisProperties() { return new FashionAnalysisProperties(); }

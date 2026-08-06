@@ -246,6 +246,11 @@ public class FashionWardrobeIngestionService {
         return repository.pendingCutoutTaskIds(Instant.now(), limit);
     }
 
+    /** 进程重启后把中断的 PROCESSING 抠图任务重置回 PENDING，由调度器重新执行。 */
+    public int recoverInterruptedCutoutTasks() {
+        return repository.recoverInterruptedCutoutTasks();
+    }
+
     /** Called by a bounded background worker. Claiming is atomic so duplicate dispatches are harmless. */
     public void executeCutoutTask(String taskId) {
         Optional<GarmentCutoutWork> claimed = repository.claimCutoutTask(taskId, Instant.now());

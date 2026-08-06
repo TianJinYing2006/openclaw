@@ -169,7 +169,7 @@ if __name__ == "__main__":
     logger.info("DASHSCOPE_API_KEY: %s",
                 "已配置" if os.getenv("DASHSCOPE_API_KEY", "") else "未配置")
     logger.info("BOCHA_API_KEY: %s",
-                "已配置" if os.getenv("BOCHA_API_KEY", "") else "未配置（使用 DuckDuckGo）")
+                "已配置" if os.getenv("BOCHA_API_KEY", "") else "未配置（使用 cn.bing.com 免费搜索）")
     logger.info("=" * 60)
 
     # 使用 streamable-http 传输 + hypercorn ASGI 服务器（支持 h2c HTTP/2 升级）。

@@ -190,6 +190,56 @@ class FashionWardrobeIntakeToolsCallbackTest {
     }
 
     @Test
+    void submitsOnlyCandidatesOfTheRequestedPhotoWhenAnotherPhotoIsAlsoPending() {
+        FashionWardrobeIngestionService service = mock(FashionWardrobeIngestionService.class);
+        ToolArtifactCollector collector = collectorFor("wechat-user");
+        FashionWardrobeIntakeTools tools = new FashionWardrobeIntakeTools(service, collector, AiTraceLogger.disabled());
+        when(service.candidatesForPhoto(eq("wechat-user"), eq("img_new"), isNull())).thenReturn(List.of(
+                candidate("new-pending", 21L, ClothingCandidateStatus.PENDING_SELECTION,
+                        ClothingCompletenessStatus.READY, null)));
+        when(service.selectCandidatesForCutout("wechat-user", List.of("new-pending")))
+                .thenReturn(List.of(task("task-new", "new-pending")));
+
+        String result = callback(tools, "submit_garment_cutout").call("{\"imageAssetId\":\"img_new\"}");
+
+        assertThat(result).contains("已提交 1 件衣物").doesNotContain("new-pending", "task-new");
+        verify(service).selectCandidatesForCutout("wechat-user", List.of("new-pending"));
+        collector.finish();
+    }
+
+    @Test
+    void refusesToAutoResolveAcrossPhotosWithoutAnExplicitTarget() {
+        FashionWardrobeIngestionService service = mock(FashionWardrobeIngestionService.class);
+        ToolArtifactCollector collector = collectorFor("wechat-user");
+        FashionWardrobeIntakeTools tools = new FashionWardrobeIntakeTools(service, collector, AiTraceLogger.disabled());
+        when(service.pendingSelectionCandidates("wechat-user")).thenReturn(List.of(
+                candidate("old-pending", 11L, ClothingCandidateStatus.PENDING_SELECTION,
+                        ClothingCompletenessStatus.READY, null),
+                candidate("new-pending", 21L, ClothingCandidateStatus.PENDING_SELECTION,
+                        ClothingCompletenessStatus.READY, null)));
+
+        String result = callback(tools, "submit_garment_cutout").call("{}");
+
+        assertThat(result).contains("提交抠图失败").contains("多张照片");
+        verify(service, never()).selectCandidatesForCutout(any(), anyList());
+        collector.finish();
+    }
+
+    @Test
+    void guidesTheModelToAnalyzeANewPhotoFirstWhenSubmitTargetsAnUnrecognizedPhoto() {
+        FashionWardrobeIngestionService service = mock(FashionWardrobeIngestionService.class);
+        ToolArtifactCollector collector = collectorFor("wechat-user");
+        FashionWardrobeIntakeTools tools = new FashionWardrobeIntakeTools(service, collector, AiTraceLogger.disabled());
+        when(service.candidatesForPhoto(eq("wechat-user"), eq("img_new"), isNull())).thenReturn(List.of());
+
+        String result = callback(tools, "submit_garment_cutout").call("{\"imageAssetId\":\"img_new\"}");
+
+        assertThat(result).contains("提交抠图失败").contains("analyze_wardrobe_photo");
+        verify(service, never()).selectCandidatesForCutout(any(), anyList());
+        collector.finish();
+    }
+
+    @Test
     void updatesTheOnlyPreCutoutCandidateAndCancelsTheOnlyActiveCandidate() {
         FashionWardrobeIngestionService service = mock(FashionWardrobeIngestionService.class);
         ToolArtifactCollector collector = collectorFor("wechat-user");
@@ -253,8 +303,13 @@ class FashionWardrobeIntakeToolsCallbackTest {
 
     private static ClothingCandidate candidate(String id, ClothingCandidateStatus status,
                                                 ClothingCompletenessStatus completeness, Long cutoutAssetVersionId) {
+        return candidate(id, 11L, status, completeness, cutoutAssetVersionId);
+    }
+
+    private static ClothingCandidate candidate(String id, long sourceAssetVersionId, ClothingCandidateStatus status,
+                                                ClothingCompletenessStatus completeness, Long cutoutAssetVersionId) {
         Instant now = Instant.now();
-        return new ClothingCandidate(id, 7L, "instance", 11L, 0, "白色短袖", "T_SHIRT", "WHITE",
+        return new ClothingCandidate(id, 7L, "instance", sourceAssetVersionId, 0, "白色短袖", "T_SHIRT", "WHITE",
                 List.of(), List.of("MINIMAL"), "RELAXED", List.of("SUMMER"), "{}", new BigDecimal("0.92"),
                 new BigDecimal("0.90"), completeness, "", status, cutoutAssetVersionId, null,
                 "test", "test", "fashion-v1", now.plusSeconds(600), now, now);

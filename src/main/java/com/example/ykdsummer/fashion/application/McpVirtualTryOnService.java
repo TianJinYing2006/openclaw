@@ -1,15 +1,14 @@
 package com.example.ykdsummer.fashion.application;
 
+import com.example.ykdsummer.ai.mcp.McpConnectionManager;
+import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
-import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import com.example.ykdsummer.fashion.config.FashionTryOnProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -25,13 +24,13 @@ public class McpVirtualTryOnService implements VirtualTryOnService {
     private static final Logger log = LoggerFactory.getLogger(McpVirtualTryOnService.class);
     private static final ObjectMapper JSON = McpToolSupport.objectMapper();
 
-    private final SyncMcpToolCallbackProvider toolProvider;
+    private final McpConnectionManager mcp;
     private final LocalImageAssetStore imageStore;
     private final FashionTryOnProperties properties;
 
-    public McpVirtualTryOnService(SyncMcpToolCallbackProvider toolProvider, LocalImageAssetStore imageStore,
+    public McpVirtualTryOnService(McpConnectionManager mcp, LocalImageAssetStore imageStore,
                                   FashionTryOnProperties properties) {
-        this.toolProvider = toolProvider;
+        this.mcp = mcp;
         this.imageStore = imageStore;
         this.properties = properties;
     }
@@ -46,12 +45,11 @@ public class McpVirtualTryOnService implements VirtualTryOnService {
         try {
             String personImageUrl = imageStore.signedReadUrl(personImage);
             String garmentImageUrl = imageStore.signedReadUrl(garmentImage);
-            ToolCallback tool = McpToolSupport.findTool(toolProvider, toolName);
-            if (tool == null) {
+            String raw = mcp.callTool(toolName, buildArguments(personImageUrl, garmentImageUrl, garmentCategoryCode));
+            if (raw == null) {
                 log.warn("Virtual try-on MCP tool not found, user={}, tool={}", McpToolSupport.anonymize(externalUserId), toolName);
                 return TryOnResult.failed("试衣 MCP 工具未配置: " + toolName);
             }
-            String raw = tool.call(buildArguments(personImageUrl, garmentImageUrl, garmentCategoryCode));
             return toResult(raw, mcpTimeout(timeout));
         } catch (Exception exception) {
             log.warn("Virtual try-on MCP call failed, user={}, tool={}, type={}", McpToolSupport.anonymize(externalUserId), toolName,

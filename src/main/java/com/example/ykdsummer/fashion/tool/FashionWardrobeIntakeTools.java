@@ -40,7 +40,9 @@ public class FashionWardrobeIntakeTools implements AiTool {
     @Tool(name = "analyze_wardrobe_photo", description = "仅当用户明确要求识别、提取或把已上传服装照片加入衣橱时调用。"
             + "必须先获得 img_ 图片编号。工具会把识别任务放入后台：首次调用返回“正在识别”，识别完成后会自动把候选和"
             + "完整度发给用户；同一张照片已有候选时直接返回候选列表。衣服穿在人身上、被手或其他衣物轻微遮挡时仍可识别；"
-            + "只有主要轮廓或类别无法可靠判断时才返回重拍要求。整套穿搭照片会作为一个整体候选识别，不拆分单件。")
+            + "只有主要轮廓或类别无法可靠判断时才返回重拍要求。整套穿搭照片会作为一个整体候选识别，不拆分单件。"
+            + "用户刚发送新照片并说\"加入衣柜/入库/抠图\"时，必须先调用本工具识别这张新照片，再提交抠图；"
+            + "严禁跳过识别直接把上一张照片的候选当作新照片的入库目标。")
     public String analyzeWardrobePhoto(
             @ToolParam(description = "服装照片编号，必须来自当前或已保存的 img_ 图片。") String imageAssetId,
             @ToolParam(required = false, description = "图片版本；为空时使用最新版本。") Integer imageVersion
@@ -140,23 +142,29 @@ public class FashionWardrobeIntakeTools implements AiTool {
             + "必须调用本工具提交抠图，不得只口头承诺\"正在抠图/马上发给你\"。"
             + "只可提交完整度 READY 的候选；任务在后台执行，完成后会主动发送草稿图、识别属性和最终确认提示。"
             + "候选要求重拍或用户只是询问（未表达确认/选择意图）时不可调用。"
-            + "当前仅有一个待选候选时 candidateIds 可为空，工具会安全恢复。"
+            + "用户刚发送了新照片、或当前存在来自多张照片的候选时，必须传入 candidateIds 或 imageAssetId 明确目标，"
+            + "严禁留空自动定位到其他照片的候选；只有确定全局仅有一张照片的一个待选候选时才允许留空。"
             + "注意区分：抠图完成后用户确认最终草稿才调用 confirm_wardrobe_candidate 入衣橱；"
             + "此刻尚无抠图草稿，用户\"确认加入\"对应的是提交抠图，而不是直接入衣橱。")
     public String submitGarmentCutout(
-            @ToolParam(required = false, description = "用户明确选中的一个或多个完整候选 UUID；唯一待选候选时可为空。")
-            List<String> candidateIds
+            @ToolParam(required = false, description = "用户明确选中的一个或多个完整候选 UUID；确定仅有一张照片的唯一待选候选时可为空。")
+            List<String> candidateIds,
+            @ToolParam(required = false, description = "用户当前要加入衣橱的那张照片的 img_ 编号；"
+                    + "用户刚发送新照片时建议传入，工具会把候选限定到这张照片，避免误选其他照片的候选。")
+            String imageAssetId
     ) {
         String userId = currentUser();
         if (userId == null) return unavailable();
         try {
-            List<String> resolvedIds = resolveSelectionCandidateIds(userId, candidateIds);
+            List<String> resolvedIds = resolveSelectionCandidateIds(userId, candidateIds, imageAssetId);
             List<GarmentCutoutTask> tasks = intake.selectCandidatesForCutout(userId, resolvedIds);
             String message = "已提交 " + tasks.size() + " 件衣物的草稿生成。完成后会自动把抠图和识别属性发到微信，"
                     + "用户确认后才会加入衣橱。";
             trace.toolResult("submit_garment_cutout", message);
             return message;
-        } catch (IllegalArgumentException | IllegalStateException failure) {
+        } catch (IllegalStateException failure) {
+            return failed("submit_garment_cutout", failure, "提交抠图失败：" + failure.getMessage());
+        } catch (IllegalArgumentException failure) {
             return failed("submit_garment_cutout", failure, "提交抠图失败：请确认用户已选择完整、未遮挡的候选单品。");
         } catch (RuntimeException failure) {
             return failed("submit_garment_cutout", failure, "提交抠图失败，请稍后重试。");
@@ -310,9 +318,13 @@ public class FashionWardrobeIntakeTools implements AiTool {
 
     /** 区分"没有任何待确认草稿"（应引导用户先上传衣服照片）与"有草稿但尚未就绪"两种情况。 */
     private static String confirmFailureMessage(RuntimeException failure) {
-        if (failure instanceof IllegalStateException
-                && "No completed wardrobe draft is awaiting confirmation".equals(failure.getMessage())) {
-            return "当前没有待确认的衣物草稿。若想把衣服加入衣橱，请先上传衣服照片，我会先帮你识别和抠图。";
+        if (failure instanceof IllegalStateException state) {
+            if ("No completed wardrobe draft is awaiting confirmation".equals(state.getMessage())) {
+                return "当前没有待确认的衣物草稿。若想把衣服加入衣橱，请先上传衣服照片，我会先帮你识别和抠图。";
+            }
+            if (state.getMessage() != null && state.getMessage().contains("多张照片")) {
+                return "当前有多张照片的衣物草稿待确认，请先指明要确认哪张照片的哪件单品。";
+            }
         }
         return "确认入衣橱失败：请先等待抠图完成，并确认候选编号正确。";
     }
@@ -331,6 +343,9 @@ public class FashionWardrobeIntakeTools implements AiTool {
         List<ClothingCandidate> values = intake.awaitingFinalConfirmationCandidates(userId);
         if (values.size() == 1) return values.getFirst().id();
         if (values.isEmpty()) throw new IllegalStateException("No completed wardrobe draft is awaiting confirmation");
+        if (sourcePhotoCount(values) > 1) {
+            throw new IllegalStateException("当前有多张照片的衣物草稿待确认，请指明要确认哪张照片的哪件单品");
+        }
         throw new IllegalStateException("More than one wardrobe draft is awaiting confirmation");
     }
     private String resolveStatusCandidateId(String userId, String candidateId) {
@@ -366,14 +381,35 @@ public class FashionWardrobeIntakeTools implements AiTool {
         if (values.isEmpty()) throw new IllegalStateException("No wardrobe candidate can be retried");
         throw new IllegalStateException("More than one wardrobe candidate can be retried");
     }
-    private List<String> resolveSelectionCandidateIds(String userId, List<String> candidateIds) {
+    private List<String> resolveSelectionCandidateIds(String userId, List<String> candidateIds, String imageAssetId) {
         List<String> requested = candidateIds == null ? List.of() : candidateIds.stream()
                 .filter(value -> !safe(value).isBlank()).map(FashionWardrobeIntakeTools::safe).distinct().toList();
         if (!requested.isEmpty()) return requested;
+        if (!safe(imageAssetId).isBlank()) {
+            List<ClothingCandidate> photoCandidates = intake.candidatesForPhoto(userId, imageAssetId, null);
+            List<ClothingCandidate> selectable = photoCandidates.stream()
+                    .filter(value -> value.status() == ClothingCandidateStatus.PENDING_SELECTION)
+                    .filter(value -> value.completenessStatus() == ClothingCompletenessStatus.READY)
+                    .toList();
+            if (selectable.size() == 1) return List.of(selectable.getFirst().id());
+            if (selectable.isEmpty()) {
+                throw new IllegalStateException(photoCandidates.isEmpty()
+                        ? "这张照片还没有识别候选，请先调用 analyze_wardrobe_photo 识别后再提交抠图"
+                        : "这张照片的候选尚未准备好提交抠图，请先等待识别完成");
+            }
+            throw new IllegalStateException("这张照片有多件待选候选，请明确选择要抠图的单品");
+        }
         List<ClothingCandidate> values = intake.pendingSelectionCandidates(userId);
         if (values.size() == 1) return List.of(values.getFirst().id());
-        if (values.isEmpty()) throw new IllegalStateException("No clothing candidate is waiting for selection");
-        throw new IllegalStateException("More than one clothing candidate is waiting for selection");
+        if (values.isEmpty()) throw new IllegalStateException("当前没有可提交抠图的待选候选，请先上传并识别衣服照片");
+        if (sourcePhotoCount(values) > 1) {
+            throw new IllegalStateException("候选来自多张照片，请指明要处理哪张照片的哪件单品");
+        }
+        throw new IllegalStateException("当前有多件待选候选，请明确选择要抠图的单品");
+    }
+    /** 候选是否来自多张不同照片：跨照片自动定位会静默选错目标，必须改为显式指定。 */
+    private static long sourcePhotoCount(List<ClothingCandidate> candidates) {
+        return candidates.stream().map(ClothingCandidate::sourceAssetVersionId).distinct().count();
     }
     private List<String> resolveActiveCandidateIds(String userId, List<String> candidateIds) {
         List<String> requested = candidateIds == null ? List.of() : candidateIds.stream()

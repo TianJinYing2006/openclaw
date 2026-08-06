@@ -10,6 +10,7 @@ import com.example.ykdsummer.ai.config.OpenAiClientProperties;
 import com.example.ykdsummer.ai.config.OssDocumentProperties;
 import com.example.ykdsummer.ai.config.OssImageProperties;
 import com.example.ykdsummer.ai.config.RealtimeEvidenceProperties;
+import com.example.ykdsummer.ai.fashion.rag.FashionRagDiversityProperties;
 import com.example.ykdsummer.ai.fashion.rag.RagFlowProperties;
 import com.example.ykdsummer.ai.tool.WebSearchProperties;
 import com.example.ykdsummer.admin.config.AdminWebProperties;
@@ -64,6 +65,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         OssImageProperties.class,
         RealtimeEvidenceProperties.class,
         RagFlowProperties.class,
+        FashionRagDiversityProperties.class,
         WebSearchProperties.class,
         AdminWebProperties.class,
         ApiSecurityProperties.class,

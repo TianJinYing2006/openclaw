@@ -339,6 +339,17 @@ public class JdbcFashionWardrobeIngestionRepository implements FashionWardrobeIn
     }
 
     @Override
+    public int recoverInterruptedCutoutTasks() {
+        // 进程重启后 PROCESSING 的抠图任务回到 PENDING 由调度器重新认领；
+        // 已过期任务随后由 expireUnconfirmedDrafts 统一标记 EXPIRED。
+        return jdbc.update("""
+                UPDATE fashion_garment_cutout_tasks
+                SET task_status = 'PENDING', claimed_at = NULL
+                WHERE task_status = 'PROCESSING'
+                """);
+    }
+
+    @Override
     public Optional<GarmentCutoutWork> claimCutoutTask(String taskId, Instant now) {
         String id = identifier(taskId, "taskId");
         Instant time = now == null ? Instant.now() : now;

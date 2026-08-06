@@ -3,8 +3,8 @@ package com.example.ykdsummer.weather;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import com.example.ykdsummer.ai.mcp.McpConnectionManager;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,7 +40,7 @@ class WeatherProviderSelectionTest {
         RestClient.Builder restClientBuilder() { return RestClient.builder(); }
 
         @Bean
-        SyncMcpToolCallbackProvider toolProvider() { return mock(SyncMcpToolCallbackProvider.class); }
+        McpConnectionManager mcpManager() { return mock(McpConnectionManager.class); }
 
         @Bean
         WeatherProperties weatherProperties() { return new WeatherProperties(); }

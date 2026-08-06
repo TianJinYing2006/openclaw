@@ -116,11 +116,15 @@ public class FileInstructionService {
     }
 
     private PromptInput buildPrompt(String userId, String instruction, AiFile sourceFile) {
+        if (sourceFile == null) {
+            // 无文档上下文：直接透传用户指令。此前总是拼接 DOCUMENT_TOOL_INSTRUCTION 模板，
+            // 其中"用户只要求转成 PDF"等固定话术含"只要"，被穿搭路由的入库正则误命中，
+            // 导致"推荐一套穿搭"被挂上抠图入库工具组、模型输出被误导（8.25 修复）。
+            return new PromptInput(instruction, List.of());
+        }
+
         StringBuilder prompt = new StringBuilder(DOCUMENT_TOOL_INSTRUCTION)
                 .append("\n用户本轮请求：").append(instruction);
-        if (sourceFile == null) {
-            return new PromptInput(prompt.toString(), List.of());
-        }
 
         LocalDocumentAssetStore.StoredDocument document = documentStore.importUploaded(userId, sourceFile);
         prompt.append("\n本轮用户上传并已登记为当前文档：assetId=").append(document.assetId())

@@ -2,9 +2,12 @@ package com.example.ykdsummer.fashion.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.example.ykdsummer.ai.mcp.McpConnectionManager;
+import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import com.example.ykdsummer.ai.service.AiGatewayException;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
@@ -22,8 +25,16 @@ class McpWardrobePhotoAnalyzerTest {
     private final FashionAnalysisProperties properties = new FashionAnalysisProperties();
     private final LocalImageAssetStore imageStore = mock(LocalImageAssetStore.class);
     private final SyncMcpToolCallbackProvider provider = mock(SyncMcpToolCallbackProvider.class);
+    private final McpConnectionManager mcp = mock(McpConnectionManager.class);
     private final McpWardrobePhotoAnalyzer analyzer =
-            new McpWardrobePhotoAnalyzer(provider, imageStore, properties);
+            new McpWardrobePhotoAnalyzer(mcp, imageStore, properties);
+
+    {
+        when(mcp.callTool(anyString(), anyString())).thenAnswer(invocation -> {
+            ToolCallback tool = McpToolSupport.findTool(provider, invocation.getArgument(0));
+            return tool == null ? null : tool.call(invocation.getArgument(1));
+        });
+    }
 
     @Test
     void parsesStructuredCandidatesAndForcesRetakeForLowQualityGarment() {

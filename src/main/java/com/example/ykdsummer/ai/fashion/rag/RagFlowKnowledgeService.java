@@ -14,9 +14,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,12 +52,17 @@ public class RagFlowKnowledgeService implements FashionKnowledgeService {
             "## 整套搭配概览\\s*\\n(.*?)(?=\\n## |\\Z)", Pattern.DOTALL);
 
     private final RagFlowClient ragFlowClient;
+    private final RagFlowProperties properties;
+    private final FashionRagDiversityProperties diversity;
 
     /** outfit_id → 完整搭配概览文本（从 markdown 文档提取）。 */
     private volatile Map<String, String> outfitOverviews = Map.of();
 
-    public RagFlowKnowledgeService(RagFlowClient ragFlowClient) {
+    public RagFlowKnowledgeService(RagFlowClient ragFlowClient,
+            RagFlowProperties properties, FashionRagDiversityProperties diversity) {
         this.ragFlowClient = ragFlowClient;
+        this.properties = properties;
+        this.diversity = diversity;
     }
 
     @PostConstruct
@@ -96,6 +103,11 @@ public class RagFlowKnowledgeService implements FashionKnowledgeService {
 
     @Override
     public List<RetrievedChunk> retrieve(AnalyzedQuery query) {
+        return retrieveExcluding(query, Set.of());
+    }
+
+    @Override
+    public List<RetrievedChunk> retrieveExcluding(AnalyzedQuery query, java.util.Collection<String> excludeIds) {
         if (query == null) {
             return List.of();
         }
@@ -106,13 +118,25 @@ public class RagFlowKnowledgeService implements FashionKnowledgeService {
             return List.of();
         }
 
-        List<RagFlowClient.RagFlowChunk> rawChunks = ragFlowClient.retrieve(searchQuestion);
+        // 多样性采样：先取更大候选池（相关性排序），再在池内加权随机挑 top-k
+        int topK = properties.getTopK();
+        int pageSize = diversity.isEnabled()
+                ? Math.max(topK, Math.max(1, diversity.getCandidatePool()))
+                : topK;
+        List<RagFlowClient.RagFlowChunk> rawChunks = ragFlowClient.retrieve(searchQuestion, pageSize);
 
         List<RetrievedChunk> chunks = new ArrayList<>();
         for (RagFlowClient.RagFlowChunk raw : rawChunks) {
             SeedEntry entry = toSeedEntry(raw);
             double score = Math.min(1.0, Math.max(0.0, raw.similarity()));
             chunks.add(new RetrievedChunk(entry, score));
+        }
+        // 历史滑动窗口：采样前排除最近已推荐过的 outfit，避免跨次重复
+        if (excludeIds != null && !excludeIds.isEmpty()) {
+            chunks.removeIf(c -> c.entry().id() != null && excludeIds.contains(c.entry().id()));
+        }
+        if (diversity.isEnabled()) {
+            chunks = RetrievalDiversitySampler.sample(chunks, topK, diversity.getMinScore());
         }
 
         log.info("RAGFlow retrieved {} chunks for question: {}", chunks.size(), truncate(searchQuestion));

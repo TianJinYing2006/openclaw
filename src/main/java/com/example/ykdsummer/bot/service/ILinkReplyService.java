@@ -192,6 +192,8 @@ public class ILinkReplyService {
         /*
          * 所有纯文本都进入同一模型入口。模型根据 Tool 描述决定是否调用 ImageTools、WeatherTools、
          * ReminderTools、fashion_consultant 等能力；接入层不再解析 FILE_GEN 或依赖人工前缀。
+         * 纯文本无文件时 FileInstructionService 不再注入文档指令模板（见 buildPrompt），
+         * 避免固定话术（如"用户只要求"）污染意图路由与模型输入。
          */
         if (content.isPlainTextOnly()) {
             AiFile sourceFile = fileSessions.consume(userId).orElse(null);

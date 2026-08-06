@@ -497,69 +497,6 @@
     "image_path": "fashion_images/ref_023.png"
   },
   {
-    "id": "ref_029",
-    "type": "blogger_look",
-    "source": "小红书/@KNOW8小助手",
-    "outfit": {
-      "top": "绿色碎花上衣",
-      "bottom": "白色棉麻半身裙",
-      "shoes": "草编凉鞋",
-      "accessories": "花朵发饰"
-    },
-    "tags": {
-      "style": [
-        "BOHEMIAN",
-        "CASUAL"
-      ],
-      "scene": [
-        "DAILY"
-      ],
-      "season": [
-        "SUMMER"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "绿+白+棕"
-    },
-    "summary": "植物系穿搭ʚ✞ɞ草系小精灵",
-    "likes": "5486",
-    "url": "https://www.xiaohongshu.com/explore/68c24aa3000000001d01644a",
-    "image_path": "fashion_images/ref_029.png"
-  },
-  {
-    "id": "ref_030",
-    "type": "blogger_look",
-    "source": "小红书/@小柒穿搭日记",
-    "outfit": {
-      "top": "白色雪纺衬衫",
-      "bottom": "黑色西装裤",
-      "shoes": "黑色乐福鞋",
-      "accessories": "通勤手提包"
-    },
-    "tags": {
-      "style": [
-        "COMMUTER",
-        "BUSINESS"
-      ],
-      "scene": [
-        "COMMUTE",
-        "WORKPLACE"
-      ],
-      "season": [
-        "SUMMER"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "黑+白+灰"
-    },
-    "summary": "3️⃣2️⃣套不重样通勤穿搭｜打工人直接抄作业",
-    "likes": "686",
-    "url": "https://www.xiaohongshu.com/explore/6a426ec40000000017009adb",
-    "image_path": "fashion_images/ref_030.png"
-  },
-  {
     "id": "ref_033",
     "type": "blogger_look",
     "source": "小红书/@万象画册",
@@ -709,37 +646,6 @@
     "likes": "198",
     "url": "https://www.xiaohongshu.com/explore/6a2395ab000000000702b9d2",
     "image_path": "fashion_images/ref_038.png"
-  },
-  {
-    "id": "ref_041",
-    "type": "blogger_look",
-    "source": "小红书/@Selene.",
-    "outfit": {
-      "top": "真丝缎面衬衫",
-      "bottom": "垂感阔腿裤",
-      "shoes": "尖头高跟鞋",
-      "accessories": "简约手拿包"
-    },
-    "tags": {
-      "style": [
-        "ELEGANT",
-        "MINIMAL"
-      ],
-      "scene": [
-        "DAILY"
-      ],
-      "season": [
-        "AUTUMN"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "驼+黑+白"
-    },
-    "summary": "早秋穿搭合集🍂高级感拿捏住了！",
-    "likes": "2121",
-    "url": "https://www.xiaohongshu.com/explore/6a6390af000000000f02b895",
-    "image_path": "fashion_images/ref_041.png"
   },
   {
     "id": "ref_042",
@@ -960,36 +866,6 @@
     "image_path": "fashion_images/ref_049.png"
   },
   {
-    "id": "ref_052",
-    "type": "blogger_look",
-    "source": "小红书/@安妮-",
-    "outfit": {
-      "top": "白色基础T恤",
-      "bottom": "直筒牛仔裤",
-      "shoes": "白色运动鞋",
-      "accessories": "简约帆布包"
-    },
-    "tags": {
-      "style": [
-        "CASUAL"
-      ],
-      "scene": [
-        "DAILY"
-      ],
-      "season": [
-        "SUMMER"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "白+蓝+灰"
-    },
-    "summary": "我好喜欢我的身材",
-    "likes": "310",
-    "url": "https://www.xiaohongshu.com/explore/6a4e11e200000000220183e6",
-    "image_path": "fashion_images/ref_052.png"
-  },
-  {
     "id": "ref_053",
     "type": "blogger_look",
     "source": "小红书/@时尚搭配",
@@ -1019,36 +895,6 @@
     "likes": "237",
     "url": "https://www.xiaohongshu.com/explore/6a1814850000000036003006",
     "image_path": "fashion_images/ref_053.png"
-  },
-  {
-    "id": "ref_057",
-    "type": "blogger_look",
-    "source": "小红书/@Kk爱穿搭",
-    "outfit": {
-      "top": "吊带背心",
-      "bottom": "高腰牛仔短裤",
-      "shoes": "凉鞋",
-      "accessories": "草帽+墨镜"
-    },
-    "tags": {
-      "style": [
-        "CASUAL"
-      ],
-      "scene": [
-        "DAILY"
-      ],
-      "season": [
-        "SUMMER"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "白+蓝+灰"
-    },
-    "summary": "3⃣️8⃣️套｜期待过夏天了",
-    "likes": "836",
-    "url": "https://www.xiaohongshu.com/explore/697c89be000000000b00bd6a",
-    "image_path": "fashion_images/ref_057.png"
   },
   {
     "id": "ref_058",
@@ -1081,131 +927,6 @@
     "likes": "2752",
     "url": "https://www.xiaohongshu.com/explore/69f727a7000000001f005f9c",
     "image_path": "fashion_images/ref_058.png"
-  },
-  {
-    "id": "ref_059",
-    "type": "blogger_look",
-    "source": "小红书/@睡不醒",
-    "outfit": {
-      "top": "白色泡泡袖衬衫",
-      "bottom": "蓝色直筒牛仔裤",
-      "shoes": "白色乐福鞋",
-      "accessories": "通勤手提包"
-    },
-    "tags": {
-      "style": [
-        "CASUAL"
-      ],
-      "scene": [
-        "DAILY",
-        "COMMUTE"
-      ],
-      "season": [
-        "SUMMER"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "白+蓝+灰"
-    },
-    "summary": "一周穿搭look",
-    "likes": "300",
-    "url": "https://www.xiaohongshu.com/explore/6a01d22800000000360018b7",
-    "image_path": "fashion_images/ref_059.png"
-  },
-  {
-    "id": "ref_060",
-    "type": "blogger_look",
-    "source": "小红书/@牙牙",
-    "outfit": {
-      "top": "韩系宽松短袖T恤",
-      "bottom": "高腰直筒牛仔裤",
-      "shoes": "白色帆布鞋",
-      "accessories": "帆布包+简约项链"
-    },
-    "tags": {
-      "style": [
-        "ELEGANT",
-        "CASUAL",
-        "MINIMAL"
-      ],
-      "scene": [
-        "DAILY"
-      ],
-      "season": [
-        "SUMMER"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "柔和粉+白+蓝"
-    },
-    "summary": "4️⃣8️⃣套‖夏季韩系穿搭分享🧚🏻‍",
-    "likes": "1228",
-    "url": "https://www.xiaohongshu.com/explore/698ffd6d000000001a02fc88",
-    "image_path": "fashion_images/ref_060.png"
-  },
-  {
-    "id": "ref_061",
-    "type": "blogger_look",
-    "source": "小红书/@不吃辣^",
-    "outfit": {
-      "top": "白色基础T恤",
-      "bottom": "直筒牛仔裤",
-      "shoes": "白色运动鞋",
-      "accessories": "简约帆布包"
-    },
-    "tags": {
-      "style": [
-        "CASUAL"
-      ],
-      "scene": [
-        "DAILY"
-      ],
-      "season": [
-        "SUMMER"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "白+蓝+灰"
-    },
-    "summary": "这件衬衫真的美绝了！！",
-    "likes": "3592",
-    "url": "https://www.xiaohongshu.com/explore/69d39895000000001b003329",
-    "image_path": "fashion_images/ref_061.png"
-  },
-  {
-    "id": "ref_063",
-    "type": "blogger_look",
-    "source": "小红书/@奶油泡芙",
-    "outfit": {
-      "top": "韩系宽松短袖T恤",
-      "bottom": "高腰直筒牛仔裤",
-      "shoes": "白色帆布鞋",
-      "accessories": "帆布包+简约项链"
-    },
-    "tags": {
-      "style": [
-        "ELEGANT",
-        "CASUAL",
-        "MINIMAL"
-      ],
-      "scene": [
-        "DAILY"
-      ],
-      "season": [
-        "SUMMER"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "柔和粉+白+蓝"
-    },
-    "summary": "4️⃣0️⃣套‖韩系穿搭很难不爱",
-    "likes": "2973",
-    "url": "https://www.xiaohongshu.com/explore/696e0517000000001a01c382",
-    "image_path": "fashion_images/ref_063.png"
   },
   {
     "id": "ref_065",
@@ -1450,37 +1171,6 @@
     "likes": "176",
     "url": "https://www.xiaohongshu.com/explore/6a251e18000000003502a472",
     "image_path": "fashion_images/ref_076.png"
-  },
-  {
-    "id": "ref_077",
-    "type": "blogger_look",
-    "source": "小红书/@栀栀",
-    "outfit": {
-      "top": "娃娃领衬衫",
-      "bottom": "百褶短裙",
-      "shoes": "白色帆布鞋",
-      "accessories": "蝴蝶结发夹"
-    },
-    "tags": {
-      "style": [
-        "SWEET",
-        "PREPPY"
-      ],
-      "scene": [
-        "DAILY"
-      ],
-      "season": [
-        "SUMMER"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "白+蓝+粉"
-    },
-    "summary": "4️⃣0️⃣套 夏日少女穿搭分享！",
-    "likes": "1359",
-    "url": "https://www.xiaohongshu.com/explore/695243af000000001e0376fc",
-    "image_path": "fashion_images/ref_077.png"
   },
   {
     "id": "ref_078",
@@ -1729,38 +1419,6 @@
     "likes": "1575",
     "url": "https://www.xiaohongshu.com/explore/69c0bd5600000000220253f7",
     "image_path": "fashion_images/ref_087.png"
-  },
-  {
-    "id": "ref_091",
-    "type": "blogger_look",
-    "source": "小红书/@清_",
-    "outfit": {
-      "top": "韩系宽松短袖T恤",
-      "bottom": "高腰直筒牛仔裤",
-      "shoes": "白色帆布鞋",
-      "accessories": "帆布包+简约项链"
-    },
-    "tags": {
-      "style": [
-        "ELEGANT",
-        "CASUAL",
-        "MINIMAL"
-      ],
-      "scene": [
-        "DAILY"
-      ],
-      "season": [
-        "SUMMER"
-      ],
-      "body_type": [
-        "GENERAL"
-      ],
-      "color_scheme": "柔和粉+白+蓝"
-    },
-    "summary": "40套｜韩系穿搭来啦",
-    "likes": "285",
-    "url": "https://www.xiaohongshu.com/explore/6a3cdcbf0000000007024ce7",
-    "image_path": "fashion_images/ref_091.png"
   },
   {
     "id": "ref_092",
@@ -2179,35 +1837,6 @@
     "image_path": "fashion-reference/outfits/107/overview.webp"
   },
   {
-    "id": "ref_108",
-    "type": "blogger_look",
-    "source": "小红书/@林小意",
-    "outfit": {
-      "top": "黑色宽松Polo衫",
-      "bottom": "黑色宽松短裤",
-      "shoes": "白色运动鞋",
-      "accessories": ""
-    },
-    "tags": {
-      "style": [
-        "休闲",
-        "学院",
-        "运动休闲"
-      ],
-      "scene": [
-        "日常"
-      ],
-      "season": [
-        "夏季"
-      ],
-      "colorScheme": "黑色 + 白色 + 黑色 + 白色"
-    },
-    "summary": "黑色宽松Polo衫 黑色宽松短裤 白色运动鞋 休闲 学院 运动休闲 夏季 日常 黑色 白色 黑色 白色",
-    "likes": 0,
-    "url": "",
-    "image_path": "fashion-reference/outfits/108/overview.webp"
-  },
-  {
     "id": "ref_109",
     "type": "blogger_look",
     "source": "小红书/@林小意",
@@ -2236,36 +1865,6 @@
     "likes": 0,
     "url": "",
     "image_path": "fashion-reference/outfits/109/overview.webp"
-  },
-  {
-    "id": "ref_112",
-    "type": "blogger_look",
-    "source": "小红书/@wooklas",
-    "outfit": {
-      "top": "白色格纹衬衫",
-      "bottom": "天蓝色宽松牛仔裤",
-      "shoes": "白色运动鞋",
-      "accessories": ""
-    },
-    "tags": {
-      "style": [
-        "学院",
-        "街头",
-        "通勤"
-      ],
-      "scene": [
-        "日常",
-        "通勤"
-      ],
-      "season": [
-        "夏季"
-      ],
-      "colorScheme": "白色 + 白色 + 天蓝色 + 白色"
-    },
-    "summary": "白色格纹衬衫 天蓝色宽松牛仔裤 白色运动鞋 学院 街头 通勤 夏季 日常 通勤 白色 白色 天蓝色 白色",
-    "likes": 0,
-    "url": "",
-    "image_path": "fashion-reference/outfits/112/overview.webp"
   },
   {
     "id": "ref_113",

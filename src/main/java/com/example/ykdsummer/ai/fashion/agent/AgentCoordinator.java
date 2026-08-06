@@ -7,16 +7,21 @@ import com.example.ykdsummer.ai.fashion.profile.UserProfileService;
 import com.example.ykdsummer.ai.fashion.rag.FashionKnowledgeService;
 import com.example.ykdsummer.ai.fashion.rag.QueryAnalyzer;
 import com.example.ykdsummer.ai.fashion.FashionResponseFormatter;
+import com.example.ykdsummer.ai.fashion.ReferenceImageResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 多 Agent 编排器（核心）。
@@ -50,6 +55,12 @@ public class AgentCoordinator {
 
     private static final Logger log = LoggerFactory.getLogger(AgentCoordinator.class);
 
+    /** 历史滑动窗口：检索时排除最近 N 次推荐已命中过的参考穿搭，降低跨次重复率。 */
+    private static final int RECENT_RECOMMENDATION_WINDOW = 5;
+
+    /** RAG 上下文中的穿搭编号标记，如 [outfit_231]。 */
+    private static final Pattern OUTFIT_ID_MARKER = Pattern.compile("\\[outfit_(\\d+)\\]");
+
     private final QueryAnalyzer queryAnalyzer;
     private final FashionKnowledgeService knowledgeService;
     private final StylistAgent stylistAgent;
@@ -60,6 +71,7 @@ public class AgentCoordinator {
     private final FashionResponseFormatter formatter;
     private final UserProfileService userProfileService;
     private final FashionEmbeddingService embeddingService;
+    private final ReferenceImageResolver referenceImageResolver;
     private final ExecutorService parallelExecutor;
 
     public AgentCoordinator(QueryAnalyzer queryAnalyzer,
@@ -72,6 +84,7 @@ public class AgentCoordinator {
                             FashionResponseFormatter formatter,
                             UserProfileService userProfileService,
                             FashionEmbeddingService embeddingService,
+                            ReferenceImageResolver referenceImageResolver,
                             @Qualifier("fashionAgentParallelExecutor") ExecutorService parallelExecutor) {
         this.queryAnalyzer = queryAnalyzer;
         this.knowledgeService = knowledgeService;
@@ -83,6 +96,7 @@ public class AgentCoordinator {
         this.formatter = formatter;
         this.userProfileService = userProfileService;
         this.embeddingService = embeddingService;
+        this.referenceImageResolver = referenceImageResolver;
         this.parallelExecutor = parallelExecutor;
     }
 
@@ -133,11 +147,17 @@ public class AgentCoordinator {
             );
         }
 
-        // ── Step 2: RAG 知识检索 ──
+        // ── Step 2: RAG 知识检索（历史滑动窗口去重：排除最近已推荐过的参考） ──
         step = System.currentTimeMillis();
         List<RetrievedChunk> chunks;
         try {
-            chunks = knowledgeService.retrieve(query);
+            Set<String> excludeIds = new HashSet<>(
+                    conversationService.findRecentReferenceOutfits(
+                            request.userId(), RECENT_RECOMMENDATION_WINDOW));
+            if (!excludeIds.isEmpty()) {
+                log.info("Excluding {} recently recommended outfit(s) from retrieval", excludeIds.size());
+            }
+            chunks = knowledgeService.retrieveExcluding(query, excludeIds);
         } catch (Exception e) {
             log.warn("Step 2 RAG exception, using empty context: {}", e.getMessage());
             chunks = List.of();
@@ -225,7 +245,9 @@ public class AgentCoordinator {
         step = System.currentTimeMillis();
         CoordinatorOutput coordinator;
         try {
-            coordinator = coordinatorAgent.execute(request, stylist, critic, trend, ragContext);
+            // Coordinator 只需知道每个 [outfit_XXX] 的编号与完整搭配概要，
+            // 传精简版 RAG 上下文（丢弃冗长单品详情），降低 prompt 长度与耗时
+            coordinator = coordinatorAgent.execute(request, stylist, critic, trend, compactRagContext(ragContext));
         } catch (Exception e) {
             log.warn("Step 5 Coordinator exception: {}", e.getMessage());
             coordinator = null;
@@ -270,12 +292,81 @@ public class AgentCoordinator {
         );
     }
 
+    /**
+     * 精简 RAG 上下文供 Coordinator 使用：保留每个 {@code [outfit_XXX]} 编号与
+     * 【完整搭配】概要，丢弃【单品详情】等冗长内容，降低最终裁决轮的 prompt 长度与耗时。
+     */
+    static String compactRagContext(String ragContext) {
+        if (ragContext == null || ragContext.isBlank()) {
+            return ragContext;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String part : ragContext.split("(?=\\[outfit_)")) {
+            int detailIdx = part.indexOf("【单品详情】");
+            sb.append(detailIdx > 0 ? part.substring(0, detailIdx) : part);
+        }
+        return sb.toString().strip();
+    }
+
     /** 统一保存对话摘要 + 异步 Embedding 回填。 */
     private void persistConversation(Long conversationId, String userInput, FashionResult result) {
         String summary = formatter.summarize(result);
         conversationService.updateRecommendation(conversationId, summary);
-        conversationService.updateReferenceOutfit(conversationId, extractReferenceOutfitId(result));
+        conversationService.updateReferenceOutfit(conversationId, resolveEffectiveOutfitId(result));
         saveEmbeddingAsync(conversationId, userInput, summary);
+    }
+
+    /**
+     * 校正"试穿"指代消解用的 outfit 编号。
+     *
+     * <p>Coordinator 可能输出参考图库中不存在的编号（LLM 幻觉，如 028），
+     * 导致后续试穿查不到单品图；此时回退到 RAG 上下文实际命中的 [outfit_XXX] 编号，
+     * 保证发图与试穿使用同一套有效编号。
+     */
+    private String resolveEffectiveOutfitId(FashionResult result) {
+        String coordinatorId = extractReferenceOutfitId(result);
+        if (hasUsableGarments(coordinatorId)) {
+            return coordinatorId;
+        }
+        String ragId = result == null ? null : extractOutfitIdFromRagContext(result.ragContext());
+        if (ragId != null && hasUsableGarments(ragId)) {
+            log.info("Correcting reference outfit {} -> {} (coordinator id not in image map, use RAG hit)",
+                    coordinatorId, ragId);
+            return ragId;
+        }
+        return coordinatorId;
+    }
+
+    /** 编号在参考图库中是否存在可用于试穿的单品图（含规范化处理）。 */
+    private boolean hasUsableGarments(String rawId) {
+        if (rawId == null || rawId.isBlank() || referenceImageResolver == null) {
+            return false;
+        }
+        String normalized = normalizeOutfitId(rawId);
+        return !normalized.isBlank() && !referenceImageResolver.garmentsFor(normalized).isEmpty();
+    }
+
+    /** 从 RAG 上下文提取第一个 [outfit_XXX] 编号；无标记返回 null。 */
+    private String extractOutfitIdFromRagContext(String ragContext) {
+        if (ragContext == null || ragContext.isBlank()) {
+            return null;
+        }
+        Matcher matcher = OUTFIT_ID_MARKER.matcher(ragContext);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    /** 将 "002"/"outfit_002"/"[outfit_002]" 统一为 "002"（与 image_urls.json 的 key 格式对齐）。 */
+    private static String normalizeOutfitId(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String cleaned = raw.replace("[outfit_", "").replace("outfit_", "").replace("]", "").trim();
+        try {
+            int num = Integer.parseInt(cleaned);
+            return String.format("%03d", num);
+        } catch (NumberFormatException e) {
+            return cleaned;
+        }
     }
 
     /** 从最终方案中提取 outfit 编号，供后续"试穿"指代消解（编号在 service 层统一规范化）。 */

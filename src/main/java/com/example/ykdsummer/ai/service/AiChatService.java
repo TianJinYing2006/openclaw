@@ -11,6 +11,7 @@ import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
 import com.example.ykdsummer.ai.fashion.FashionFeedbackRecorder;
+import com.example.ykdsummer.ai.fashion.ReferenceImageSendGate;
 import com.example.ykdsummer.ai.fashion.agent.FashionAgentWorkflowContextProvider;
 import com.example.ykdsummer.fashion.application.FashionWardrobeDraftCommandHandler;
 import com.example.ykdsummer.fashion.tool.FashionWardrobeVisualCommandHandler;
@@ -44,6 +45,9 @@ public class AiChatService {
     public static final String EMPTY_REPLY = "暂时没有生成有效回答";
     public static final String AGENT_ROUND_LIMIT_REPLY = "这个任务连续调用工具次数较多，已停止继续执行。你可以把需求拆得更具体一些再试。";
 
+    /** 发送文本前等待参考图发送完成的最长时长；超时则放弃等待，避免阻塞回复。 */
+    private static final long REFERENCE_IMAGE_FLUSH_TIMEOUT_MILLIS = 10_000L;
+
     private static final Logger log = LoggerFactory.getLogger(AiChatService.class);
 
     private final AiProperties properties;
@@ -53,6 +57,7 @@ public class AiChatService {
     private final TokenBudgetPolicy budgetPolicy;
     private volatile ConversationHistoryStore conversationHistory = ConversationHistoryStore.disabled();
     private volatile FashionAgentWorkflowContextProvider fashionWorkflowContext;
+    private volatile ReferenceImageSendGate imageSendGate;
     private volatile FashionWardrobeDraftCommandHandler wardrobeDraftCommands;
     private volatile FashionWardrobeVisualCommandHandler wardrobeVisualCommands;
     private volatile FashionFeedbackRecorder feedbackRecorder;
@@ -121,6 +126,11 @@ public class AiChatService {
     @Autowired(required = false)
     void setFashionWorkflowContext(FashionAgentWorkflowContextProvider fashionWorkflowContext) {
         this.fashionWorkflowContext = fashionWorkflowContext;
+    }
+
+    @Autowired(required = false)
+    void setReferenceImageSendGate(ReferenceImageSendGate imageSendGate) {
+        this.imageSendGate = imageSendGate;
     }
 
     @Autowired(required = false)
@@ -259,6 +269,10 @@ public class AiChatService {
                     long durationMs = elapsedMillis(gatewayStartedAt);
                     usageMeter.complete(reservation, reply.protocol(), reply.model(), reply.usage(), durationMs);
                     trace.modelCompleted(userId, reply.protocol(), reply.model(), durationMs, reply.usage(), reply.text());
+                    // 文本发送前等待参考图发送完成（无图登记立即返回），保证"整套图 → 拼图 → 文本"顺序
+                    if (imageSendGate != null) {
+                        imageSendGate.await(userId, REFERENCE_IMAGE_FLUSH_TIMEOUT_MILLIS);
+                    }
                     settled = true;
                 } catch (AiGatewayException exception) {
                     long durationMs = elapsedMillis(gatewayStartedAt);

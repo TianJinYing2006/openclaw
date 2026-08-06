@@ -1,12 +1,12 @@
 package com.example.ykdsummer.ai.tool;
 
+import com.example.ykdsummer.ai.mcp.McpConnectionManager;
 import com.example.ykdsummer.ai.mcp.McpToolSupport;
+import com.example.ykdsummer.ai.orchestration.AgentTool;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -17,16 +17,17 @@ import org.springframework.stereotype.Component;
  *
  * <p>返回格式与博查实现保持一致的成功前缀 "搜索结果："，供降级路径统一识别。</p>
  */
+@AgentTool
 @Component
 @ConditionalOnProperty(prefix = "app.web-search", name = "provider", havingValue = "mcp")
 public class McpWebSearchTools implements WebSearchProvider {
     private static final Logger log = LoggerFactory.getLogger(McpWebSearchTools.class);
 
-    private final SyncMcpToolCallbackProvider toolProvider;
+    private final McpConnectionManager mcp;
     private final WebSearchProperties properties;
 
-    public McpWebSearchTools(SyncMcpToolCallbackProvider toolProvider, WebSearchProperties properties) {
-        this.toolProvider = toolProvider;
+    public McpWebSearchTools(McpConnectionManager mcp, WebSearchProperties properties) {
+        this.mcp = mcp;
         this.properties = properties;
     }
 
@@ -40,13 +41,12 @@ public class McpWebSearchTools implements WebSearchProvider {
     public String search(String query) {
         String toolName = properties.getToolName();
         try {
-            ToolCallback tool = McpToolSupport.findTool(toolProvider, toolName);
-            if (tool == null) {
+            String jsonArgs = McpToolSupport.objectMapper().createObjectNode().put("query", McpToolSupport.safe(query)).toString();
+            String raw = mcp.callTool(toolName, jsonArgs);
+            if (raw == null) {
                 log.warn("Web search MCP tool not found, tool={}", toolName);
                 return "搜索服务未配置: " + toolName;
             }
-            String jsonArgs = McpToolSupport.objectMapper().createObjectNode().put("query", McpToolSupport.safe(query)).toString();
-            String raw = tool.call(jsonArgs);
             return formatResults(raw);
         } catch (Exception exception) {
             log.warn("Web search MCP call failed, tool={}, type={}", toolName,

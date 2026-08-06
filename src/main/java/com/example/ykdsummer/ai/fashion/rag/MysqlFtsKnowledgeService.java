@@ -31,16 +31,23 @@ public class MysqlFtsKnowledgeService implements FashionKnowledgeService {
     private static final int TOP_K = 5;
 
     private final JdbcTemplate jdbcTemplate;
+    private final FashionRagDiversityProperties diversity;
     private final ObjectMapper objectMapper;
 
-    public MysqlFtsKnowledgeService(JdbcTemplate jdbcTemplate) {
+    public MysqlFtsKnowledgeService(JdbcTemplate jdbcTemplate, FashionRagDiversityProperties diversity) {
         this.jdbcTemplate = jdbcTemplate;
+        this.diversity = diversity;
         this.objectMapper = new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
     @Override
     public List<RetrievedChunk> retrieve(AnalyzedQuery query) {
+        return retrieveExcluding(query, java.util.Set.of());
+    }
+
+    @Override
+    public List<RetrievedChunk> retrieveExcluding(AnalyzedQuery query, java.util.Collection<String> excludeIds) {
         if (query == null) {
             return List.of();
         }
@@ -73,8 +80,12 @@ public class MysqlFtsKnowledgeService implements FashionKnowledgeService {
                 sql.append(" OR content LIKE ?");
                 params.add("%" + like + "%");
             }
+            // 多样性采样：先取更大候选池（按相关度），再在池内加权随机挑 top-k
+            int poolSize = diversity.isEnabled()
+                    ? Math.max(TOP_K, Math.max(1, diversity.getCandidatePool()))
+                    : TOP_K;
             sql.append(" ORDER BY relevance DESC LIMIT ?");
-            params.add(TOP_K);
+            params.add(poolSize);
 
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), params.toArray());
 
@@ -83,6 +94,13 @@ public class MysqlFtsKnowledgeService implements FashionKnowledgeService {
                 SeedEntry entry = mapToEntry(row);
                 double score = Math.min(1.0, Math.max(0.0, getDouble(row, "relevance")));
                 chunks.add(new RetrievedChunk(entry, score));
+            }
+            // 历史滑动窗口：采样前排除最近已推荐过的 outfit，避免跨次重复
+            if (excludeIds != null && !excludeIds.isEmpty()) {
+                chunks.removeIf(c -> c.entry().id() != null && excludeIds.contains(c.entry().id()));
+            }
+            if (diversity.isEnabled()) {
+                chunks = RetrievalDiversitySampler.sample(chunks, TOP_K, diversity.getMinScore());
             }
 
             log.info("MySQL FTS retrieved {} chunks for query", chunks.size());

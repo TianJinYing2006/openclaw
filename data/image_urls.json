@@ -239,46 +239,6 @@
     ],
     "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/023/overview.webp"
   },
-  "029": {
-    "garments": [
-      {
-        "garment": "outerwear",
-        "file": "029_1_outerwear.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/029/029_1_outerwear.png"
-      },
-      {
-        "garment": "top",
-        "file": "029_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/029/029_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "029_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/029/029_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/029/overview.webp"
-  },
-  "030": {
-    "garments": [
-      {
-        "garment": "outerwear",
-        "file": "030_1_outerwear.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/030/030_1_outerwear.png"
-      },
-      {
-        "garment": "top",
-        "file": "030_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/030/030_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "030_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/030/030_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/030/overview.webp"
-  },
   "033": {
     "garments": [
       {
@@ -353,21 +313,6 @@
       }
     ],
     "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/038/overview.webp"
-  },
-  "041": {
-    "garments": [
-      {
-        "garment": "top",
-        "file": "041_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/041/041_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "041_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/041/041_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/041/overview.webp"
   },
   "042": {
     "garments": [
@@ -474,26 +419,6 @@
     ],
     "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/049/overview.webp"
   },
-  "052": {
-    "garments": [
-      {
-        "garment": "outerwear",
-        "file": "052_1_outerwear.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/052/052_1_outerwear.png"
-      },
-      {
-        "garment": "top",
-        "file": "052_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/052/052_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "052_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/052/052_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/052/overview.webp"
-  },
   "053": {
     "garments": [
       {
@@ -509,26 +434,6 @@
     ],
     "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/053/overview.webp"
   },
-  "057": {
-    "garments": [
-      {
-        "garment": "outerwear",
-        "file": "057_1_outerwear.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/057/057_1_outerwear.png"
-      },
-      {
-        "garment": "top",
-        "file": "057_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/057/057_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "057_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/057/057_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/057/overview.webp"
-  },
   "058": {
     "garments": [
       {
@@ -543,86 +448,6 @@
       }
     ],
     "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/058/overview.webp"
-  },
-  "059": {
-    "garments": [
-      {
-        "garment": "outerwear",
-        "file": "059_1_outerwear.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/059/059_1_outerwear.png"
-      },
-      {
-        "garment": "top",
-        "file": "059_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/059/059_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "059_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/059/059_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/059/overview.webp"
-  },
-  "060": {
-    "garments": [
-      {
-        "garment": "outerwear",
-        "file": "060_1_outerwear.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/060/060_1_outerwear.png"
-      },
-      {
-        "garment": "top",
-        "file": "060_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/060/060_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "060_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/060/060_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/060/overview.webp"
-  },
-  "061": {
-    "garments": [
-      {
-        "garment": "outerwear",
-        "file": "061_1_outerwear.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/061/061_1_outerwear.png"
-      },
-      {
-        "garment": "top",
-        "file": "061_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/061/061_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "061_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/061/061_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/061/overview.webp"
-  },
-  "063": {
-    "garments": [
-      {
-        "garment": "outerwear",
-        "file": "063_1_outerwear.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/063/063_1_outerwear.png"
-      },
-      {
-        "garment": "top",
-        "file": "063_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/063/063_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "063_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/063/063_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/063/overview.webp"
   },
   "065": {
     "garments": [
@@ -677,11 +502,6 @@
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/070/070_1_top.png"
       },
       {
-        "garment": "top",
-        "file": "070_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/070/070_2_top.png"
-      },
-      {
         "garment": "bottom",
         "file": "070_3_bottom.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/070/070_3_bottom.png"
@@ -695,11 +515,6 @@
         "garment": "top",
         "file": "071_1_top.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/071/071_1_top.png"
-      },
-      {
-        "garment": "top",
-        "file": "071_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/071/071_2_top.png"
       },
       {
         "garment": "bottom",
@@ -732,11 +547,6 @@
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/075/075_1_top.png"
       },
       {
-        "garment": "top",
-        "file": "075_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/075/075_2_top.png"
-      },
-      {
         "garment": "bottom",
         "file": "075_3_bottom.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/075/075_3_bottom.png"
@@ -758,21 +568,6 @@
       }
     ],
     "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/076/overview.webp"
-  },
-  "077": {
-    "garments": [
-      {
-        "garment": "top",
-        "file": "077_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/077/077_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "077_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/077/077_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/077/overview.webp"
   },
   "078": {
     "garments": [
@@ -810,11 +605,6 @@
         "garment": "top",
         "file": "081_1_top.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/081/081_1_top.png"
-      },
-      {
-        "garment": "top",
-        "file": "081_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/081/081_2_top.png"
       },
       {
         "garment": "bottom",
@@ -898,21 +688,6 @@
       }
     ],
     "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/087/overview.webp"
-  },
-  "091": {
-    "garments": [
-      {
-        "garment": "top",
-        "file": "091_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/091/091_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "091_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/091/091_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/091/overview.webp"
   },
   "092": {
     "garments": [
@@ -1012,11 +787,6 @@
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/099/099_1_top.png"
       },
       {
-        "garment": "top",
-        "file": "099_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/099/099_2_top.png"
-      },
-      {
         "garment": "bottom",
         "file": "099_3_bottom.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/099/099_3_bottom.png"
@@ -1107,11 +877,6 @@
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/106/106_1_top.png"
       },
       {
-        "garment": "top",
-        "file": "106_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/106/106_2_top.png"
-      },
-      {
         "garment": "bottom",
         "file": "106_3_bottom.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/106/106_3_bottom.png"
@@ -1134,21 +899,6 @@
     ],
     "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/107/overview.webp"
   },
-  "108": {
-    "garments": [
-      {
-        "garment": "top",
-        "file": "108_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/108/108_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "108_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/108/108_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/108/overview.webp"
-  },
   "109": {
     "garments": [
       {
@@ -1157,32 +907,12 @@
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/109/109_1_top.png"
       },
       {
-        "garment": "top",
-        "file": "109_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/109/109_2_top.png"
-      },
-      {
         "garment": "bottom",
         "file": "109_3_bottom.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/109/109_3_bottom.png"
       }
     ],
     "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/109/overview.webp"
-  },
-  "112": {
-    "garments": [
-      {
-        "garment": "top",
-        "file": "112_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/112/112_2_top.png"
-      },
-      {
-        "garment": "bottom",
-        "file": "112_3_bottom.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/112/112_3_bottom.png"
-      }
-    ],
-    "overview": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/112/overview.webp"
   },
   "113": {
     "garments": [
@@ -1207,11 +937,6 @@
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/114/114_1_top.png"
       },
       {
-        "garment": "top",
-        "file": "114_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/114/114_2_top.png"
-      },
-      {
         "garment": "bottom",
         "file": "114_3_bottom.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/114/114_3_bottom.png"
@@ -1227,11 +952,6 @@
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/115/115_1_top.png"
       },
       {
-        "garment": "top",
-        "file": "115_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/115/115_2_top.png"
-      },
-      {
         "garment": "bottom",
         "file": "115_3_bottom.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/115/115_3_bottom.png"
@@ -1245,11 +965,6 @@
         "garment": "top",
         "file": "116_1_top.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/116/116_1_top.png"
-      },
-      {
-        "garment": "top",
-        "file": "116_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/116/116_2_top.png"
       },
       {
         "garment": "bottom",
@@ -1280,11 +995,6 @@
         "garment": "top",
         "file": "118_1_top.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/118/118_1_top.png"
-      },
-      {
-        "garment": "top",
-        "file": "118_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/118/118_2_top.png"
       },
       {
         "garment": "bottom",
@@ -1620,11 +1330,6 @@
         "garment": "top",
         "file": "151_1_top.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/151/151_1_top.png"
-      },
-      {
-        "garment": "top",
-        "file": "151_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/151/151_2_top.png"
       },
       {
         "garment": "bottom",
@@ -2512,11 +2217,6 @@
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/271/271_1_top.png"
       },
       {
-        "garment": "top",
-        "file": "271_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/271/271_2_top.png"
-      },
-      {
         "garment": "bottom",
         "file": "271_3_bottom.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/271/271_3_bottom.png"
@@ -2695,11 +2395,6 @@
         "garment": "top",
         "file": "285_1_top.png",
         "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/285/285_1_top.png"
-      },
-      {
-        "garment": "top",
-        "file": "285_2_top.png",
-        "url": "https://wechatbot111.oss-cn-beijing.aliyuncs.com/fashion-reference/outfits/285/285_2_top.png"
       },
       {
         "garment": "bottom",

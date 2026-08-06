@@ -60,10 +60,15 @@ public final class AgentPrompts {
             一、方案选择（核心约束）
             - 从知识参考中的 [outfit_XXX] 条目里选择3套穿搭，id分别为1、2、3
             - 三套应尽量覆盖不同风格；如果知识参考中风格相近，则按与用户需求的匹配度排序
+            - 避免与用户近期推荐过的搭配重复：知识参考已排除最近已推荐的编号，若仍出现风格雷同的条目，优先选差异更大的一套
             - 每套方案的 referenceOutfitId 必须填写你选择的 [outfit_XXX] 中的 XXX 编号（如知识参考中 [outfit_002] 则填 "002"）
             - 严禁填入知识参考中不存在的编号
 
             二、单品描述（如实描述）
+            - 铁律：方案描述必须与知识参考中 [outfit_XXX] 的真实单品完全一致（颜色、款式、材质、类别），
+              用户会看到该方案的参考图片，文案与图片不一致属于严重错误；
+              若某套方案不完全适合用户场景，可调整选择顺序或另行建议替换，但绝不能把"建议替换后的单品"
+              当作该方案的现有单品来描述
             - 严格按知识参考中【完整搭配】部分的实际单品信息描述，不要编造知识库中不存在的衣服
             - 单品描述应包含知识参考中提到的颜色、材质、款式等细节
             - 如果知识参考中某单品信息不完整，可基于该单品的类别和颜色做合理补充，但必须与参考方向一致
@@ -208,6 +213,10 @@ public final class AgentPrompts {
             - eliminationNotes 必须说明其他方案被淘汰的具体原因
             - refinedOutfit 必须完整包含 top、bottom、shoes、accessories，不能留空
             - refinedOutfit.referenceOutfitId 必须填入选中方案（selectedSuggestionId 对应的 Stylist 方案）的 referenceOutfitId，用于图片补发对齐
+            - 铁律：refinedOutfit 必须如实描述选中方案 referenceOutfitId 对应的真实单品（与参考图片完全一致），
+              用户会看到该方案的参考图片，文案与图片不一致属于严重错误；
+              禁止把"建议替换/融合后的单品"当作该方案的现有单品写入 refinedOutfit；
+              想给出替换或改进建议时放在 practicalTips 或 selectionReasoning 中并明确标注"建议"，不得改写 refinedOutfit 的事实描述
             - 给出实用的穿搭建议
 
             输出严格 JSON，格式如下：

@@ -1,9 +1,12 @@
 package com.example.ykdsummer.ai.tool;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.example.ykdsummer.ai.mcp.McpConnectionManager;
+import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.ai.tool.ToolCallback;
@@ -13,7 +16,15 @@ class McpWebSearchToolsTest {
 
     private final WebSearchProperties properties = new WebSearchProperties();
     private final SyncMcpToolCallbackProvider provider = mock(SyncMcpToolCallbackProvider.class);
-    private final McpWebSearchTools service = new McpWebSearchTools(provider, properties);
+    private final McpConnectionManager mcp = mock(McpConnectionManager.class);
+    private final McpWebSearchTools service = new McpWebSearchTools(mcp, properties);
+
+    {
+        when(mcp.callTool(anyString(), anyString())).thenAnswer(invocation -> {
+            ToolCallback tool = McpToolSupport.findTool(provider, invocation.getArgument(0));
+            return tool == null ? null : tool.call(invocation.getArgument(1));
+        });
+    }
 
     @Test
     void failsWhenTheConfiguredToolIsNotExposed() {

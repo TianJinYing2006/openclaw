@@ -1,9 +1,10 @@
 package com.example.ykdsummer.fashion.application;
 
+import com.example.ykdsummer.ai.mcp.McpConnectionManager;
+import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import com.example.ykdsummer.ai.service.AiGatewayException;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
-import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import com.example.ykdsummer.fashion.config.FashionAnalysisProperties;
 import com.example.ykdsummer.fashion.domain.ClothingCandidateDraft;
 import com.example.ykdsummer.fashion.domain.ClothingCompletenessStatus;
@@ -15,8 +16,6 @@ import java.util.List;
 import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -36,14 +35,14 @@ public class McpWardrobePhotoAnalyzer implements WardrobePhotoAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(McpWardrobePhotoAnalyzer.class);
     private static final BigDecimal MINIMUM_USABLE_QUALITY = new BigDecimal("0.45");
 
-    private final SyncMcpToolCallbackProvider toolProvider;
+    private final McpConnectionManager mcp;
     private final LocalImageAssetStore imageStore;
     private final FashionAnalysisProperties properties;
 
-    public McpWardrobePhotoAnalyzer(SyncMcpToolCallbackProvider toolProvider,
+    public McpWardrobePhotoAnalyzer(McpConnectionManager mcp,
                                     LocalImageAssetStore imageStore,
                                     FashionAnalysisProperties properties) {
-        this.toolProvider = toolProvider;
+        this.mcp = mcp;
         this.imageStore = imageStore;
         this.properties = properties;
     }
@@ -54,15 +53,14 @@ public class McpWardrobePhotoAnalyzer implements WardrobePhotoAnalyzer {
         String toolName = properties.getMcp().getToolName();
         try {
             String imageUrl = imageStore.signedReadUrl(source);
-            ToolCallback tool = McpToolSupport.findTool(toolProvider, toolName);
-            if (tool == null) {
-                log.warn("Wardrobe photo analysis MCP tool not found, tool={}", toolName);
-                throw new AiGatewayException(AiGatewayException.Kind.TEMPORARY_UNAVAILABLE);
-            }
             String jsonArgs = McpToolSupport.objectMapper().createObjectNode()
                     .put("imageUrl", imageUrl)
                     .toString();
-            String raw = tool.call(jsonArgs);
+            String raw = mcp.callTool(toolName, jsonArgs);
+            if (raw == null) {
+                log.warn("Wardrobe photo analysis MCP tool not found, tool={}", toolName);
+                throw new AiGatewayException(AiGatewayException.Kind.TEMPORARY_UNAVAILABLE);
+            }
             return parse(raw);
         } catch (AiGatewayException exception) {
             throw exception;

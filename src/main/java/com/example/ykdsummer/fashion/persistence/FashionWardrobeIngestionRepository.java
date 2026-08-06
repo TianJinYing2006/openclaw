@@ -33,6 +33,8 @@ public interface FashionWardrobeIngestionRepository {
     Optional<GarmentCutoutTask> latestCutoutTask(String externalUserId, String candidateId);
     List<String> pendingCutoutTaskIds(Instant now, int limit);
     Optional<GarmentCutoutWork> claimCutoutTask(String taskId, Instant now);
+    /** 进程重启后把中断的 PROCESSING 抠图任务重置回 PENDING，由调度器重新执行。 */
+    int recoverInterruptedCutoutTasks();
     void completeCutoutTask(String taskId, long outputAssetVersionId, Instant completedAt);
     void failCutoutTask(String taskId, String failureSummary, Instant completedAt);
     FashionImageAsset requireOwnedImageVersion(String externalUserId, long assetVersionId);

@@ -62,6 +62,17 @@ public class RagFlowClient {
      * @return 检索到的分块列表，失败返回空列表
      */
     public List<RagFlowChunk> retrieve(String question) {
+        return retrieve(question, properties.getTopK());
+    }
+
+    /**
+     * 检索知识库，返回与问题最相关的文档分块。
+     *
+     * @param question  自然语言检索词
+     * @param pageSize  每页条数（可传入比 top-k 更大的候选池，供多样性采样）
+     * @return 检索到的分块列表，失败返回空列表
+     */
+    public List<RagFlowChunk> retrieve(String question, int pageSize) {
         if (!properties.isConfigured()) {
             log.warn("RAGFlow not fully configured, returning empty results");
             return List.of();
@@ -71,7 +82,7 @@ public class RagFlowClient {
         body.put("question", question);
         body.put("dataset_ids", List.of(properties.getDatasetId()));
         body.put("page", 1);
-        body.put("page_size", properties.getTopK());
+        body.put("page_size", pageSize);
         body.put("similarity_threshold", properties.getSimilarityThreshold());
         body.put("vector_similarity_weight", properties.getVectorSimilarityWeight());
 

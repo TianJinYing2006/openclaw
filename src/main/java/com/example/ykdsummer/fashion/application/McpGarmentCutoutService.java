@@ -1,16 +1,15 @@
 package com.example.ykdsummer.fashion.application;
 
+import com.example.ykdsummer.ai.mcp.McpConnectionManager;
+import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
-import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import com.example.ykdsummer.fashion.config.FashionCutoutProperties;
 import com.example.ykdsummer.fashion.domain.ClothingCandidate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -26,14 +25,14 @@ public class McpGarmentCutoutService implements GarmentCutoutService {
     private static final Logger log = LoggerFactory.getLogger(McpGarmentCutoutService.class);
     private static final ObjectMapper JSON = McpToolSupport.objectMapper();
 
-    private final SyncMcpToolCallbackProvider toolProvider;
+    private final McpConnectionManager mcp;
     private final LocalImageAssetStore imageStore;
     private final FashionCutoutProperties properties;
 
-    public McpGarmentCutoutService(SyncMcpToolCallbackProvider toolProvider,
+    public McpGarmentCutoutService(McpConnectionManager mcp,
                                    LocalImageAssetStore imageStore,
                                    FashionCutoutProperties properties) {
-        this.toolProvider = toolProvider;
+        this.mcp = mcp;
         this.imageStore = imageStore;
         this.properties = properties;
     }
@@ -64,13 +63,12 @@ public class McpGarmentCutoutService implements GarmentCutoutService {
                                           String toolName, String operation) {
         try {
             String sourceImageUrl = imageStore.signedReadUrl(sourceImage);
-            ToolCallback tool = McpToolSupport.findTool(toolProvider, toolName);
-            if (tool == null) {
+            String raw = mcp.callTool(toolName, buildArguments(sourceImageUrl, candidate, instruction));
+            if (raw == null) {
                 log.warn("Garment cutout MCP tool not found, user={}, operation={}, tool={}",
                         McpToolSupport.anonymize(externalUserId), operation, toolName);
                 return CutoutResult.failed("抠图 MCP 工具未配置: " + toolName);
             }
-            String raw = tool.call(buildArguments(sourceImageUrl, candidate, instruction));
             return toResult(raw, mcpTimeout());
         } catch (Exception exception) {
             log.warn("Garment cutout MCP call failed, user={}, operation={}, tool={}, type={}",

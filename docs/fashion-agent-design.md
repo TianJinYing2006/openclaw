@@ -1156,3 +1156,663 @@ com.example.ykdsummer.ai.fashion
 
 - `FashionWardrobeIntakeToolsCallbackTest` 全绿（含"唯一候选留空提交"与"多候选拒绝猜测"用例）；
 - 微信端复测：候选推送后说"确认加入"→ 应出现 `submit_garment_cutout` 工具调用 → 抠图草稿推送 → 再确认入衣橱。
+
+### 8.9 联网搜索 search_web 恢复（2026-08-05）
+
+#### 背景
+
+`b05453d refactor(agent): limit tools to fashion workflow` 引入 ToolRegistry **默认拒绝机制**：
+只暴露标有 `@AgentTool` 的工具方法，无注解一律 `Skipped non-agent tool`。
+`McpWebSearchTools`（search_web）、`WebSearchTools`（web_search）、`FashionCatalogTools`
+（search_fashion_products）因此全部被排除，微信端问时事类问题模型只能口头拒绝。
+
+按用户确认的方案**只恢复 `search_web`**（保留默认拒绝机制对其他工具生效）。
+
+#### 第一层：工具注册 + 提示词能力声明
+
+- `McpWebSearchTools` 类加 `@AgentTool`（唯一 Java 改动），启动日志由
+  `Skipped non-agent tool: search_web` 变为 `Registered tool: search_web`；
+- 工具虽注册，模型仍拒绝回答——根因在 `AiProperties.DEFAULT_SYSTEM_PROMPT` 末尾一句
+  "当前没有提供的网页、文档、语音、飞书、娱乐或通用信息查询能力，不要假装可以完成"，
+  模型据此认定自己没有联网能力。改为：
+  "用户询问新闻、热点、赛事结果等需要实时信息的时效性问题时，必须调用 search_web 工具联网搜索后再回答，
+  不得因问题超出穿搭范畴而直接拒绝。除 search_web 联网搜索外，没有文档、语音、飞书或娱乐内容查询能力。"
+
+#### 第二层：MCP 搜索源 DuckDuckGo 不可用
+
+工具被模型正确调用（23:41 连续两次 `web_search`），但返回
+`duckduckgo_search.DDGS` 实际走必应海外版 `bing.com/search`，302 后解析失败
+（国内网络不可用）。`BOCHA_API_KEY` 未配置。
+
+修复：`mcp-server/tools/search.py` 无 key 默认源改为 **cn.bing.com HTML 解析**
+（`https://cn.bing.com/search`，HTTP 200 可用）；`_search_bocha` 失败回退由已删除的
+`_search_ddg` 改为 `_search_bing_cn`。
+
+#### 第三层：cn.bing 对长口语 query 跑题
+
+模型拼接的 query 常是整句口语（如"今年世界杯冠军是谁 最新世界杯冠军"），
+cn.bing 对"今年/最新"等时间修饰词敏感，返回"今年是什么年/日历网"等无关结果，
+模型拿不到答案只能回退训练知识（过时结论"2026 世界杯还没举办"）。
+
+修复（`_search_bing_cn`）：
+- `_clean_query`：去掉口语提问词（是谁/今年/最新/吗/呢…）与标点；
+- `_core_phrase`：提取最长连续中文片段（>=2 字）作为核心词，如"世界杯冠军"；
+- 首搜结果没有任何标题包含完整核心词即判定跑题，用核心词重搜一次；
+- 实测两个真实 query（"今年世界杯冠军是谁 最新世界杯冠军"、
+  "2026 FIFA世界杯冠军 最新世界杯冠军"）均返回「国际足联世界杯冠军_百度百科」等正确结果。
+
+#### 改动
+
+- `McpWebSearchTools.java`：类加 `@AgentTool`（唯一 Java 改动）；
+- `AiProperties.java`：`DEFAULT_SYSTEM_PROMPT` 末尾能力声明改写（声明 search_web 能力）；
+- `mcp-server/tools/search.py`：搜索源改 cn.bing.com + query 清洗 + 核心词重搜 + 回退修复；
+- `mcp-server/server.py`：启动文案"使用 DuckDuckGo"改为"使用 cn.bing.com 免费搜索"。
+
+#### 验证
+
+- 工具注册日志：`Registered tool: search_web (McpWebSearchTools)`；`web_search`/`search_fashion_products` 仍 Skipped（符合只恢复 search_web 的方案）；
+- 本地直接调用 `web_search` 验证两个真实 query 返回相关结果；
+- 微信端复测待次日进行（当晚已关闭服务）。
+
+### 8.10 能力声明与工具集对齐（2026-08-06）
+
+#### 背景
+
+`DEFAULT_SYSTEM_PROMPT` 手写"有哪些/没有哪些能力"，与 `ToolRegistry` 的 `@AgentTool`
+注册结果是两套信息源。8.9 已踩坑：工具 `search_web` 明明注册了，prompt 却仍写
+"没有网页查询能力"，导致模型拒绝调用。能力边界应只由工具集推导，消除人工同步。
+
+#### 设计
+
+- `ToolRegistry.capabilityDeclaration()`：从已注册工具名列表动态生成能力声明段——
+  "当前可用的工具：a、b、c。除此之外没有文档、语音、飞书、娱乐或通用信息查询能力，不要假装可以完成。"；
+  工具集为空时返回空串（不注入误导性声明）；
+- 主聊天通道 `SpringAiChatCompletionsGateway` 构建 system prompt 时追加该动态段
+  （`resolveSystemPrompt()`，测试环境 toolRegistry 为 null 时不注入，行为不变）；
+- `DEFAULT_SYSTEM_PROMPT` 删除静态能力边界句（保留 search_web 触发规则），
+  以后增删 `@AgentTool` 工具自动反映到 prompt；
+- `OpenAiResponsesGateway` 是不注册工具的纯多模态通道，`instructions()` 补一句静态边界
+  "本通道不提供任何工具调用，不要声称具备网页、文档、语音、飞书、娱乐等工具能力"，
+  维持其原有"无工具"能力边界。
+
+#### 改动
+
+- `ToolRegistry.java`：新增 `capabilityDeclaration()`（基于 `allToolMeta()`）；
+- `SpringAiChatCompletionsGateway.java`：`buildPrompt` 改走 `resolveSystemPrompt()`，
+  拼接动态能力声明；
+- `AiProperties.java`：删除会漂移的静态能力边界句；
+- `OpenAiResponsesGateway.java`：`instructions()` 补无工具通道能力边界句。
+
+#### 验证
+
+- `mvn compile` 通过；`SpringAiChatCompletionsGatewayContractTest` 全绿；
+- `ILinkApplicationContextTest` 的 7 个 MCP 连接 Error 在 MCP server 启动后消失；
+  剩余 2 个 Failure（图片 client baseUrl、boundedQueue 默认值）经 git stash 对照
+  验证为**既有失败**（本地配置与测试默认值断言冲突），与本次改动无关；
+- 微信端验证待部署后复测（新增/移除 @AgentTool 后能力声明应自动跟随）。
+
+### 8.11 MCP 连接自愈（2026-08-06）
+
+#### 背景
+
+Spring AI MCP client 自动配置在启动时即连接外部 server（`Client failed to initialize by explicit
+API call`），导致两个问题：
+- **启动顺序强依赖**：MCP server（8090）未先启动则 Bot 启动失败；
+- **断线不自愈**：MCP server 重启后 client 长连接被 reset（`ClosedChannelException` 于
+  `PlainHttpConnection.connectAsync`），客户端不自动重连，只能人肉按"先 MCP 后 Bot"重启。
+
+#### 设计
+
+新增 `McpConnectionManager` 自管理 `SyncMcpToolCallbackProvider` 生命周期，并禁用
+Spring AI MCP client 自动配置（`spring.ai.mcp.client.enabled=false`）：
+
+- **懒连接**：首次工具调用时才 `McpClient.sync(transport).build()` + `initialize()`，
+  Bot 启动不再强依赖 MCP server；
+- **调用失败自愈**：`callTool(toolName, jsonArgs)` 统一入口——连接类异常
+  （IOException/ConnectException/HttpTimeoutException 等）时关闭旧 client、重建连接并
+  重试一次；工具不存在或未配置时返回 `null`（消费方保留原"未配置"提示语义）；
+- **自动重连**：`current()` 在 provider 为空（未配置或上次重建失败）时再尝试重建，
+  server 恢复后下一次调用自动生效；
+- 连接参数复用 `spring.ai.mcp.client.*` 配置（url / endpoint / request-timeout）。
+
+#### 改动
+
+- 新增 `ai/mcp/McpConnectionManager.java`；
+- `McpWeatherProvider` / `McpWebSearchTools` / `McpGarmentCutoutService` /
+  `McpVirtualTryOnService` / `McpWardrobePhotoAnalyzer`：构造器由注入
+  `SyncMcpToolCallbackProvider` 改为注入 `McpConnectionManager`，调用改走
+  `mcp.callTool(toolName, jsonArgs)`；
+- `application-local.properties`：加 `spring.ai.mcp.client.enabled=false`（注释说明原因）；
+- 对应 10 个测试类同步更新：mock `McpConnectionManager` 并委托到原 provider mock
+  （`thenAnswer` 转发 findTool+call），断言不变。
+
+#### 验证
+
+- 10 个 MCP 相关测试（McpWeatherProviderTest / McpWebSearchToolsTest / 3 个 Mcp 服务测试 /
+  5 个 provider SelectionTest）全绿；
+- 实际部署：禁用自动配置后 Bot 启动 9.6s 成功，日志无 `Client failed to initialize`、
+  无预连接；`search_web` 工具注册正常；
+- 微信端实测（2026-08-06）：首次调用懒连接建立（`MCP 连接已建立`）；
+  **重启 MCP server 后 Bot 不重启**，再次搜索「今年世界杯冠军是谁」→ 新 server 09:32:51
+  收到 `web_search` 调用并返回结果，模型正确回答「2026 世界杯冠军是西班牙」——
+  断线自愈生效（SDK streamable-http 自动协商新 session 重连，manager 失败重建为兜底）。
+
+### 8.12 异步任务重启恢复（2026-08-06）
+
+#### 背景
+
+进程重启时，进行中的异步任务会停在中间状态卡死：调度器不再认领，任务永远无法
+完成或失败。逐一核对 4 类异步任务的中断恢复现状：
+
+| 任务 | 状态字段 | 中断任务默认结局 | 是否需要补恢复 |
+|------|---------|----------------|--------------|
+| 试衣生成 | `task_status` | PROCESSING 卡死 | 已有 `recoverInterruptedTasks()`（ApplicationRunner）|
+| 推荐渲染 | `task_status` | PROCESSING 卡死 | 已有 `recoverInterruptedRenders()`（ApplicationRunner）|
+| 抠图任务 | `task_status` | PROCESSING 卡死，仅 `expireUnconfirmedDrafts` 到期标 EXPIRED | **本次补齐** |
+| 语义/参考索引 | `lease_until` 租约 | `claimPending()` 每次调度先回收过期租约（PROCESSING + lease_until <= now → PENDING），重启后 ≤5s 自动重新认领 | 无需 |
+
+#### 设计
+
+抠图任务表（`fashion_garment_cutout_tasks`）无租约机制：`claimCutoutTask` 只在
+`PENDING` 且未过期时认领，认领后置 `PROCESSING` 无自动回收。补一个启动时的一次性恢复：
+
+- `ApplicationRunner` 启动时把中断的 `PROCESSING` 任务重置回 `PENDING`（`claimed_at = NULL`），
+  由既有 `@Scheduled` 调度器（pendingCutoutTaskIds）重新认领；
+- 已过期的任务随后由 `expireUnconfirmedDrafts` 统一标 `EXPIRED`（职责不变，恢复不越权）；
+- 与试衣/推荐渲染的恢复模式一致：仅重置状态，不重算业务，幂等。
+
+#### 改动
+
+- `FashionWardrobeIngestionRepository`：新增 `int recoverInterruptedCutoutTasks()`；
+- `JdbcFashionWardrobeIngestionRepository`：实现
+  `UPDATE fashion_garment_cutout_tasks SET task_status='PENDING', claimed_at=NULL
+   WHERE task_status='PROCESSING'`；
+- `FashionWardrobeIngestionService`：暴露 `recoverInterruptedCutoutTasks()`；
+- `FashionGarmentCutoutDispatcher`：改为 `implements ApplicationRunner`，`run()` 中执行恢复
+  并打日志（复用既有调度，不新增路径）。
+
+#### 验证
+
+- `mvn compile` 通过；`FashionWardrobeIngestionServiceAsyncAnalysisTest` 3/3 绿；
+- 语义/参考索引经 `claimPending()` 租约过期回收自愈，已核对无需改动。
+
+### 8.13 检索多样性：降低跨次推荐重复率（2026-08-06）
+
+#### 背景
+
+用户反馈「每次推荐穿搭重复率比较高」。根因是整条推荐链路是确定性的，无任何
+打破重复的环节：
+
+- 知识池小（仅 174 套 seed 穿搭），且每次只取 top-5 进 prompt；
+- 检索确定性 top-k：RAGFlow 相似度排序 / MySQL FTS `ORDER BY relevance DESC LIMIT 5`，
+  同一需求每次命中同一批参考；
+- 无历史去重（虽然每次推荐已落库 `fashion_outfit_recommendation_runs`，但检索与
+  prompt 均未消费）；
+- 模型温度保守，同样输入输出趋同。
+
+#### 设计（方案 A：相关性优先的加权随机）
+
+原则：**在相关域内做多样性，不牺牲匹配度**。先按相关度取较大候选池，再在池内
+加权随机抽 top-k——高分命中概率远大于低分（权重 = score² + ε，放大高分段差异），
+牺牲的是「9 分 vs 8 分」的微差，换来不同次推荐命中不同穿搭。
+
+- 候选池大小可配（默认 15），相关度下限可配（`min-score`，0 不限制）；
+- 候选池小/约束强时自动趋近确定性 top-k（池 ≤ k 则原样返回）；
+- 新增开关 `enabled`，关闭即恢复旧确定性行为，可随时回退。
+
+#### 改动
+
+- 新增 `FashionRagDiversityProperties`（`app.fashion.rag.diversity.*`），注册到
+  `@EnableConfigurationProperties`；
+- 新增 `RetrievalDiversitySampler`：加权随机不放回抽样工具；
+- `RagFlowClient`：`retrieve(question, pageSize)` 支持传入候选池大小（原签名保留）；
+- `RagFlowKnowledgeService` / `MysqlFtsKnowledgeService`：检索池扩大为
+  `max(topK, candidatePool)`，结果经采样器抽回 top-k；
+- `application-fashion.properties`：新增三个 diversity 默认配置（环境变量可覆盖）。
+
+#### 验证
+
+- `mvn compile` 通过；
+- `FashionAgentServiceTest` / `QueryAnalyzerFeedbackDetectionTest` 15/15 绿；
+- 新增 `RetrievalDiversitySamplerTest` 4/4 绿（池小于 k 保序原样返回、池大于 k 精确抽
+  k 条且不重复、min-score 过滤、null 安全）。
+
+### 8.14 跨次推荐去重：历史滑动窗口 + prompt 防重复（2026-08-06）
+
+#### 背景
+
+8.13 的加权随机打破了检索的确定性，但系统仍"不记得上次推荐过什么"——同需求下
+最近已推过的参考穿搭可能再次被选中。用户对方案选型评估后确认实施 5+4 组合：
+历史滑动窗口去重（检索层）+ prompt 防重复指令（生成层）。
+
+#### 设计（方案 5：历史滑动窗口）
+
+- 数据源：`fashion_conversations.reference_outfit_id`（每次推荐命中并落库的 outfit
+  编号，V20 已建）；
+- 检索前查用户最近 N=5 次命中的 outfit 编号（去重）作为排除集；
+- `FashionKnowledgeService` 新增 `retrieveExcluding(query, excludeIds)`：排除集内编号
+  不进入候选池（**采样前过滤**，比检索后过滤更优——不浪费候选池）；排除后候选
+  不足时返回过滤后的全部，不强凑不相关结果；
+- 候选池仍走 8.13 的多样性采样，两层叠加：先排除已推 → 再池内加权随机。
+
+#### 设计（方案 4：prompt 防重复）
+
+- Stylist prompt 增加指令："避免与用户近期推荐过的搭配重复……若仍出现风格雷同
+  的条目，优先选差异更大的一套"——作为检索层排除不彻底时的生成层兜底。
+
+#### 改动
+
+- `FashionConversationService`：新增 `findRecentReferenceOutfits(userId, limit)`
+  （最近 N 次非空编号，distinct，兼容 outfit_002 前缀归一化）；
+- `FashionKnowledgeService`：新增 `retrieveExcluding` 默认方法（默认过滤语义），
+  两个实现类 override 为"采样前过滤"；
+- `RagFlowKnowledgeService` / `MysqlFtsKnowledgeService`：`retrieve(query)` 委托
+  `retrieveExcluding(query, Set.of())`，排除逻辑与多样性采样同处；
+- `AgentCoordinator`：Step 2 检索前注入排除集（窗口常量
+  `RECENT_RECOMMENDATION_WINDOW=5`），日志打印排除数量；
+- `AgentPrompts`：Stylist 增加防重复指令。
+
+#### 验证
+
+- `mvn compile` 通过；
+- `FashionAgentServiceTest` / `QueryAnalyzerFeedbackDetectionTest` /
+  `RetrievalDiversitySamplerTest` / `FashionAgentExecutorConfigTest` 20/20 绿；
+- 接口默认方法保证无排除场景行为不变（`retrieveExcluding(query, 空集)` = `retrieve`）。
+
+### 8.15 删除 xxx_3_bottom 穿搭（2026-08-06）
+
+#### 背景
+
+数据源中部分套装带 `_3_bottom` 下装单品，用户要求清理。规则（用户确认）：
+- 完整 1-3 结构（如 `_1_top` + `_2_top` + `_3_bottom`）→ 删除多余单品 `_2_top`，保留 `_1_top` + `_3_bottom`（14 套）；
+- 仅有 2-3 结构（缺主单品）→ 整套全链路删除（13 套）；
+- 原始仅 `_1_top` + `_3_bottom`（缺 _2）→ 保留（6 套，用户确认）。
+
+#### 改动
+
+- `data/image_urls.json`：移除 13 套（029/030/041/052/057/059/060/061/063/077/091/108/112），
+  14 套（070/071/075/081/099/106/109/114/115/116/118/151/271/285）各删 `_2_top` → 161 套；
+- `data/xiaohongshu_fashion_seed.json`：同步删 13 条 → 161 条；
+- `data/fashion_docs/`：删除 13 个 `outfit_XXX.md` → 161 个；
+- RAGFlow：DELETE 13 个文档（total 174 → 161）；
+- OSS：删除 13 套 47 个残留图片文件（fashion-reference/outfits 目录 174 → 161）；
+- MySQL `fashion_conversations.reference_outfit_id`：清空指向已删套装的残留（028×1、108×3）；
+- 备份：`data/image_urls.json.bak_20260806`、`data/xiaohongshu_fashion_seed.json.bak_20260806`；
+- 重启 Bot 后验证：fashion_docs / image_urls / seed / RAGFlow 全部 161，微信端试穿（270/045）正常出图。
+
+### 8.16 试穿编号校正：Coordinator 幻觉编号回退 RAG 命中（2026-08-06）
+
+#### 问题
+
+用户说"试穿一下"时工具收到 `outfit=028`，但 028 在 image map / seed / fashion_docs 均不存在
+（Coordinator 模型幻觉编号），`virtual_try_on_reference_outfit` 查无单品图 → 返回"没有可用于
+试穿的单品图"，只能引导去试穿衣橱。发图链路（`resolveReferenceImages`）已做过同样的
+Coordinator→RAG 回退，但 `persistConversation` 存进 `fashion_conversations.reference_outfit_id`
+的仍是幻觉编号 028，主模型"试穿"指代消解读到无效编号。
+
+#### 设计
+
+`AgentCoordinator.persistConversation` 保存编号前校正（与发图链路同一策略）：
+- Coordinator 编号在参考图库中**有单品图**（`imageResolver.garmentsFor` 非空）→ 原样保存；
+- 无效（LLM 幻觉）→ 回退 RAG 上下文第一个 `[outfit_XXX]` 标记的编号（有效则保存），保证
+  发图与试穿使用同一套有效编号。
+
+#### 改动
+
+- `AgentCoordinator`：注入 `ReferenceImageResolver`；新增 `resolveEffectiveOutfitId` /
+  `hasUsableGarments` / `extractOutfitIdFromRagContext` / `normalizeOutfitId`；
+  `persistConversation` 用校正后的编号回填；
+- 清理 DB 残留 `reference_outfit_id=028/108`。
+
+#### 验证
+
+- `FashionAgentServiceTest` 全绿（构造签名同步更新）；
+- 微信端两轮验证："试穿一下"均收到有效编号（270/045），参考穿搭试衣 source=reference 成功出图。
+
+### 8.17 推荐工具漏调自动补调（2026-08-06）
+
+#### 问题
+
+用户"推荐一套适合今天在杭州打羽毛球的穿搭"，主模型（qwen3.7-max）先调 `get_current_weather`
+后**直接输出穿搭文字**，未调用 `fashion_consultant`（LLM 工具调用不稳定，违反 prompt
+"查完天气必须继续调用该工具"指令），导致推荐无参考图。
+
+#### 设计（网关层兜底）
+
+`SpringAiChatCompletionsGateway` 在模型最终文本生成后自动补调：
+- `BoundedToolCallingManager` 记录本轮实际调用过的工具名（`AssistantMessage.ToolCall.name`）；
+- 满足全部条件才补调：①未调用 `fashion_consultant`；②未调用任何穿搭域工具
+  （衣橱/试穿/抠图等，避免与已进行的操作冲突）；③用户输入命中穿搭推荐意图
+  （搭配/穿什么/面试穿/场合等强触发词；"推荐"需与穿搭语义词共现，排除"推荐一部电影"；
+  排除衣橱/试穿/图片操作消息，`(?<!面)试穿` 避免误伤"面试穿"）；
+- 补调方式：反射调用 `fashion_consultant(prompt)`，把带参考图的方案追加到回复；
+- 补调异常只记日志，不影响原文本。
+
+#### 改动
+
+- `BoundedToolCallingManager`：新增 `calledTools` ThreadLocal + `calledToolNames()`；
+- `SpringAiChatCompletionsGateway`：新增 `maybeAutoConsult` / `hasFashionConsultIntent`
+  与意图/排除正则；
+- 新增测试 `SpringAiChatCompletionsGatewayAutoConsultTest`（推荐意图命中、衣橱/试穿/非穿搭排除）。
+
+#### 验证
+
+- 单测全绿；微信端回归：模型正常调用时补调不触发，行为不变。
+
+### 8.18 推荐推送顺序：先整套图 → 参考拼图 → 文本（2026-08-06）
+
+#### 问题
+
+8.1 假设"图片在工具返回前就绪、文本晚于图片，先图后文顺序不变"，但实测第二轮（045）
+collage 拼图（需下载两张单品 + 拼接 + 上传 CDN）慢于文本生成（约 3s），导致
+`overview → 文本 → collage`，拼图落在文本之后，顺序错乱。首轮（270）模型文本生成慢（9s）恰好掩盖了该问题。
+
+#### 设计（用户确认：并行 + 等图，不串行）
+
+- 图片仍与文本生成**并行**：`scheduleReferenceImages` 提交发送单元到线程池后立即返回，
+  不阻塞工具（避免 8.1 之前逐张串行 + 文本串行的双重延迟）；
+- 新增 `ReferenceImageSendGate`：图片发送完成信号按 userId 登记；
+- `AiChatService` 在 gateway 返回文本后、真正发送前 `await(userId, 10s)`——
+  无登记立即返回；有登记等图片发完（超时 10s 放弃，不阻塞回复）。
+
+#### 改动
+
+- 新增 `ReferenceImageSendGate`（track/await，ConcurrentHashMap + CompletableFuture）；
+- `FashionAgentService`：`submitSendUnit` 返回 Future，`scheduleReferenceImages` 聚合为
+  `CompletableFuture.allOf` 后 `imageSendGate.track`（`imageSendGate` 为空时跳过，兼容单测）；
+  删除 `awaitAllReferenceImages` 与 `sendUnitAsync`；
+- `AiChatService`：setter 注入 `ReferenceImageSendGate`；generate 成功后
+  `imageSendGate.await(userId, 10_000)`。
+
+#### 验证
+
+- `FashionAgentServiceTest` / `AiChatServiceTest` / 网关测试全绿；
+- 日志顺序保证：`Published overview` → `Published collage` → `Sending text message`；
+- 耗时：图片与文本并行，文本到达时间几乎不受影响（仅等图，最多 10s 上限）。
+
+### 8.19 修复 8.18 引入的 ArrayStoreException（2026-08-06）
+
+#### 问题
+
+8.18 部署后首轮真实请求（"我要去参加婚礼,你帮我搭一套"）在完整 pipeline 跑通后仍失败：
+`Fashion pipeline unexpected error: arraycopy: element type mismatch ... java.util.concurrent.CompletableFuture`，
+用户收到兜底文案。8.18 仅通过单测（executor=null 走同步分支），未覆盖真实 executor 路径。
+
+#### 根因
+
+`submitSendUnit` 在 executor 装配时返回 `pool.submit(...)` 的 `FutureTask`（非 `CompletableFuture`），
+而 `scheduleReferenceImages` 用 `sentFutures.toArray(new CompletableFuture[0])` 聚合 →
+`ArrayStoreException` → 外层 catch → 整个 `fashion_consultant` 工具失败。
+
+#### 修复
+
+- `submitSendUnit` 返回类型 `Future<?>` → `CompletableFuture<?>`，executor 分支改用
+  `CompletableFuture.runAsync(() -> sendUnit(...), pool)`；
+- `sentFutures` 列表类型同步改为 `List<CompletableFuture<?>>`，`allOf` 聚合类型安全。
+
+#### 验证
+
+- 单测全绿（executor=null 同步分支不受影响）；
+- 已重新打包重启，待微信端用正式场景请求复验完整 pipeline + 图片推送。
+
+### 8.20 试穿漏调工具自动补调 + Prompt 强化（2026-08-06）
+
+#### 问题
+
+用户发"试穿一下"（针对刚获得的推荐方案 264），主模型 qwen3.7-max 仅回复
+"正在为你试穿…稍等一下"承诺文案，未调用 `virtual_try_on_reference_outfit`，
+数据库无新任务、用户等不到效果图。与 8.17"推荐漏调"同源：LLM 工具调用不稳定。
+
+#### 方案（用户确认：A+C 组合）
+
+- **A 网关自动补调**：`SpringAiChatCompletionsGateway` 新增 `maybeAutoTryOn`——
+  本轮未调用任何穿搭域工具 + 消息命中试穿意图（`(?<!面)试穿|穿一下|穿穿|上身效果|穿上看看|试试|试一下|试一试|试下`）
+  + 排除衣橱/疑问/图片类消息时，取 `FashionConversationService.findLatestReferenceOutfit(userId)`
+  反射补调 `virtual_try_on_reference_outfit(id, null)` 整套试穿，把后台任务提示追加到回复；
+- **C Prompt 强化**：`DEFAULT_SYSTEM_PROMPT` 试穿规则改为"必须在本轮实际调用试穿工具并提交后台任务，
+  严禁只回复承诺文案而漏调工具（漏调会导致用户永远收不到效果图）"。
+
+#### 改动
+
+- `SpringAiChatCompletionsGateway`：`TRY_ON_TOOL`/`TRY_ON_INTENT`/`TRY_ON_EXCLUDE` 常量、
+  `maybeAutoTryOn`/`hasTryOnIntent`、`@Autowired(required=false)` 注入 ConversationService（测试构造不受影响）；
+- `AiProperties.DEFAULT_SYSTEM_PROMPT`：试穿规则强化；
+- 测试：`SpringAiChatCompletionsGatewayAutoConsultTest` 新增 `detectsTryOnIntent`/`ignoresTryOnNonExecutionAndInterview`。
+
+#### 验证
+
+- 相关测试全绿；已打包重启，待微信端复验"试穿一下"能实际创建任务并出图。
+
+### 8.21 试穿路由错误修复：衣橱单品被误路由到推荐方案（2026-08-06）
+
+#### 问题
+
+用户先"看看衣柜"（2 件：灰色T恤 id=4、红色T恤 id=1），随后"试一下灰色T恤"，
+qwen3.7-max 却调用 `virtual_try_on_reference_outfit outfit=238, type=top`（238 是白色Polo衫），
+效果图穿错衣服。工具描述中已有路由规则但模型未遵守，且 8.20 网关兜底只覆盖"漏调"
+（模型已调穿搭域工具即跳过），错调路由被坐实。
+
+#### 方案（用户确认：A+B）
+
+- **A 系统 Prompt 强化**：`DEFAULT_SYSTEM_PROMPT` 试穿规则补充——用户提到衣橱具体单品
+  （灰色T恤/红色T恤/那件XX/衣柜里的XX，或刚查看/筛选过衣橱）时，必须先 `search_wardrobe`
+  定位 wardrobeItemId 再调 `virtual_try_on_wardrobe_item`，严禁把历史推荐 outfit 编号当衣橱单品
+  传给 `virtual_try_on_reference_outfit`；
+- **B 工具描述互斥强化**：两个试穿工具 description 各自补互斥规则（衣橱单品 → wardrobe_item，
+  reference_outfit 只装参考库衣服），从模型工具选择源头纠偏。
+
+#### 改动
+
+- `AiProperties.DEFAULT_SYSTEM_PROMPT`：试穿路由规则强化；
+- `FashionTryOnTools`：`virtual_try_on_wardrobe_item` / `virtual_try_on_reference_outfit` description 补充互斥说明。
+
+#### 验证
+
+- 编译通过；已打包重启，待微信端复验"试一下灰色T恤"应调用 wardrobe_item 并穿灰色T恤出图。
+
+### 8.22 批量优化：工具子集 / 文案如实描述 / 错调兜底 / 上下文精简 / 测试补强（2026-08-06）
+
+基于 8.17-8.21 连续暴露的"模型工具调用不稳定 + 文案与图不符 + 回归未被单测拦截"，
+按用户确认的优先级实施 5 项优化：
+
+#### 优化1：按意图动态提供工具子集
+
+- **背景**：38 个工具对 qwen3.7-max 决策负担大（首轮决策 ~20s、漏调/错调反复）。
+- **改动**：
+  - `ToolRegistry` 新增分组 `TOOL_GROUP`（core/wardrobe_view/wardrobe_intake/tryon/reminder）+ `toolBeansForGroups`/`toolNamesForGroups`；
+  - `SpringAiChatCompletionsGateway.toolsForPrompt(prompt)` 按意图路由：推荐→核心+试穿、衣橱/试穿→+衣橱查看、入库→+抠图入库、提醒→+提醒组、默认→仅核心（11 个）；
+  - 能力声明同步按子集生成，避免"声明 38 个、实际只提供子集"。
+- **预期收益**：推荐轮工具 38→17、默认轮 38→11，降低漏调/错调率与首轮决策耗时。
+
+#### 优化2：Stylist/Coordinator 强制如实描述参考单品
+
+- **背景**：模型把"建议替换"写成事实（Polo衫→"亚麻衬衫"、黑T恤→"白衬衫"），文案/发图/试穿三者脱节。
+- **改动**：`AgentPrompts.STYLIST` 与 `COORDINATOR` 新增铁律——方案描述必须与 [outfit_XXX] 真实单品完全一致；
+  替换建议只能放 practicalTips/selectionReasoning 并标注"建议"，不得改写 refinedOutfit 事实描述。
+
+#### 优化3：网关衣橱单品错调兜底
+
+- **背景**：8.20 兜底只覆盖"漏调"；"错调"（衣橱单品意图被路由到 reference_outfit）无法兜住。
+- **改动**：`SpringAiChatCompletionsGateway` 新增 `maybeCorrectWardrobeMisroute`——检测到
+  衣橱单品意图（试穿词+单品词）且模型调用的是 reference_outfit 时，追加纠正提示。
+- **限制**：工具已执行无法撤销，仅提示用户重发；真正的路由纠正在优化 1/8.21 的 prompt 层。
+
+#### 优化4：Coordinator 上下文精简
+
+- **背景**：Coordinator prompt 6949 字符（RAG 上下文 3311 占 48%），裁决轮 8.3s。
+- **改动**：`AgentCoordinator.compactRagContext` 保留 `[outfit_XXX]` 编号 +【完整搭配】，
+  丢弃【单品详情】冗长内容后传入 Coordinator（Stylist 仍用完整上下文）。
+- **预期收益**：Coordinator prompt 约减 27%，首 token 更快。
+
+#### 优化5：测试补充真实 executor 分支
+
+- **背景**：8.19 ArrayStoreException 未被单测拦截（单测只走 executor=null 同步分支）。
+- **改动**：`FashionAgentServiceTest.schedulesReferenceImagesWithRealExecutorDoesNotThrowArrayStore`
+  装配真实单线程池 + mock `ReferenceImageSendGate`，验证不抛异常且 track 被登记。
+
+#### 验证
+
+- `SpringAiChatCompletionsGatewayAutoConsultTest`（新增路由/衣橱单品意图测试）、
+  `FashionAgentServiceTest`、`AiChatServiceTest` 全绿；
+- 已打包重启（PID 27092），待微信端复验：推荐轮工具决策耗时下降 + "试一下灰色T恤"正确走 wardrobe_item。
+
+#### 8.22 补充：入库路由正则漏"衣柜" + 照片入库被拒修复（2026-08-06）
+
+复验中发现「帮我加入衣柜」失败：
+- **路由 bug**：`INTENT_WARDROBE_INTAKE` 只匹配"加入衣橱"，用户说"加入衣柜"未命中 → 入库工具组未挂载，
+  模型空响应重试后回复"推荐款无法入库"拒绝。
+- **模型混淆**：把用户刚发照片的牛仔裤当成历史推荐方案的衣服，拒绝 analyze_wardrobe_photo 入库。
+- **修复**：
+  - 路由正则补"衣柜"类表达（放进衣柜/加入衣柜/帮我加入/这张图…衣柜）；
+  - `DEFAULT_SYSTEM_PROMPT` 补强：用户发照片后说"加入衣柜/衣橱/入库"指的就是刚发/刚识别的照片，
+    必须调 analyze_wardrobe_photo 拆件入库，严禁以"推荐款/参考款无法入库"拒绝；
+  - 测试补「帮我加入衣柜」应命中入库组。
+- 已打包重启（PID 30980），待微信端复验照片入库链路。
+
+#### 8.22 补充 2：候选确认路由盲区——"只要牛仔裤"无抠图工具（2026-08-06）
+
+用户识别出 3 件候选（牛仔裤/配饰/T恤）后回复「只要牛仔裤」，路由只给 `[core]`（6 beans），
+抠图工具未挂载 → 模型只回复"正在为你提取蓝色牛仔裤"却未真正调 submit_garment_cutout，
+用户实际等不到草稿（日志 14:18:53 → 无任务创建）。
+- **根因**：`INTENT_WARDROBE_INTAKE` 正则未覆盖"候选确认/选择"类表达（只要/就要/选第一件/选这件/都要/就这件/抠图吧）。
+- **修复**：路由正则补 `只要|就要|选第一件|选这件|选.*件|都要|确认入库|就这件|这件可以|抠图吧`；
+  `routesToolGroupsByIntent` 补 3 条断言（只要牛仔裤/选第一件/这几件都要 → 命中入库组）。
+- 本轮一并打包部署。
+
+#### 8.23 抠图中发新套装丢失信息：跨照片自动定位 + 新照片未先识别（2026-08-06）
+
+用户「只要牛仔裤」后（候选仍处于 PENDING_SELECTION）又发来一张新套装照片并说「加入衣柜」，
+模型直接调 `submit_garment_cutout` 且 candidateIds 留空 → 自动定位到**上一张照片的牛仔裤**候选
+（唯一待选），新套装照片从未被 analyze，信息整体丢失（日志 14:21:26 → 提交的是旧照片候选）。
+- **根因 A（静默选错）**：`resolveSelectionCandidateIds` 按全局"唯一待选候选"自动定位，不区分来源照片；
+  用户在两张照片间流转时会把旧照片候选当作新照片目标。
+- **根因 B（新照片未识别）**：模型收到新照片+"加入衣柜"直接走 submit，跳过 analyze_wardrobe_photo。
+- **修复**：
+  - `submit_garment_cutout` 新增可选 `imageAssetId` 参数：指定后候选限定到该照片；
+    该照片无候选时返回"这张照片还没有识别候选，请先调用 analyze_wardrobe_photo 识别后再提交抠图"，
+    形成"先识别再抠图"的自纠正闭环；
+  - 自动定位拒绝跨照片：候选来自多张照片时抛"候选来自多张照片，请指明要处理哪张照片的哪件单品"，
+    IllegalStateException 消息透出给模型（提交抠图失败：…）；
+  - `resolveReviewCandidateId`（确认入衣橱）同样拒绝跨照片待确认草稿，
+    `confirmFailureMessage` 增加"多张照片草稿待确认，请先指明哪件"引导；
+  - 工具描述 + `DEFAULT_SYSTEM_PROMPT` 补强：抠图中发新照片是新的入库对象，必须先对新照片
+    analyze_wardrobe_photo，严禁跨照片自动定位；
+  - 测试补 3 个：按 imageAssetId 只提交指定照片候选 / 跨照片无显式目标拒绝 / 未识别照片引导先 analyze。
+- 修复后：用户在抠图进行中发新套装，提交抠图必须携带新照片的 img_ 或候选编号，
+  系统不再静默复用上一张照片的候选。
+
+#### 8.24 照片入库漏调兜底：模型只承诺"正在提取"未调 analyze_wardrobe_photo（2026-08-06）
+
+复验照片入库时再次复现：用户发照片 →「请描述这张图片」（inspect_image）→「加入衣柜」，
+模型**未调任何入库工具**直接回复"正在为你提取这套穿搭"（15:13:06 日志，与 15:03:31 同）。
+- **根因**：`inspect_image` 返回"识别结果…已登记到图片元数据"误导模型认为照片已被识别，
+  后续「加入衣柜」被模型当作"确认抠图"只回承诺文案；8.22 的 Prompt/路由修复不依赖模型遵守，
+  无法兜住漏调。
+- **修复**：网关新增 `maybeAutoWardrobeIntake` 兜底（与 8.17 maybeAutoConsult / 8.20 maybeAutoTryOn 同模式）：
+  - 判定 `shouldAutoWardrobeIntake`：本轮未调任何穿搭域工具 + 用户输入（剥离内部上下文）命中
+    `INTENT_WARDROBE_INTAKE`；
+  - 命中后取最近上传照片（`LocalImageAssetStore.latest(userId, null)`）反射补调
+    `analyze_wardrobe_photo`，把识别任务真正提交后台，候选生成后自动推送；
+  - 已调过入库/穿搭域工具则不重复补调。
+- 测试补 3 个：意图判定（含内部上下文剥离、已调工具排除）+ 完整补调执行（mock 真实
+  FashionWardrobeIntakeTools 反射调用，验证 submitPhotoAnalysis 被调）+ 已调工具跳过。
+- **首轮部署后复验仍失败**（15:34:22「帮我加入衣柜吧」）：模型回复"参考款无法加入衣橱"拒绝，
+  且兜底未触发。定位两处：
+  1. `imageStore.latest(userId, null)` 内部 `metadata(null)` 被 `validAssetId` 拦截永远返回空
+     → 兜底取不到图片编号静默跳过；改用 `recent(userId, 1)` 按时间取最近照片；
+  2. 模型把用户刚发照片误当"参考款/推荐款"拒绝（8.22 Prompt 未生效）→ 兜底补调成功时，
+     若模型原文含"无法入库/不能加入/参考款/推荐款"等拒绝特征，用识别提示**替换**拒绝文案，
+     避免用户看到矛盾回复。
+- 已打包重启（PID 6652），待微信端复验「发照片→加入衣柜」不再空承诺或误拒。
+
+#### 8.24 补充：候选确认轮兜底方向修复 + 内部编号泄露防护（2026-08-06）
+
+复验发现 MCP 修复后识别链路通了（15:54:18 识别 → 15:54:25 候选推送成功），但用户
+「确认」候选时模型空响应 → 兜底错调 `analyze_wardrobe_photo`（返回已有候选列表）→
+**内部 candidateId 原样发给了用户**，且抠图未真正提交。
+- **根因 A（兜底方向错）**：用户"确认"对应提交抠图，兜底却重新识别；
+- **根因 B（正则缺"确认"）**：`INTENT_WARDROBE_INTAKE` 无单独"确认"表达，生产靠内部上下文
+  残留词才误命中（测试用纯"确认"不命中）；
+- **根因 C（结果外泄）**：analyze 返回的"内部候选"文案是给模型看的，被兜底原样追加到用户消息。
+- **修复**：
+  - 正则补 `确认|确认一下|就它了|就它|就这件吧|同意`；
+  - 兜底按照片候选状态分流：该照片有 PENDING_SELECTION+READY 待选候选 → 补调
+    `submit_garment_cutout(candidateIds=null, imageAssetId=照片)` 提交抠图（8.23 的按照片定位生效）；
+    无待选候选 → 才补调 `analyze_wardrobe_photo`；
+  - `sanitizeWardrobeToolResult` 兜底结果清洗：剥离"内部候选"等仅供模型的结构，防编号泄露。
+- 测试补 2 个：已有待选候选 → 补调 submit 且不外泄；analyze 返回候选列表 → 剥离。14 用例全过。
+- 已打包重启（PID 31496），待微信端复验「确认」能真正提交抠图。
+
+#### 8.25 MCP 连接稳定性 + "试穿一下"被误判入库修复（2026-08-06）
+
+**MCP 连接稳定性（14:55 与 15:41 两次复现）**：识别 MCP 调用已发出、MCP 侧完成，Java 却收不到返回
+（长连接偶发挂起）→ 判定 Java↔MCP 链路问题。
+- **修复**：`McpConnectionManager.rebuild()` 的 HttpClient 追加
+  `customizeRequest(timeout)` 请求级超时兜底（防无限阻塞）+ `customizeClient(HTTP_1_1)`
+  强制 HTTP/1.1（绕开 hypercorn h2c 长连接挂起）。
+- 修复后识别/抠图 MCP 调用 7-10 秒内稳定返回。
+
+**"试穿一下"被误判入库（16:12:21）**：用户刚收到 048 少年风推荐后发「试穿一下」，
+模型只回"已经提交试穿任务了"未调任何工具，随后兜底**错调 analyze_wardrobe_photo**，
+用户收到"正在识别图片中"的废话，试穿实际未提交（日志 16:12:39）。
+- **根因 A（试穿兜底失效）**：`maybeAutoTryOn` 用**未剥离**内部上下文的 prompt 调 `hasTryOnIntent`，
+  内部块含"衣橱/衣柜"被 `TRY_ON_EXCLUDE` 挡掉 → 试穿兜底不触发；
+- **根因 B（入库兜底误触发）**：`shouldAutoWardrobeIntake` 对剥离后文本仍命中 intake
+  （剥离异常残留"确认"等词，或内部块格式漂移），把纯试穿误判成照片入库；
+- **根因 C（路由侧同样受影响）**：16:08/16:10/16:11 各轮（含纯推荐"推荐一套少年风穿搭"）
+  均挂着 intake 组——只要用户有 PENDING 候选，候选块含"确认"词就命中 intake 正则，
+  仅因模型正常调了工具（called 非空短路兜底）才未暴雷。
+- **修复**：
+  - 四个兜底判定（maybeAutoConsult / maybeAutoTryOn / maybeCorrectWardrobeMisroute /
+    shouldAutoWardrobeIntake）统一先 `stripInternalContext(prompt)` 再判意图；
+  - `shouldAutoWardrobeIntake` 增加纯试穿排除：剥离后命中 `TRY_ON_INTENT`（试穿|穿一下|试试|试一下…
+    用 TRY_ON_INTENT 而非 hasTryOnIntent，后者带"照片/图片"排除词、剥离残留会误判）→ 直接返回 false，
+    即使内部块剥离异常残留"确认/照片"词也不走入库链路；候选确认/入库表达（确认/就要牛仔裤/选第一件/
+    抠图/就这件吧）不受影响，仍正常触发兜底；
+  - 加诊断日志：`ROUTE-DIAG`（prompt 含内部块却仍命中入库组，打印剥离结果）与
+    `AUTO-INTAKE-DIAG`（兜底触发时打印 called + 剥离文本），下次复现可直接定位残留词来源。
+- 测试补 4 个：真实 contextFor 三块（含嵌套"见[内部衣橱流程状态]"）完整剥离验证、剥离异常
+  （未闭合块残留"确认"）下纯试穿仍不触发入库兜底、候选确认/入库表达兜底不受破坏、路由不挂入库组。
+  18 用例全过。已打包重启（PID 9800）。
+
+#### 8.25 补充：真正的根因——文档指令模板污染路由（2026-08-06）
+
+复验 8.25 修复后仍发现：用户发「推荐一套少年风穿搭」，路由依然挂 `[wardrobe_intake, core, wardrobe_view, tryon]`
+（新增的 `ROUTE-DIAG` 日志暴露），且模型推荐成功后回复"已经提交试穿任务了"——**推荐被说成试穿**。
+- **根因**：`ILinkReplyService` 把**所有纯文本消息**都交给 `FileInstructionService.process`，
+  `buildPrompt` **总是**把 `DOCUMENT_TOOL_INSTRUCTION` 模板拼到用户消息前：
+  模板中的"用户**只要求**转成 PDF…"含连续"只要"二字，被 `INTENT_WARDROBE_INTAKE` 正则的「只要」
+  误命中 → 每轮纯文本（含推荐/试穿）都挂上入库工具组 → 模型输入被"## 当前文档与工具规则"污染，
+  把"推荐穿搭"输出成"试穿任务/识别图片中"（16:12:21 与 16:42:45 同源）。
+- **修复**（两层）：
+  1. `FileInstructionService.buildPrompt`：`sourceFile == null`（无文档上下文）时**直接透传用户指令**，
+     不再拼接文档指令模板；文档会话（用户发过文件后）仍带完整规则。ILinkReplyService 链路与
+     artifact（文档/图片/音频）转换能力保持不变；
+  2. 路由正则防御：`只要` → `只要(?!求)`，排除"只要求"式误命中；真实候选选择
+     "只要牛仔裤/只要这件"不受影响。
+- 测试补 2 个：文档指令包装文本（含"用户只要求"）不命中入库组 + "只要牛仔裤"仍命中。
+  AutoConsultTest 19 用例 + ILinkReplyServiceTest 15 用例全过。已打包重启（PID 33988）。
+
+#### 8.26 参考图发送：叠穿方案只发 2 张（2026-08-06）
+
+复验「推荐一套适合去搭讪的穿搭」时，outfit 148（叠穿：白色条纹衬衫叠穿黑色针织上衣）一次发回 3 张图
+（overview + 拼图 + 单件上衣），用户觉得冗余。
+- **根因**：outfit 148 有 4 张参考图（overview + 2 件 top + 1 件 bottom）。`planSendUnits` 只把
+  top①+bottom 合并拼图、overview 单独发，**第二件 top（148_4_top）无法配对 → 被当独立单品单独发**。
+- **修复**：`planSendUnits` 新增 `isGarmentImage` 过滤——top/bottom 之外的**所有分割单品图**
+  （叠穿第二件上衣、鞋、配饰）不再单独发；overview 等非分割图仍单独发。叠穿方案统一为 2 张
+  （整体图 + top①+bottom 拼图），普通方案不变。
+- 测试补 1 个：`layeredOutfitWithTwoTopsSendsOnlyOverviewAndCollage`（148 四 url → 2 次发送，
+  第二件 top 不单发）。FashionAgentServiceTest 12 用例全过。已打包重启（PID 33012）。
+
+#### 8.27 换装表达路由盲区："换一下"空承诺试穿（2026-08-06）
+
+复验 8.26 时发现：用户「好,我要是换一下」，路由只挂 `[core]`，模型根据上下文（刚推荐完 043）
+理解成试穿，回复"已经提交试穿任务了"却**无试穿工具可调**（virtual_try_on_reference_outfit 在 tryon 组，
+不在 core）→ 空承诺，且 maybeAutoTryOn 因"换一下"不在 TRY_ON_INTENT 未兜底。
+- **根因**：`TRY_ON_INTENT` 只覆盖"试穿/试试/穿一下"等，未覆盖"换上/换一下/换这身"等换装表达。
+- **修复**：`TRY_ON_INTENT` 追加 `换上|换一下|换这身|换这一身`——模型按上下文把这类表达理解成试穿时，
+  路由能挂 tryon 组提供工具；"换一套/再换一套"（换推荐，fashion_consultant 在 core 组）不受影响，
+  仍走推荐。
+- 测试补 2 个："换一下/换上这套试试/把这身换上"命中试穿意图；"再换一套"不命中试穿组 +
+  "换一套试试看"（含"试试"）挂试穿组合理。AutoConsultTest 20 用例全过。已打包重启（PID 31364）。

@@ -93,6 +93,7 @@ public class FashionAgentService {
     /** 参考图补发已改为同步发送，此字段仅保留以兼容既有构造签名与测试。 */
     private final ImageTaskRunner imageTaskRunner;
     private final ImageTaskCompletionPublisher completionPublisher;
+    private final ReferenceImageSendGate imageSendGate;
     private final RestClient httpClient;
     private volatile PreferenceInferenceService preferenceInference;
     /** 衣橱单品图片解析服务（读取用户衣橱单品图）；未装配（如单测或持久化关闭）时跳过衣橱图发送。 */
@@ -113,7 +114,8 @@ public class FashionAgentService {
                                QueryAnalyzer queryAnalyzer,
                                ReferenceImageResolver imageResolver,
                                ImageTaskRunner imageTaskRunner,
-                               ImageTaskCompletionPublisher completionPublisher) {
+                               ImageTaskCompletionPublisher completionPublisher,
+                               ReferenceImageSendGate imageSendGate) {
         this.coordinator = coordinator;
         this.formatter = formatter;
         this.conversationService = conversationService;
@@ -121,6 +123,7 @@ public class FashionAgentService {
         this.imageResolver = imageResolver;
         this.imageTaskRunner = imageTaskRunner;
         this.completionPublisher = completionPublisher;
+        this.imageSendGate = imageSendGate;
 
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5000);
@@ -366,21 +369,27 @@ public class FashionAgentService {
         log.info("scheduleReferenceImages: resolved {} urls -> {} send units",
                 resolved.urls().size(), units.size());
         int sent = 0;
+        List<java.util.concurrent.CompletableFuture<?>> sentFutures = new ArrayList<>();
         for (SendUnit unit : units) {
             if (sent >= MAX_REFERENCE_IMAGES) {
                 break;
             }
-            // 并行发送：各发送单元彼此独立，提交虚拟线程池并发下载+发送，
-            // 图片在工具返回前就绪、文本（模型后续生成）晚于图片，顺序保证不变
-            sendUnitAsync(userId, unit);
+            // 并行发送：各发送单元彼此独立，提交虚拟线程池并发下载+发送；
+            // 不阻塞文本生成，仅登记完成信号，由文本发送前等待（保证图先于文）
+            sentFutures.add(submitSendUnit(userId, unit));
             sent++;
+        }
+        if (!sentFutures.isEmpty() && imageSendGate != null) {
+            imageSendGate.track(userId, java.util.concurrent.CompletableFuture
+                    .allOf(sentFutures.toArray(new java.util.concurrent.CompletableFuture[0])));
         }
     }
 
     /**
      * 把参考图 URL 规划为发送单元：top+bottom 两件单品合并为一个拼图单元，
-     * 其余（overview、鞋、配饰等）各自单独发送。拼图可减少发送图数量，
-     * 降低微信 CDN 上传失败概率与整体发送耗时；无 outfit 编号或无法配对时保持原样逐张发送。
+     * 其余非分割单品（如 overview 整体图）单独发送；方案里其他分割单品（叠穿第二件上衣、
+     * 鞋、配饰等）不再单独发，避免同一方案一次发 3+ 张图（8.26：outfit 148 叠穿两件上衣
+     * 曾多出第二件上衣单发）。无 outfit 编号或无法配对时保持原样逐张发送。
      */
     private List<SendUnit> planSendUnits(String outfitId, List<String> urls) {
         if (outfitId == null || imageResolver == null || urls == null || urls.isEmpty()) {
@@ -395,12 +404,28 @@ public class FashionAgentService {
         List<SendUnit> units = new ArrayList<>();
         for (String url : urls) {
             if (url.equals(topUrl) || url.equals(bottomUrl)) {
-                continue;
+                continue; // top+bottom 合并为一张拼图
+            }
+            if (isGarmentImage(garments, url)) {
+                continue; // 其余分割单品不单独发，避免冗余多图
             }
             units.add(SendUnit.single(url));
         }
         units.add(new SendUnit.Collage(topUrl, bottomUrl));
         return units;
+    }
+
+    /** url 是否属于该方案的分割单品图（含 top/bottom 之外的叠穿上衣、鞋、配饰等）。 */
+    private static boolean isGarmentImage(List<ReferenceImageResolver.GarmentImage> garments, String url) {
+        if (garments == null || url == null) {
+            return false;
+        }
+        for (ReferenceImageResolver.GarmentImage garment : garments) {
+            if (garment != null && url.equals(garment.url())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String garmentUrl(List<ReferenceImageResolver.GarmentImage> garments, String type) {
@@ -512,14 +537,18 @@ public class FashionAgentService {
         }
     }
 
-    /** 异步并行发送一个参考图发送单元；executor 未装配（单测等场景）时降级为同步发送。 */
-    private void sendUnitAsync(String userId, SendUnit unit) {
+    /**
+     * 异步提交一个发送单元并返回完成句柄；{@code executor} 未装配（单测等场景）时同步执行并返回已完成句柄。
+     * 调用方 {@link #scheduleReferenceImages} 把句柄聚合为完成信号登记到 {@link ReferenceImageSendGate}，
+     * 由主流程在发送文本前等待，保证"整套图 → 参考拼图 → 文本描述"的推送顺序且不阻塞文本生成。
+     */
+    private java.util.concurrent.CompletableFuture<?> submitSendUnit(String userId, SendUnit unit) {
         ExecutorService pool = executor;
         if (pool != null) {
-            pool.execute(() -> sendUnit(userId, unit));
-        } else {
-            sendUnit(userId, unit);
+            return java.util.concurrent.CompletableFuture.runAsync(() -> sendUnit(userId, unit), pool);
         }
+        sendUnit(userId, unit);
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
 
     /** 发送单个单元：单张图直接发；拼图单元先拼好再发一张，拼接不可用时降级逐张发送。 */

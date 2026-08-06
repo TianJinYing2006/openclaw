@@ -232,6 +232,32 @@ public class FashionConversationService {
         }
     }
 
+    /**
+     * 查询用户最近若干次穿搭推荐命中的 outfit 编号（去重，按推荐先后）。
+     *
+     * <p>用于检索层"历史滑动窗口"排除：最近已推荐过的参考穿搭不再进入新一轮
+     * 候选池，从源头降低跨次推荐重复率。
+     *
+     * @param userId 用户 ID
+     * @param limit  最多返回最近几次（不足则返回全部）
+     * @return 最近命中的 outfit 编号集合（如 002/177），无数据时为空集合
+     */
+    public List<String> findRecentReferenceOutfits(String userId, int limit) {
+        if (userId == null || userId.isBlank() || limit <= 0) return List.of();
+        try {
+            return jdbc.query("""
+                    SELECT reference_outfit_id FROM fashion_conversations
+                    WHERE user_id = ? AND reference_outfit_id <> ''
+                    ORDER BY id DESC LIMIT ?
+                    """, (rs, rowNum) -> normalizeOutfitId(rs.getString("reference_outfit_id")),
+                    userId, limit).stream().distinct().toList();
+        } catch (Exception e) {
+            log.warn("Failed to find recent reference outfits for user {}: {}",
+                    userId, e.getMessage());
+            return List.of();
+        }
+    }
+
     /** 将 "outfit_002"/"[outfit_002]"/"002" 统一为 "002" 零填充格式，与 image_urls.json 的 key 对齐。 */
     private static String normalizeOutfitId(String raw) {
         if (raw == null || raw.isBlank()) return "";

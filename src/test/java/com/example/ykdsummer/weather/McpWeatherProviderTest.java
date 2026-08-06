@@ -3,9 +3,12 @@ package com.example.ykdsummer.weather;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.example.ykdsummer.ai.mcp.McpConnectionManager;
+import com.example.ykdsummer.ai.mcp.McpToolSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.ai.tool.ToolCallback;
@@ -15,7 +18,16 @@ class McpWeatherProviderTest {
 
     private final WeatherProperties properties = new WeatherProperties();
     private final SyncMcpToolCallbackProvider provider = mock(SyncMcpToolCallbackProvider.class);
-    private final McpWeatherProvider service = new McpWeatherProvider(provider, properties);
+    private final McpConnectionManager mcp = mock(McpConnectionManager.class);
+    private final McpWeatherProvider service = new McpWeatherProvider(mcp, properties);
+
+    {
+        // 测试环境用 mock 的 manager 委托到真实 findTool+call，保持原断言不变
+        when(mcp.callTool(anyString(), anyString())).thenAnswer(invocation -> {
+            ToolCallback tool = McpToolSupport.findTool(provider, invocation.getArgument(0));
+            return tool == null ? null : tool.call(invocation.getArgument(1));
+        });
+    }
 
     @Test
     void parsesStructuredWeatherJsonIntoWeatherInfo() {
