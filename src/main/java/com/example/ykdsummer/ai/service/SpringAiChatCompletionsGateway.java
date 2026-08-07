@@ -29,6 +29,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -88,12 +89,19 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private static final Pattern INTENT_WARDROBE_INTAKE = Pattern.compile(
             "入库|放进衣橱|放进衣柜|加入衣橱|加入衣柜|帮我加入|抠图|识别.*(照片|衣服)|上传.*(衣服|照片)"
                     + "|把.*(照片|图|衣服).*(衣橱|衣柜|入库)|这件.*(入库|放进)|这张图.*(衣橱|衣柜|入库)"
-                    + "|只要(?!求)|就要|选第一件|选这件|选.*件|都要|确认入库|就这件|这件可以|抠图吧"
+                    + "|只要(?!求)|就要|只存|只留|只加入|只入|只保留|选第一件|选这件|选.*件|都要|确认入库|就这件|这件可以|抠图吧"
                     + "|确认|确认一下|就它了|就它|就这件吧|同意");
 
     /** 衣橱查看/筛选意图：命中时提供衣橱查看工具组。 */
     private static final Pattern INTENT_WARDROBE_VIEW = Pattern.compile(
             "衣橱|衣柜|我的衣服|找.*衣服|筛选|看看.*(衣服|衣柜|衣橱)|有什么衣服|都有什么");
+
+    /** 用户画像/偏好查询意图：命中时挂衣橱查看组（含 get_fashion_profile），
+     *  让模型读取真实画像而非凭历史聊天猜测（8.29：用户问"我当前的用户画像"时只挂 core，
+     *  模型无画像工具可用，只能猜测）。 */
+    private static final Pattern INTENT_FASHION_PROFILE = Pattern.compile(
+            "我的画像|用户画像|我的偏好|我的风格|我的预算|我的穿衣风格|我的穿搭习惯|我的喜好|个人画像"
+                    + "|我是什么风格|我适合什么风格|了解我|我的衣服风格|我的穿搭风格");
 
     /** 定时提醒意图：命中时提供提醒工具组。 */
     private static final Pattern INTENT_REMINDER = Pattern.compile(
@@ -307,6 +315,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             groups.add(ToolRegistry.GROUP_WARDROBE_VIEW);
             groups.add(ToolRegistry.GROUP_TRYON);
         }
+        if (INTENT_FASHION_PROFILE.matcher(userMessage).find()) {
+            groups.add(ToolRegistry.GROUP_WARDROBE_VIEW);
+        }
         if (INTENT_WARDROBE_INTAKE.matcher(userMessage).find()) {
             // 诊断：prompt 含内部上下文但剥离后仍命中入库意图——说明剥离可能有残留，需定位根因
             if (prompt != null && prompt.contains("[内部")) {
@@ -429,13 +440,21 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         if (toolCallingManager == null || toolRegistry == null || fashionConversationService == null) {
             return text;
         }
+        String stripped = stripInternalContext(prompt);
         Set<String> called = toolCallingManager.calledToolNames();
-        if (called.contains(TRY_ON_TOOL)
-                || called.stream().anyMatch(FASHION_DOMAIN_TOOLS::contains)) {
+        // 已提交过试穿或本轮正在换推荐（consult）时不再补调；仅查询衣橱（search_wardrobe 等）
+        // 不算提交试穿，模型可能查完单品却漏调试穿工具（8.28），仍需兜底。
+        if (called.contains(TRY_ON_TOOL) || called.contains("virtual_try_on_wardrobe_item")
+                || called.contains("fashion_consultant")) {
             return text;
         }
-        if (!hasTryOnIntent(stripInternalContext(prompt))) {
+        if (!hasTryOnIntent(stripped)) {
             return text;
+        }
+        // 衣橱单品试穿（如"试穿这件白色T恤"）：模型只查了单品未调试穿工具时，
+        // 用语义搜索定位 wardrobeItemId 并补调 virtual_try_on_wardrobe_item。
+        if (hasWardrobeItemIntent(stripped)) {
+            return maybeAutoWardrobeItemTryOn(userId, stripped, text, called);
         }
         String outfitId = fashionConversationService.findLatestReferenceOutfit(userId);
         if (outfitId == null || outfitId.isBlank()) {
@@ -456,6 +475,60 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             log.warn("Auto {} fallback failed: {}", TRY_ON_TOOL, failure.getMessage());
         }
         return text;
+    }
+
+    /** 语义搜索结果中的内部 wardrobeItemId（如 "- wardrobeItemId=7；名称=白色T恤"）。 */
+    private static final Pattern WARDROBE_ITEM_ID_PATTERN = Pattern.compile("wardrobeItemId=(\\d+)");
+
+    /** 衣橱单品试穿漏调兜底：用户明确指向衣橱单品（"试穿这件白色T恤"），模型只调了
+     *  search_wardrobe 查询、未调 virtual_try_on_wardrobe_item 时，按描述语义搜索定位
+     *  wardrobeItemId 并补调，保证用户能收到上身效果图。 */
+    private String maybeAutoWardrobeItemTryOn(
+            String userId, String stripped, String text, Set<String> called
+    ) {
+        if (called.contains("virtual_try_on_reference_outfit")) {
+            return text; // 已提交过试穿（哪怕是错调的推荐方案），不再重复补调
+        }
+        try {
+            Optional<ToolRegistry.ToolEntry> search = toolRegistry.find("search_wardrobe_semantic");
+            if (search.isEmpty()) {
+                return text;
+            }
+            String query = extractGarmentDescription(stripped);
+            Object searchResult = search.get().method().invoke(search.get().bean(),
+                    query, null, null, null, null, null, null, null, null, null);
+            if (searchResult == null || searchResult.toString().isBlank()) {
+                return text;
+            }
+            Matcher idMatcher = WARDROBE_ITEM_ID_PATTERN.matcher(searchResult.toString());
+            if (!idMatcher.find()) {
+                return text;
+            }
+            long wardrobeItemId = Long.parseLong(idMatcher.group(1));
+            Optional<ToolRegistry.ToolEntry> tryOn = toolRegistry.find("virtual_try_on_wardrobe_item");
+            if (tryOn.isEmpty()) {
+                return text;
+            }
+            log.info("Auto-invoking virtual_try_on_wardrobe_item for user {}: model replied without calling it, wardrobeItemId={}",
+                    userId, wardrobeItemId);
+            Object result = tryOn.get().method().invoke(tryOn.get().bean(), wardrobeItemId);
+            if (result != null && !result.toString().isBlank()) {
+                return text + "\n\n" + result;
+            }
+        } catch (Exception failure) {
+            log.warn("Auto wardrobe-item try-on fallback failed: {}", failure.getMessage());
+        }
+        return text;
+    }
+
+    /** 从试穿意图文本中剥离动作词，保留单品描述（"试穿这件白色T恤" → "白色T恤"）。 */
+    private static final Pattern TRY_ON_ACTION_WORDS = Pattern.compile(
+            "(?<!面)试穿|穿一下|穿穿|上身效果|穿上看看|试试|试一下|试一试|试下|换上|换一下|换这身|换这一身"
+                    + "|这件|那件|这套|那套|这个|那个|一下|看看|帮我把|帮我");
+
+    private static String extractGarmentDescription(String prompt) {
+        String cleaned = TRY_ON_ACTION_WORDS.matcher(prompt).replaceAll(" ").strip();
+        return cleaned.isBlank() ? prompt : cleaned;
     }
 
     /** 本轮用户输入是否包含明确的试穿执行意图（排除衣橱单品/疑问/图片类消息）。 */

@@ -12,10 +12,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.ykdsummer.ai.config.AiProperties;
+import com.example.ykdsummer.ai.fashion.profile.FashionConversationService;
 import com.example.ykdsummer.ai.orchestration.BoundedToolCallingManager;
 import com.example.ykdsummer.ai.orchestration.ToolRegistry;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
 import com.example.ykdsummer.fashion.application.FashionWardrobeIngestionService;
+import com.example.ykdsummer.fashion.tool.FashionSemanticTools;
+import com.example.ykdsummer.fashion.tool.FashionTryOnTools;
 import com.example.ykdsummer.fashion.tool.FashionWardrobeIntakeTools;
 import java.lang.reflect.Method;
 import java.time.Instant;
@@ -510,6 +513,76 @@ class SpringAiChatCompletionsGatewayAutoConsultTest {
                 .contains(ToolRegistry.GROUP_WARDROBE_INTAKE));
     }
 
+    @Test
+    void onlySaveExpressionRoutesToIntake() {
+        // 8.28 问题 1：用户候选限定"只存白色T恤"应挂入库组并提供入库兜底
+        assertTrue(SpringAiChatCompletionsGateway.toolsForPrompt("只存白色t恤")
+                .contains(ToolRegistry.GROUP_WARDROBE_INTAKE));
+        assertTrue(SpringAiChatCompletionsGateway.toolsForPrompt("只留这件裤子")
+                .contains(ToolRegistry.GROUP_WARDROBE_INTAKE));
+        assertTrue(SpringAiChatCompletionsGateway.shouldAutoWardrobeIntake(Set.of(), "只存白色t恤"));
+    }
+
+    @Test
+    void profileQueryRoutesToWardrobeViewForProfileTool() {
+        // 8.29：用户问"我当前的用户画像"应挂衣橱查看组（含 get_fashion_profile），
+        // 否则模型只能凭历史聊天猜测画像，读不到真实偏好数据
+        for (String query : List.of(
+                "我当前的用户画像是什么",
+                "我的穿搭风格是什么",
+                "我的预算偏好",
+                "帮我看看我的穿衣风格",
+                "我适合什么风格")) {
+            Set<String> groups = SpringAiChatCompletionsGateway.toolsForPrompt(query);
+            assertTrue(groups.contains(ToolRegistry.GROUP_WARDROBE_VIEW),
+                    "画像查询应挂衣橱查看组: " + query + " -> " + groups);
+        }
+        // 无关问题不误挂
+        assertFalse(SpringAiChatCompletionsGateway.toolsForPrompt("今天天气怎么样")
+                .contains(ToolRegistry.GROUP_WARDROBE_VIEW));
+    }
+
+    @Test
+    void autoTryOnFillsWardrobeItemWhenModelOnlySearched() throws Exception {
+        // 8.28 问题 2：模型只调了 search_wardrobe 查询、未调 virtual_try_on_wardrobe_item，
+        // 兜底按描述语义搜索定位 wardrobeItemId 并补调，用户能收到效果图。
+        String userId = "managed:11111111-1111-1111-1111-111111111111:wechat-user";
+        FashionSemanticTools semanticTools = mock(FashionSemanticTools.class);
+        Method searchMethod = FashionSemanticTools.class.getMethod("searchWardrobeSemantic",
+                String.class, String.class, String.class, List.class, String.class, String.class,
+                List.class, List.class, String.class, Integer.class);
+        when(semanticTools.searchWardrobeSemantic(eq("白色T恤"), isNull(), isNull(), isNull(), isNull(),
+                isNull(), isNull(), isNull(), isNull(), isNull()))
+                .thenReturn("- wardrobeItemId=7；名称=白色T恤；类目=T_SHIRT；匹配分数=0.9");
+        FashionTryOnTools tryOnTools = mock(FashionTryOnTools.class);
+        Method tryOnMethod = FashionTryOnTools.class.getMethod("virtualTryOnWardrobeItem", long.class);
+        when(tryOnTools.virtualTryOnWardrobeItem(7L))
+                .thenReturn("已开始生成这件衣服的上身效果。后台完成后会自动把图片发给你。");
+
+        ToolRegistry registry = mock(ToolRegistry.class);
+        when(registry.find("search_wardrobe_semantic"))
+                .thenReturn(Optional.of(new ToolRegistry.ToolEntry("search_wardrobe_semantic", "", semanticTools, searchMethod)));
+        when(registry.find("virtual_try_on_wardrobe_item"))
+                .thenReturn(Optional.of(new ToolRegistry.ToolEntry("virtual_try_on_wardrobe_item", "", tryOnTools, tryOnMethod)));
+        BoundedToolCallingManager calls = mock(BoundedToolCallingManager.class);
+        when(calls.calledToolNames()).thenReturn(Set.of("search_wardrobe"));
+
+        ToolArtifactCollector collector = new ToolArtifactCollector();
+        SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
+                mock(org.springframework.ai.chat.model.ChatModel.class), new AiProperties(),
+                new Object[]{}, collector, AiTraceLogger.disabled());
+        setGatewayField(gateway, "toolCallingManager", calls);
+        setGatewayField(gateway, "toolRegistry", registry);
+        setGatewayField(gateway, "fashionConversationService", mock(FashionConversationService.class));
+
+        String result = invokeAutoTryOn(gateway, userId, "试穿这件白色T恤", "已经提交试穿任务了～");
+
+        assertTrue(result.contains("已经提交试穿任务了"));
+        assertTrue(result.contains("已开始生成这件衣服的上身效果"));
+        verify(tryOnTools).virtualTryOnWardrobeItem(7L);
+        collector.finish();
+    }
+
     private static void setGatewayField(Object target, String name, Object value) throws Exception {
         java.lang.reflect.Field field = SpringAiChatCompletionsGateway.class.getDeclaredField(name);
         field.setAccessible(true);
@@ -520,6 +593,14 @@ class SpringAiChatCompletionsGatewayAutoConsultTest {
                                                    String prompt, String text) throws Exception {
         java.lang.reflect.Method method = SpringAiChatCompletionsGateway.class
                 .getDeclaredMethod("maybeAutoWardrobeIntake", String.class, String.class, String.class);
+        method.setAccessible(true);
+        return (String) method.invoke(gateway, userId, prompt, text);
+    }
+
+    private static String invokeAutoTryOn(SpringAiChatCompletionsGateway gateway, String userId,
+                                          String prompt, String text) throws Exception {
+        java.lang.reflect.Method method = SpringAiChatCompletionsGateway.class
+                .getDeclaredMethod("maybeAutoTryOn", String.class, String.class, String.class);
         method.setAccessible(true);
         return (String) method.invoke(gateway, userId, prompt, text);
     }

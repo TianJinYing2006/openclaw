@@ -12,6 +12,7 @@ import com.example.ykdsummer.fashion.domain.WardrobeItem;
 import com.example.ykdsummer.fashion.domain.WardrobeItemDraft;
 import com.example.ykdsummer.fashion.domain.WardrobeSearchCriteria;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.ai.tool.annotation.Tool;
@@ -38,7 +39,9 @@ public class FashionTools implements AiTool {
     }
 
     @Tool(name = "get_fashion_profile", description = "当用户询问自己的穿搭风格、预算、常见场景、偏好，"
-            + "或要基于历史衣橱给出穿搭建议前调用。只返回当前微信会话用户的长期画像和已确认偏好。")
+            + "或要基于历史衣橱给出穿搭建议前调用。只返回当前微信会话用户的长期画像和已确认偏好。"
+            + "调用后请用 2-3 句自然语言向用户概括画像（如\"你整体偏简约休闲，常出现在通勤场合，预算约…\"），"
+            + "不要照读或罗列字段名。")
     public String getFashionProfile() {
         String userId = currentUser();
         if (userId == null) return unavailableIdentity();
@@ -194,28 +197,27 @@ public class FashionTools implements AiTool {
     }
 
     private static String describeProfile(FashionUserProfile profile, List<FashionUserPreference> preferences) {
-        StringBuilder result = new StringBuilder("当前穿搭画像：");
-        boolean hasProfile = false;
-        if (!safe(profile.genderExpression()).isBlank()) {
-            result.append("性别表达 ").append(profile.genderExpression());
-            hasProfile = true;
-        }
+        List<String> parts = new ArrayList<>();
         if (!safe(profile.styleSummary()).isBlank()) {
-            appendSeparator(result, hasProfile).append("风格 ").append(profile.styleSummary());
-            hasProfile = true;
-        }
-        if (profile.budgetMin() != null || profile.budgetMax() != null) {
-            appendSeparator(result, hasProfile).append("预算 ")
-                    .append(profile.budgetMin() == null ? "未设下限" : profile.budgetMin().stripTrailingZeros().toPlainString())
-                    .append(" - ")
-                    .append(profile.budgetMax() == null ? "未设上限" : profile.budgetMax().stripTrailingZeros().toPlainString());
-            hasProfile = true;
+            parts.add("偏" + profile.styleSummary() + "风格");
         }
         if (!profile.commonOccasions().isEmpty()) {
-            appendSeparator(result, hasProfile).append("常见场景 ").append(String.join("、", profile.commonOccasions()));
-            hasProfile = true;
+            parts.add("常出现在" + String.join("、", profile.commonOccasions()) + "场合");
         }
-        if (!hasProfile) result.append("暂未补充明确资料");
+        if (profile.budgetMin() != null || profile.budgetMax() != null) {
+            parts.add("预算约 " + formatBudget(profile.budgetMin()) + " - " + formatBudget(profile.budgetMax()) + " 元");
+        }
+        if (!safe(profile.genderExpression()).isBlank()) {
+            parts.add("性别表达 " + profile.genderExpression());
+        }
+
+        // 概括句优先：直接输出可向用户转述的自然语言，避免模型逐字段罗列
+        StringBuilder result = new StringBuilder("当前穿搭画像概括：");
+        if (parts.isEmpty()) {
+            result.append("暂未补充明确资料");
+        } else {
+            result.append(String.join("，", parts)).append("。");
+        }
         if (preferences == null || preferences.isEmpty()) {
             result.append("\n已确认偏好：暂无。");
         } else {
@@ -224,6 +226,10 @@ public class FashionTools implements AiTool {
                     .append(value.valueCode()).append("；"));
         }
         return result.toString();
+    }
+
+    private static String formatBudget(java.math.BigDecimal value) {
+        return value == null ? "未设" : value.stripTrailingZeros().toPlainString();
     }
 
     private static String describeWardrobe(List<WardrobeItem> items, WardrobeSearchCriteria criteria) {
@@ -335,11 +341,6 @@ public class FashionTools implements AiTool {
             case "OUTFIT", "SUIT", "SET" -> "OUTFIT";
             default -> safe(category).toUpperCase(Locale.ROOT);
         };
-    }
-
-    private static StringBuilder appendSeparator(StringBuilder value, boolean hasPrevious) {
-        if (hasPrevious) value.append("；");
-        return value;
     }
 
     private static String safe(String value) {

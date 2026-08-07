@@ -1816,3 +1816,36 @@ qwen3.7-max 却调用 `virtual_try_on_reference_outfit outfit=238, type=top`（2
   仍走推荐。
 - 测试补 2 个："换一下/换上这套试试/把这身换上"命中试穿意图；"再换一套"不命中试穿组 +
   "换一套试试看"（含"试试"）挂试穿组合理。AutoConsultTest 20 用例全过。已打包重启（PID 31364）。
+
+#### 8.28 照片入库 + 试穿复验：两个盲区修复（2026-08-06）
+
+复验照片入库与试穿链路（17:45-17:49，白色T恤入库 wardrobeItem=7 全通），发现两个盲区：
+- **问题 1（"只存"入库盲区）**：用户「只存白色t恤」，路由只挂 `[core]` → 模型回复"没有衣橱入库的工具权限"。
+  根因：`INTENT_WARDROBE_INTAKE` 只有"只要"，"只**存**/只留/只加入"未命中。
+  修复：正则补 `只存|只留|只加入|只入|只保留`。
+- **问题 2（衣橱单品试穿漏调空承诺）**：用户「试穿这件白色T恤」，模型调了 search_wardrobe 查到
+  wardrobeItemId=7 后**未调 virtual_try_on_wardrobe_item**，回复"已经提交试穿任务了"空承诺。
+  根因：`maybeAutoTryOn` 把"已调过任一穿搭域工具（含 search_wardrobe）"当作已试穿而短路；
+  且衣橱单品试穿（wardrobe_item）本就没有漏调兜底。
+  修复：
+  - 短路条件收窄为"已调试穿工具或本轮在换推荐（fashion_consultant）"——仅查询衣橱不算已试穿；
+  - 新增 `maybeAutoWardrobeItemTryOn`：hasWardrobeItemIntent 时按描述剥离动作词
+    （"试穿这件白色T恤"→"白色T恤"）反射调 search_wardrobe_semantic 定位 wardrobeItemId，
+    再补调 virtual_try_on_wardrobe_item，把后台任务提示追加到回复。
+- 测试补 2 个：`onlySaveExpressionRoutesToIntake`（只存/只留命中入库组与兜底）、
+  `autoTryOnFillsWardrobeItemWhenModelOnlySearched`（模型只查询时兜底补调 wardrobe_item 并 verify 调用）。
+  AutoConsultTest 22 用例全过。已打包重启（PID 28708）。
+
+#### 8.29 用户画像查询路由 + 概括输出（2026-08-07）
+
+用户问「我当前的用户画像是什么」时，日志显示路由只挂 `[core]`，模型**没调 get_fashion_profile**
+（该工具在 wardrobe_view 组未挂载），只能凭历史聊天猜测画像（"杭州/衣橱6件…"），读不到真实偏好数据。
+- **根因**：`INTENT_WARDROBE_VIEW` 无"画像/偏好"表达，画像查询意图无路由。
+- **修复**：
+  - 新增 `INTENT_FASHION_PROFILE` 正则（我的画像/用户画像/我的偏好/我的风格/我的预算/我的穿衣风格/
+    我适合什么风格/了解我等），`toolsForPrompt` 命中即挂 wardrobe_view 组（含 get_fashion_profile）；
+  - `get_fashion_profile` 工具描述补充"调用后用 2-3 句自然语言概括画像，不罗列字段名"；
+  - `describeProfile` 改输出概括句优先（"当前穿搭画像概括：偏简约休闲风格，常出现在通勤场合，
+    预算约 500-1500 元…"），模型可直接转述。
+- 测试补 1 个：`profileQueryRoutesToWardrobeViewForProfileTool`（5 种画像问法命中 wardrobe_view 组，
+  天气闲聊不误挂）。AutoConsultTest 23 用例全过。已打包重启（PID 27088）。
