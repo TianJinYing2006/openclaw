@@ -7,8 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
-import com.example.ykdsummer.fashion.runtime.FashionGarmentCutoutCompletedEvent;
-import com.example.ykdsummer.fashion.runtime.FashionGarmentCutoutFailedEvent;
+import com.example.ykdsummer.fashion.wardrobe.runtime.FashionGarmentCutoutCompletedEvent;
+import com.example.ykdsummer.fashion.wardrobe.runtime.FashionGarmentCutoutFailedEvent;
 import org.junit.jupiter.api.Test;
 
 class ILinkFashionGarmentCutoutCompletionListenerTest {

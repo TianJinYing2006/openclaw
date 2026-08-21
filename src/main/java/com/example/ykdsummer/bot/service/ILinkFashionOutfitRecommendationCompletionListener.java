@@ -2,8 +2,8 @@ package com.example.ykdsummer.bot.service;
 
 import com.example.ykdsummer.admin.ilink.ManagedBotInstanceManager;
 import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
-import com.example.ykdsummer.fashion.domain.OutfitRenderStatus;
-import com.example.ykdsummer.fashion.runtime.FashionOutfitRecommendationCompletedEvent;
+import com.example.ykdsummer.fashion.wardrobe.domain.OutfitRenderStatus;
+import com.example.ykdsummer.fashion.wardrobe.runtime.FashionOutfitRecommendationCompletedEvent;
 import com.example.ykdsummer.persistence.ManagedInstanceScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

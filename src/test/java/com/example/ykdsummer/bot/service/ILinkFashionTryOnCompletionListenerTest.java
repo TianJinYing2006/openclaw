@@ -7,7 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
-import com.example.ykdsummer.fashion.runtime.FashionTryOnCompletedEvent;
+import com.example.ykdsummer.fashion.wardrobe.runtime.FashionTryOnCompletedEvent;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 

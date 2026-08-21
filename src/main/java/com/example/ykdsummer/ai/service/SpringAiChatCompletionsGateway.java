@@ -1,7 +1,7 @@
 package com.example.ykdsummer.ai.service;
 
 import com.example.ykdsummer.ai.config.AiProperties;
-import com.example.ykdsummer.ai.fashion.profile.FashionConversationService;
+import com.example.ykdsummer.ai.fashion.look.profile.FashionConversationService;
 import com.example.ykdsummer.ai.model.ConversationMessage;
 import com.example.ykdsummer.ai.orchestration.BoundedToolCallingManager;
 import com.example.ykdsummer.ai.orchestration.ToolRegistry;
@@ -129,7 +129,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     /** 最近上传图片查询（照片入库漏调兜底取 img_ 编号用）；{@code @Autowired(required=false)} 保持测试构造不受影响。 */
     private volatile LocalImageAssetStore imageStore;
     /** 衣橱入库流程（兜底判断照片是否已有识别候选，决定补调识别还是提交抠图）；{@code @Autowired(required=false)}。 */
-    private volatile com.example.ykdsummer.fashion.application.FashionWardrobeIngestionService wardrobeIngestion;
+    private volatile com.example.ykdsummer.fashion.wardrobe.application.FashionWardrobeIngestionService wardrobeIngestion;
 
     /**
      * 生产环境构造器：工具由 {@link ToolRegistry} 自动扫描注册。
@@ -166,7 +166,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
 
     @Autowired(required = false)
     public void setWardrobeIngestion(
-            com.example.ykdsummer.fashion.application.FashionWardrobeIngestionService service) {
+            com.example.ykdsummer.fashion.wardrobe.application.FashionWardrobeIngestionService service) {
         this.wardrobeIngestion = service;
     }
 
@@ -602,9 +602,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             try {
                 hasCandidates = wardrobeIngestion.candidatesForPhoto(userId, imageAssetId, null).stream()
                         .anyMatch(candidate -> candidate.status()
-                                        == com.example.ykdsummer.fashion.domain.ClothingCandidateStatus.PENDING_SELECTION
+                                        == com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidateStatus.PENDING_SELECTION
                                 && candidate.completenessStatus()
-                                        == com.example.ykdsummer.fashion.domain.ClothingCompletenessStatus.READY);
+                                        == com.example.ykdsummer.fashion.wardrobe.domain.ClothingCompletenessStatus.READY);
             } catch (RuntimeException ignored) {
                 // 图片不可用等异常视为无候选，兜底走识别。
             }

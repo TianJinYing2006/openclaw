@@ -5,9 +5,9 @@ import com.example.ykdsummer.ai.model.AiArtifact;
 import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.ai.model.ConversationMessage;
-import com.example.ykdsummer.ai.fashion.agent.FashionAgentWorkflowContextProvider;
-import com.example.ykdsummer.fashion.application.FashionWardrobeDraftCommandHandler;
-import com.example.ykdsummer.fashion.tool.FashionWardrobeVisualCommandHandler;
+import com.example.ykdsummer.ai.fashion.look.agent.FashionAgentWorkflowContextProvider;
+import com.example.ykdsummer.fashion.wardrobe.application.FashionWardrobeDraftCommandHandler;
+import com.example.ykdsummer.fashion.wardrobe.tool.FashionWardrobeVisualCommandHandler;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 

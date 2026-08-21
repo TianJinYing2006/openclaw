@@ -2,9 +2,9 @@ package com.example.ykdsummer.bot.service;
 
 import com.example.ykdsummer.admin.ilink.ManagedBotInstanceManager;
 import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
-import com.example.ykdsummer.fashion.application.FashionWardrobeIngestionService;
-import com.example.ykdsummer.fashion.runtime.FashionGarmentCutoutCompletedEvent;
-import com.example.ykdsummer.fashion.runtime.FashionGarmentCutoutFailedEvent;
+import com.example.ykdsummer.fashion.wardrobe.application.FashionWardrobeIngestionService;
+import com.example.ykdsummer.fashion.wardrobe.runtime.FashionGarmentCutoutCompletedEvent;
+import com.example.ykdsummer.fashion.wardrobe.runtime.FashionGarmentCutoutFailedEvent;
 import com.example.ykdsummer.persistence.ManagedInstanceScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

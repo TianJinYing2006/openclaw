@@ -7,8 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.ykdsummer.bot.runtime.ILinkReplyContextStore;
-import com.example.ykdsummer.fashion.domain.OutfitRenderStatus;
-import com.example.ykdsummer.fashion.runtime.FashionOutfitRecommendationCompletedEvent;
+import com.example.ykdsummer.fashion.wardrobe.domain.OutfitRenderStatus;
+import com.example.ykdsummer.fashion.wardrobe.runtime.FashionOutfitRecommendationCompletedEvent;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

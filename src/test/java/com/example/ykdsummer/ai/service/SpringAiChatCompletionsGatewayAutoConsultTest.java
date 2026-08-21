@@ -12,14 +12,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.ykdsummer.ai.config.AiProperties;
-import com.example.ykdsummer.ai.fashion.profile.FashionConversationService;
+import com.example.ykdsummer.ai.fashion.look.profile.FashionConversationService;
 import com.example.ykdsummer.ai.orchestration.BoundedToolCallingManager;
 import com.example.ykdsummer.ai.orchestration.ToolRegistry;
 import com.example.ykdsummer.ai.tool.ToolArtifactCollector;
-import com.example.ykdsummer.fashion.application.FashionWardrobeIngestionService;
-import com.example.ykdsummer.fashion.tool.FashionSemanticTools;
-import com.example.ykdsummer.fashion.tool.FashionTryOnTools;
-import com.example.ykdsummer.fashion.tool.FashionWardrobeIntakeTools;
+import com.example.ykdsummer.fashion.wardrobe.application.FashionWardrobeIngestionService;
+import com.example.ykdsummer.fashion.wardrobe.tool.FashionSemanticTools;
+import com.example.ykdsummer.fashion.wardrobe.tool.FashionTryOnTools;
+import com.example.ykdsummer.fashion.wardrobe.tool.FashionWardrobeIntakeTools;
 import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
@@ -291,9 +291,9 @@ class SpringAiChatCompletionsGatewayAutoConsultTest {
         when(ingestion.candidatesForPhoto(eq(userId), eq("img_recent"), isNull()))
                 .thenReturn(List.of(pendingCandidate("cand-1")));
         when(ingestion.selectCandidatesForCutout(eq(userId), eq(List.of("cand-1"))))
-                .thenReturn(List.of(new com.example.ykdsummer.fashion.domain.GarmentCutoutTask(
+                .thenReturn(List.of(new com.example.ykdsummer.fashion.wardrobe.domain.GarmentCutoutTask(
                         "task-1", "cand-1", 7L, "instance", 11L, 1, "",
-                        com.example.ykdsummer.fashion.domain.GarmentCutoutTaskStatus.PENDING,
+                        com.example.ykdsummer.fashion.wardrobe.domain.GarmentCutoutTaskStatus.PENDING,
                         null, "", null, null, Instant.now().plusSeconds(600), Instant.now(), Instant.now())));
 
         SpringAiChatCompletionsGateway gateway = new SpringAiChatCompletionsGateway(
@@ -360,13 +360,13 @@ class SpringAiChatCompletionsGatewayAutoConsultTest {
         collector.finish();
     }
 
-    private static com.example.ykdsummer.fashion.domain.ClothingCandidate pendingCandidate(String id) {
+    private static com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidate pendingCandidate(String id) {
         Instant now = Instant.now();
-        return new com.example.ykdsummer.fashion.domain.ClothingCandidate(id, 7L, "instance", 11L, 0,
+        return new com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidate(id, 7L, "instance", 11L, 0,
                 "蓝色格纹整套穿搭", "OUTFIT", "BLUE", List.of(), List.of("CASUAL"), "RELAXED",
                 List.of("SUMMER"), "{}", new java.math.BigDecimal("0.92"), new java.math.BigDecimal("0.90"),
-                com.example.ykdsummer.fashion.domain.ClothingCompletenessStatus.READY, "",
-                com.example.ykdsummer.fashion.domain.ClothingCandidateStatus.PENDING_SELECTION,
+                com.example.ykdsummer.fashion.wardrobe.domain.ClothingCompletenessStatus.READY, "",
+                com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidateStatus.PENDING_SELECTION,
                 null, null, "test", "test", "fashion-v1", now.plusSeconds(600), now, now);
     }
 
