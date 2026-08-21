@@ -1,10 +1,11 @@
-package com.example.ykdsummer.fashion.wardrobe.application;
+package com.example.ykdsummer.ai.fashion.look.agent;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.example.ykdsummer.ai.fashion.look.agent.FashionAgentWorkflowContextProvider;
+import com.example.ykdsummer.fashion.wardrobe.application.FashionWardrobeIngestionService;
+import com.example.ykdsummer.fashion.wardrobe.application.OutfitRecommendationService;
 import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidate;
 import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidateStatus;
 import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCompletenessStatus;

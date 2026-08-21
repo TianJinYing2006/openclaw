@@ -125,7 +125,7 @@
 
 ### 3.1 FashionAgentService (主入口)
 
-**位置**: com.example.ykdsummer.ai.fashion.service.FashionAgentService
+**位置**: com.example.ykdsummer.ai.fashion.look.FashionAgentService
 **类型**: @Component + @Tool 方法
 
 **职责**:
@@ -711,7 +711,7 @@ trace.agentResult("Stylist", outputJson, success ? "success" : "fallback");
 ## 四、包结构
 
 `
-com.example.ykdsummer.ai.fashion
+com.example.ykdsummer.ai.fashion.look
 ├── FashionAgentService.java              -- @Tool 入口
 ├── FashionResponseFormatter.java         -- 输出格式化
 ├── model/

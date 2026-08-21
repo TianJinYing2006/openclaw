@@ -2,8 +2,8 @@ package com.example.ykdsummer.fashion.wardrobe.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.ykdsummer.ai.fashion.look.agent.FashionAgentWorkflowContextProvider;
 import com.example.ykdsummer.ai.service.AiChatService;
+import com.example.ykdsummer.common.fashion.FashionWorkflowContextProvider;
 import com.example.ykdsummer.ai.orchestration.ToolRegistry;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -25,7 +25,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class FashionPersistenceApplicationContextTest {
 
     @Autowired
-    private FashionAgentWorkflowContextProvider workflowContext;
+    private FashionWorkflowContextProvider workflowContext;
 
     @Autowired
     private AiChatService chatService;

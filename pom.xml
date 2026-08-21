@@ -149,6 +149,14 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- ArchUnit：在测试层强制 fashion 边界依赖方向（需求三 Full-B，防 B→A 反向依赖滑回） -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.3.0</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- x-easypdf-pdfbox：基于 PDFBox 封装，内置中文字体，自动换行/分页 -->
         <dependency>
             <groupId>org.dromara</groupId>

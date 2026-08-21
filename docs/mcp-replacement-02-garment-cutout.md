@@ -94,7 +94,7 @@ GarmentCutoutService.CutoutResult result = isRevision
 路径：`src/main/java/com/example/ykdsummer/fashion/config/FashionCutoutProperties.java`
 
 ```java
-package com.example.ykdsummer.fashion.config;
+package com.example.ykdsummer.fashion.wardrobe.config;
 
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -202,12 +202,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 路径：`src/main/java/com/example/ykdsummer/fashion/application/McpGarmentCutoutService.java`
 
 ```java
-package com.example.ykdsummer.fashion.application;
+package com.example.ykdsummer.fashion.wardrobe.application;
 
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
-import com.example.ykdsummer.fashion.config.FashionCutoutProperties;
-import com.example.ykdsummer.fashion.domain.ClothingCandidate;
+import com.example.ykdsummer.fashion.wardrobe.config.FashionCutoutProperties;
+import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidate;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -457,7 +457,7 @@ app.fashion.cutout.mcp.timeout=${FASHION_CUTOUT_MCP_TIMEOUT:120s}
 路径：`src/test/java/com/example/ykdsummer/fashion/application/McpGarmentCutoutServiceTest.java`
 
 ```java
-package com.example.ykdsummer.fashion.application;
+package com.example.ykdsummer.fashion.wardrobe.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -465,10 +465,10 @@ import static org.mockito.Mockito.when;
 
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
-import com.example.ykdsummer.fashion.config.FashionCutoutProperties;
-import com.example.ykdsummer.fashion.domain.ClothingCandidate;
-import com.example.ykdsummer.fashion.domain.ClothingCompletenessStatus;
-import com.example.ykdsummer.fashion.domain.ClothingCandidateStatus;
+import com.example.ykdsummer.fashion.wardrobe.config.FashionCutoutProperties;
+import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidate;
+import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCompletenessStatus;
+import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidateStatus;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -633,14 +633,14 @@ class McpGarmentCutoutServiceTest {
 路径：`src/test/java/com/example/ykdsummer/fashion/application/GarmentCutoutProviderSelectionTest.java`
 
 ```java
-package com.example.ykdsummer.fashion.application;
+package com.example.ykdsummer.fashion.wardrobe.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import com.example.ykdsummer.ai.service.AiImageGenerationService;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
-import com.example.ykdsummer.fashion.config.FashionCutoutProperties;
+import com.example.ykdsummer.fashion.wardrobe.config.FashionCutoutProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

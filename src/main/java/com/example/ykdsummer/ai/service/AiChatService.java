@@ -12,7 +12,7 @@ import com.example.ykdsummer.ai.model.ConversationMessage;
 import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
 import com.example.ykdsummer.ai.fashion.look.FashionFeedbackRecorder;
 import com.example.ykdsummer.ai.fashion.look.ReferenceImageSendGate;
-import com.example.ykdsummer.ai.fashion.look.agent.FashionAgentWorkflowContextProvider;
+import com.example.ykdsummer.common.fashion.FashionWorkflowContextProvider;
 import com.example.ykdsummer.fashion.wardrobe.application.FashionWardrobeDraftCommandHandler;
 import com.example.ykdsummer.fashion.wardrobe.tool.FashionWardrobeVisualCommandHandler;
 import com.example.ykdsummer.persistence.ConversationHistoryStore;
@@ -56,7 +56,7 @@ public class AiChatService {
     private final AiUsageMeter usageMeter;
     private final TokenBudgetPolicy budgetPolicy;
     private volatile ConversationHistoryStore conversationHistory = ConversationHistoryStore.disabled();
-    private volatile FashionAgentWorkflowContextProvider fashionWorkflowContext;
+    private volatile FashionWorkflowContextProvider fashionWorkflowContext;
     private volatile ReferenceImageSendGate imageSendGate;
     private volatile FashionWardrobeDraftCommandHandler wardrobeDraftCommands;
     private volatile FashionWardrobeVisualCommandHandler wardrobeVisualCommands;
@@ -124,7 +124,7 @@ public class AiChatService {
     }
 
     @Autowired(required = false)
-    void setFashionWorkflowContext(FashionAgentWorkflowContextProvider fashionWorkflowContext) {
+    void setFashionWorkflowContext(FashionWorkflowContextProvider fashionWorkflowContext) {
         this.fashionWorkflowContext = fashionWorkflowContext;
     }
 
@@ -362,7 +362,7 @@ public class AiChatService {
     }
 
     private String withFashionWorkflowContext(String userId, String modelPrompt) {
-        FashionAgentWorkflowContextProvider provider = fashionWorkflowContext;
+        FashionWorkflowContextProvider provider = fashionWorkflowContext;
         if (provider == null) return modelPrompt;
         try {
             String context = provider.contextFor(userId);

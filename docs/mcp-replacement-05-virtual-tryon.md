@@ -52,7 +52,7 @@ public class ReferenceImageVirtualTryOnService implements VirtualTryOnService { 
 
 ### 4. 新增 McpVirtualTryOnService — 核心实现
 
-路径：`com.example.ykdsummer.fashion.application.McpVirtualTryOnService`
+路径：`com.example.ykdsummer.fashion.wardrobe.application.McpVirtualTryOnService`
 
 职责：实现 `VirtualTryOnService`，通过 Spring AI MCP Client 调用外部试衣 MCP Server 的工具。
 

@@ -91,10 +91,10 @@ List<ClothingCandidate> candidates = repository.createCandidateDrafts(externalUs
 路径：`src/main/java/com/example/ykdsummer/fashion/application/WardrobePhotoAnalyzer.java`
 
 ```java
-package com.example.ykdsummer.fashion.application;
+package com.example.ykdsummer.fashion.wardrobe.application;
 
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
-import com.example.ykdsummer.fashion.domain.ClothingCandidateDraft;
+import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidateDraft;
 import java.util.List;
 
 /**
@@ -204,7 +204,7 @@ private WardrobePhotoAnalyzer.AnalysisResult analyzeSavedSummary(String tags) {
 路径：`src/main/java/com/example/ykdsummer/fashion/config/FashionAnalysisProperties.java`
 
 ```java
-package com.example.ykdsummer.fashion.config;
+package com.example.ykdsummer.fashion.wardrobe.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -265,14 +265,14 @@ public class FashionAnalysisProperties {
 路径：`src/main/java/com/example/ykdsummer/fashion/application/McpWardrobePhotoAnalyzer.java`
 
 ```java
-package com.example.ykdsummer.fashion.application;
+package com.example.ykdsummer.fashion.wardrobe.application;
 
 import com.example.ykdsummer.ai.service.AiGatewayException;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
-import com.example.ykdsummer.fashion.config.FashionAnalysisProperties;
-import com.example.ykdsummer.fashion.domain.ClothingCandidateDraft;
-import com.example.ykdsummer.fashion.domain.ClothingCompletenessStatus;
+import com.example.ykdsummer.fashion.wardrobe.config.FashionAnalysisProperties;
+import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidateDraft;
+import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCompletenessStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -537,7 +537,7 @@ List<ClothingCandidate> candidates = repository.createCandidateDrafts(externalUs
 - 构造函数：`WardrobePhotoAnalyzer analyzer` — 不引用
 - `analyzePhoto()`：`WardrobePhotoAnalyzer.AnalysisResult` + `analyzer.providerName()` + `analyzer.promptVersion()` — 不引用
 
-所以可以移除 `FashionVisionCandidateAnalyzer` 的 import（如果有的话）。但检查现有代码，`FashionVisionCandidateAnalyzer` 和 `FashionWardrobeIngestionService` 在同一个包 `fashion.application`，不需要 import。
+所以可以移除 `FashionVisionCandidateAnalyzer` 的 import（如果有的话）。但检查现有代码，`FashionVisionCandidateAnalyzer` 和 `FashionWardrobeIngestionService` 在同一个包 `fashion.wardrobe.application`，不需要 import。
 
 ### 3.6 修改 `application-fashion.properties`
 
@@ -570,7 +570,7 @@ app.fashion.analysis.mcp.timeout-seconds=${FASHION_ANALYSIS_MCP_TIMEOUT_SECONDS:
 路径：`src/test/java/com/example/ykdsummer/fashion/application/McpWardrobePhotoAnalyzerTest.java`
 
 ```java
-package com.example.ykdsummer.fashion.application;
+package com.example.ykdsummer.fashion.wardrobe.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -580,8 +580,8 @@ import static org.mockito.Mockito.when;
 import com.example.ykdsummer.ai.service.AiGatewayException;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore.StoredImage;
-import com.example.ykdsummer.fashion.config.FashionAnalysisProperties;
-import com.example.ykdsummer.fashion.domain.ClothingCompletenessStatus;
+import com.example.ykdsummer.fashion.wardrobe.config.FashionAnalysisProperties;
+import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCompletenessStatus;
 import java.nio.file.Path;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
@@ -743,14 +743,14 @@ class McpWardrobePhotoAnalyzerTest {
 路径：`src/test/java/com/example/ykdsummer/fashion/application/WardrobePhotoAnalyzerProviderSelectionTest.java`
 
 ```java
-package com.example.ykdsummer.fashion.application;
+package com.example.ykdsummer.fashion.wardrobe.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import com.example.ykdsummer.ai.service.ImageInspectionService;
 import com.example.ykdsummer.ai.service.LocalImageAssetStore;
-import com.example.ykdsummer.fashion.config.FashionAnalysisProperties;
+import com.example.ykdsummer.fashion.wardrobe.config.FashionAnalysisProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;

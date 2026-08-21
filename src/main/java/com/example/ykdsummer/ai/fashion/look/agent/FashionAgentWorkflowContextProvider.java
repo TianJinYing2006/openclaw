@@ -1,6 +1,7 @@
 package com.example.ykdsummer.ai.fashion.look.agent;
 
 import com.example.ykdsummer.ai.fashion.look.profile.FashionConversationService;
+import com.example.ykdsummer.common.fashion.FashionWorkflowContextProvider;
 import com.example.ykdsummer.fashion.wardrobe.application.FashionWardrobeIngestionService;
 import com.example.ykdsummer.fashion.wardrobe.application.OutfitRecommendationService;
 import com.example.ykdsummer.fashion.wardrobe.domain.ClothingCandidate;
@@ -19,7 +20,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @ConditionalOnBean(FashionWardrobeIngestionService.class)
-public class FashionAgentWorkflowContextProvider {
+public class FashionAgentWorkflowContextProvider implements FashionWorkflowContextProvider {
     private static final int MAX_CONTEXT_CANDIDATES = 12;
     private final FashionWardrobeIngestionService ingestion;
     private volatile OutfitRecommendationService outfitRecommendations;

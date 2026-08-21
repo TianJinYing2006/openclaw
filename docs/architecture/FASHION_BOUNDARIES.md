@@ -65,7 +65,7 @@ grep -rn "import com.example.ykdsummer.ai.fashion.look" \
   src/main/java/com/example/ykdsummer/fashion/wardrobe
 ```
 
-可选增强（见 Full-B 规划）：引入 **ArchUnit** 测试在 CI 强制规则二，避免再次滑回 B→A 依赖。
+**ArchUnit 已落地（Full-B）**：测试 `src/test/java/com/example/ykdsummer/architecture/FashionBoundaryArchTest.java` 用 `noClasses().that(..).should().dependOnClassesThat(..)` 强制规则二（衣橱引擎 B 不得依赖 Look 引擎 A）、`common.fashion` 中性（不得依赖 A 或 B）、以及 `ai.fashion` 下仅允许 `look` 子包。每次 `mvn test` 自动回归，杜绝再次滑回 B→A 依赖。
 
 ---
 
@@ -77,4 +77,4 @@ grep -rn "import com.example.ykdsummer.ai.fashion.look" \
   2. 本文档（边界契约）。
   3. 包语义化重命名：`ai.fashion` → `ai.fashion.look`，`fashion` → `fashion.wardrobe`（让边界在包名上自解释）。
 
-> 注：Full-B（接口化 `FashionAgentWorkflowContextProvider` + ArchUnit + 过期文档清理）为可选增强，不在 MVP-B 范围内。
+> **Full-B 已完成（2026-08-21）**：① 接口化——新增中性接口 `common.fashion.FashionWorkflowContextProvider`，具体实现 `ai.fashion.look.agent.FashionAgentWorkflowContextProvider` 实现它；对话层 `AiChatService`（A）与衣橱侧测试 `FashionPersistenceApplicationContextTest`（B）改为依赖接口而非具体类；原误置于 B 测试包的 `FashionAgentWorkflowContextProviderTest` 归位到 `ai.fashion.look.agent`。② ArchUnit 边界测试（见 §4）。③ 清理 `docs/` 下引用旧包名（`ai.fashion` / `fashion`）的过期文档。验证：`mvn clean test` 相关 12 个测试类 54 用例全绿（0 失败 0 错误 2 跳过）。
