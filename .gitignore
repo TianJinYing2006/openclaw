@@ -31,6 +31,8 @@ secret.properties
 # AI 辅助工具本地计划/运行时产物，不入库
 .mimocode/
 .trae-html-share-packages/
+.trae/
+.workbuddy/
 skill-design-daily-report/
 data/wechat/
 
@@ -41,8 +43,19 @@ Desktop.ini
 
 # Runtime logs and crash files
 *.log
+*.gz
 hs_err_pid*
 replay_pid*
+logs/
+
+# 临时文件/探针/本地杂项（不入库）
+*.tmp
+*.tmp.xml
+*.bak
+*.bak_*
+probe-*.tmp
+grill_*.tmp.xml
+quaint-*.md
 
 # Local Codex planning files
 .planning/
@@ -59,8 +72,21 @@ progress.md
 
 # Binary executables should not be version-controlled
 *.exe
+*.msi
 
 # Python cache and test artifacts
 __pycache__/
 *.pyc
 mcp-server/_tryon_test/
+
+# ===== 求职/个人材料与浏览器数据（绝不入库、绝不公开） =====
+resume-tian-jinying/
+tian-jinying-resume.json
+/*.pptx
+
+# 个人面试/求职准备材料（不入库）
+docs/INTERVIEW_DEFENSE.md
+docs/INTERVIEW_PREP_GUIDE.md
+docs/JAVA_REVIEW_MAP.md
+docs/AGENT_RESUME_TEMPLATE.md
+docs/RESUME_TEMPLATE.md

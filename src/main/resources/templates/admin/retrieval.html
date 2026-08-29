@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>检索调试 · WeChatBot 管理</title>
+    <link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
+</head>
+<body>
+<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a class="active" th:href="@{/admin/retrieval}">检索调试</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<main class="page">
+    <div class="page-heading"><div><h1>检索调试</h1><p>输入自然语言 query，展示 RAG 检索链路三段分数变化：原始候选池 → 规则重排 → 最终结果。对应简历上的 24.6% 严格匹配 + 100% 语义匹配。</p></div></div>
+
+    <section class="form-section">
+        <form th:action="@{/admin/retrieval}" method="post">
+            <label>检索词（自然语言，如「下周参加婚礼穿什么」）
+                <textarea name="query" rows="3" th:text="${query}" placeholder="输入穿搭需求或评测 query…"></textarea>
+            </label>
+            <button type="submit">执行检索</button>
+        </form>
+    </section>
+
+    <div th:if="${error}" class="alert error" th:text="${error}">错误</div>
+    <div th:if="${!ragFlowAvailable and !error}" class="alert notice">RAGFlow 未配置（app.fashion.rag.provider != ragflow），调试台不可用。请在 application-local.properties 中配置后重启。</div>
+
+    <th:block th:if="${debug}">
+        <div class="metrics">
+            <section><span>规则重排</span><strong th:text="${debug.ruleRerankEnabled ? '开启' : '关闭'}">-</strong></section>
+            <section><span>多路 RRF</span><strong th:text="${debug.multiRouteEnabled ? '开启' : '关闭'}">-</strong></section>
+            <section><span>Top-K</span><strong th:text="${debug.topK}">0</strong></section>
+            <section><span>原始候选</span><strong th:text="${#lists.size(debug.rawOutfits)}">0</strong></section>
+            <section><span>重排后</span><strong th:text="${#lists.size(debug.rerankedOutfits)}">0</strong></section>
+            <section><span>最终返回</span><strong th:text="${#lists.size(debug.finalOutfits)}">0</strong></section>
+        </div>
+
+        <section class="table-section">
+            <div class="section-title"><h2>检索词与结构化参数</h2><span>QueryAnalyzer 输出</span></div>
+            <p><strong>实际检索词：</strong><span class="mono" th:text="${debug.searchQuestion}">-</span></p>
+            <p th:if="${debug.analyzedQuery != null and debug.analyzedQuery.params != null}">
+                <strong>结构化参数：</strong>
+                <span th:text="${debug.analyzedQuery.params.toParamString()}">-</span>
+            </p>
+            <p th:if="${debug.analyzedQuery != null and debug.analyzedQuery.hypotheticalOutfit != null and !#strings.isEmpty(debug.analyzedQuery.hypotheticalOutfit)}">
+                <strong>HyDE 假设描述：</strong><span class="muted" th:text="${debug.analyzedQuery.hypotheticalOutfit}">-</span>
+            </p>
+            <p th:if="${debug.analyzedQuery != null and debug.analyzedQuery.decomposedQueries != null and !#lists.isEmpty(debug.analyzedQuery.decomposedQueries)}">
+                <strong>子查询：</strong><span class="muted" th:text="${#strings.listJoin(debug.analyzedQuery.decomposedQueries, ' / ')}">-</span>
+            </p>
+        </section>
+
+        <section class="table-section">
+            <div class="section-title"><h2>① 原始候选池</h2><span th:text="${#lists.size(debug.rawOutfits) + ' 个 outfit（RAGFlow 聚合后、重排前）'}">0</span></div>
+            <table>
+                <thead><tr><th>#</th><th>Outfit</th><th>语义分</th><th>摘要</th></tr></thead>
+                <tbody>
+                <tr th:each="o : ${debug.rawOutfits}">
+                    <td th:text="${o.rank}">0</td>
+                    <td class="mono"><span th:text="${o.outfitId}">-</span><small class="cell-sub" th:text="${o.docName}"></small></td>
+                    <td><span class="mono" th:text="${#numbers.formatDecimal(o.semanticScore, 1, 3)}">0</span></td>
+                    <td th:text="${o.summary}">-</td>
+                </tr>
+                <tr th:if="${#lists.isEmpty(debug.rawOutfits)}"><td colspan="4" class="empty">未检索到候选 outfit。</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="table-section" th:if="${debug.ruleRerankEnabled}">
+            <div class="section-title"><h2>② 规则重排后</h2><span th:text="${#lists.size(debug.rerankedOutfits) + ' 个（语义分 + 规则分加权融合）'}">0</span></div>
+            <table>
+                <thead><tr><th>#</th><th>Outfit</th><th>语义分</th><th>规则分</th><th>融合分</th><th>摘要</th></tr></thead>
+                <tbody>
+                <tr th:each="o : ${debug.rerankedOutfits}">
+                    <td th:text="${o.rank}">0</td>
+                    <td class="mono"><span th:text="${o.outfitId}">-</span><small class="cell-sub" th:text="${o.docName}"></small></td>
+                    <td><span class="mono" th:text="${#numbers.formatDecimal(o.semanticScore, 1, 3)}">0</span></td>
+                    <td><span class="mono" th:text="${#numbers.formatDecimal(o.ruleScore, 1, 3)}">0</span></td>
+                    <td><strong class="mono" th:text="${#numbers.formatDecimal(o.finalScore, 1, 3)}">0</strong></td>
+                    <td th:text="${o.summary}">-</td>
+                </tr>
+                <tr th:if="${#lists.isEmpty(debug.rerankedOutfits)}"><td colspan="6" class="empty">无重排结果。</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="table-section">
+            <div class="section-title"><h2>③ 最终返回</h2><span th:text="${#lists.size(debug.finalOutfits) + ' 个（多样性采样/top-k 截断后）'}">0</span></div>
+            <table>
+                <thead><tr><th>#</th><th>Outfit</th><th>语义分</th><th>规则分</th><th>融合分</th><th>摘要</th></tr></thead>
+                <tbody>
+                <tr th:each="o : ${debug.finalOutfits}">
+                    <td th:text="${o.rank}">0</td>
+                    <td class="mono"><span th:text="${o.outfitId}">-</span><small class="cell-sub" th:text="${o.docName}"></small></td>
+                    <td><span class="mono" th:text="${#numbers.formatDecimal(o.semanticScore, 1, 3)}">0</span></td>
+                    <td><span class="mono" th:text="${#numbers.formatDecimal(o.ruleScore, 1, 3)}">0</span></td>
+                    <td><strong class="mono" th:text="${#numbers.formatDecimal(o.finalScore, 1, 3)}">0</strong></td>
+                    <td th:text="${o.summary}">-</td>
+                </tr>
+                <tr th:if="${#lists.isEmpty(debug.finalOutfits)}"><td colspan="6" class="empty">无最终结果。</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </th:block>
+</main>
+</body>
+</html>

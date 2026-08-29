@@ -1,13 +1,342 @@
-:root { --ink:#1d2731; --muted:#68727c; --line:#d7dde2; --panel:#ffffff; --canvas:#f5f7f8; --blue:#28628e; --teal:#247b70; --amber:#a96d12; --red:#ad3d3d; }
-* { box-sizing:border-box; }
-body { margin:0; color:var(--ink); background:var(--canvas); font:14px/1.5 Arial, "Microsoft YaHei", sans-serif; }
-a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
-.topbar { min-height:56px; display:flex; align-items:center; gap:28px; padding:0 28px; background:#fff; border-bottom:1px solid var(--line); }
-.brand { color:var(--ink); font-weight:700; font-size:16px; } .topbar nav { display:flex; gap:4px; flex:1; } .topbar nav a { padding:16px 10px; color:#4c5863; } .topbar nav a.active { color:var(--blue); border-bottom:2px solid var(--blue); }
-.page { max-width:1440px; margin:0 auto; padding:28px; } .page-heading { display:flex; justify-content:space-between; gap:24px; margin-bottom:22px; } h1,h2,p { margin-top:0; } h1 { font-size:24px; margin-bottom:6px; } h2 { font-size:17px; margin-bottom:14px; } .page-heading p { color:var(--muted); }
-.dashboard-meta,.actions,.section-title { display:flex; align-items:center; gap:12px; flex-wrap:wrap; } .dashboard-meta { color:var(--muted); font-size:12px; }.dashboard-meta span + span:before { content:"|"; margin-right:12px; color:#b5bdc5; }
-.metrics { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); margin-bottom:20px; }.metrics section,.form-section,.table-section { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:18px; }.metrics span,.cell-sub { color:var(--muted); font-size:12px; }.metrics strong { display:block; margin-top:4px; font-size:22px; }.form-section,.table-section { margin-bottom:20px; }.section-title { justify-content:space-between; }.section-title h2 { margin:0; }
-form label { display:grid; gap:5px; margin-bottom:12px; color:#44515c; } input,select,textarea,button { font:inherit; } input,select,textarea { width:100%; min-height:34px; padding:7px 8px; color:var(--ink); border:1px solid #bec8d0; border-radius:4px; background:#fff; } textarea { resize:vertical; } button,.button { display:inline-flex; align-items:center; justify-content:center; min-height:34px; padding:7px 12px; border:1px solid var(--blue); border-radius:4px; background:var(--blue); color:#fff; cursor:pointer; text-decoration:none; }.button.secondary { background:#fff; color:var(--blue); }.link-button { margin-left:auto; padding:6px 8px; border-color:transparent; background:transparent; color:var(--blue); }
-.inline-form { display:flex; align-items:end; flex-wrap:wrap; gap:12px; }.inline-form label { min-width:190px; }.form-grid { display:grid; gap:0 14px; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); }.catalog-form > form > label { margin-top:10px; }.catalog-form { max-width:1120px; }
-table { width:100%; border-collapse:collapse; } th,td { padding:10px; border-top:1px solid var(--line); vertical-align:top; text-align:left; } th { border-top:0; color:#53606b; font-size:12px; font-weight:600; } .cell-sub { display:block; margin-top:3px; }.mono { font-family:Consolas, monospace; }.muted { color:var(--muted); }.empty { padding:24px; text-align:center; color:var(--muted); }.status { display:inline-block; padding:2px 6px; border-radius:4px; background:#e9eef1; color:#4e5a64; font-size:12px; }.status.ok { background:#dcefe9; color:var(--teal); }.status.warn { background:#f8ecd6; color:var(--amber); }.status.neutral { background:#e9eef1; color:#4e5a64; }.alert { padding:10px 12px; border-radius:4px; }.alert.notice { border:1px solid #a8d6cf; background:#edf9f6; color:#17665d; }.alert.error { border:1px solid #e2b5b5; background:#fff2f2; color:#8f2929; }.status-form { display:flex; gap:6px; margin-top:8px; }.status-form select { min-width:76px; }.status-form button { min-height:30px; padding:4px 8px; }
-@media (max-width:800px) { .topbar { align-items:flex-start; flex-wrap:wrap; padding:10px 16px 0; gap:4px 16px; }.topbar nav { order:3; width:100%; overflow:auto; }.topbar nav a { padding:10px 8px; white-space:nowrap; }.page { padding:18px 12px; }.page-heading { display:block; }.table-section { overflow:auto; }.catalog-table { min-width:900px; } }
+/* ==========================================================================
+   YKD Bot 管理后台样式（admin.css）
+   设计目标：现代、清爽、信息密度高；保持原有 class 名，模板零改动即可生效。
+   ========================================================================== */
+
+:root {
+    /* 中性色 */
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --panel: #ffffff;
+    --canvas: #f1f5f9;
+    /* 主题与语义色 */
+    --blue: #2563eb;
+    --blue-600: #1d4ed8;
+    --teal: #0d9488;
+    --amber: #b45309;
+    --red: #dc2626;
+    --green: #16a34a;
+    /* 阴影与圆角 */
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, .06), 0 1px 3px rgba(15, 23, 42, .04);
+    --shadow-md: 0 4px 12px rgba(15, 23, 42, .08);
+    --radius: 10px;
+    --radius-sm: 8px;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+    margin: 0;
+    color: var(--ink);
+    background: var(--canvas);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+a { color: var(--blue); text-decoration: none; transition: color .15s ease; }
+a:hover { color: var(--blue-600); text-decoration: underline; }
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 0 28px;
+    background: #fff;
+    border-bottom: 1px solid var(--line);
+    box-shadow: var(--shadow-sm);
+}
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: -.01em;
+}
+.brand::before {
+    content: "";
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--blue), #7c3aed);
+    box-shadow: 0 2px 6px rgba(37, 99, 235, .35);
+}
+.topbar nav { display: flex; gap: 4px; flex: 1; }
+.topbar nav a {
+    padding: 9px 14px;
+    border-radius: 8px;
+    color: #475569;
+    font-weight: 500;
+    transition: background .15s ease, color .15s ease;
+}
+.topbar nav a:hover { background: #eef2ff; color: var(--blue); text-decoration: none; }
+.topbar nav a.active {
+    color: var(--blue);
+    background: #eef2ff;
+}
+.link-button {
+    margin-left: auto;
+    padding: 7px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: #475569;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all .15s ease;
+}
+.link-button:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+/* ---------- 页面容器 ---------- */
+.page {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 28px 28px 48px;
+}
+.page-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+h1, h2, p { margin-top: 0; }
+h1 { font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin-bottom: 6px; }
+h2 { font-size: 17px; font-weight: 600; margin-bottom: 14px; }
+.page-heading p { color: var(--muted); max-width: 78ch; }
+
+/* ---------- 通用布局工具 ---------- */
+.dashboard-meta, .actions, .section-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.dashboard-meta { color: var(--muted); font-size: 12.5px; }
+.dashboard-meta span + span::before {
+    content: "·";
+    margin-right: 12px;
+    color: #cbd5e1;
+}
+
+/* ---------- 指标卡片 ---------- */
+.metrics {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    margin-bottom: 22px;
+}
+.metrics section {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 18px 16px;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    transition: transform .18s ease, box-shadow .18s ease;
+}
+.metrics section::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--blue), #7c3aed);
+    opacity: .9;
+}
+.metrics section:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.metrics span, .cell-sub { color: var(--muted); font-size: 12px; font-weight: 500; }
+.metrics strong {
+    display: block;
+    margin-top: 6px;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    color: var(--ink);
+}
+
+/* ---------- 卡片区块（表单/表格通用容器） ---------- */
+.form-section, .table-section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-sm);
+}
+.section-title { justify-content: space-between; }
+.section-title h2 { margin: 0; }
+
+/* ---------- 表单控件 ---------- */
+form label {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 14px;
+    color: #334155;
+    font-weight: 500;
+    font-size: 13px;
+}
+input, select, textarea, button { font: inherit; }
+input, select, textarea {
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 11px;
+    color: var(--ink);
+    border: 1px solid #cbd5e1;
+    border-radius: var(--radius-sm);
+    background: #fff;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
+}
+textarea { resize: vertical; }
+
+button, .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 38px;
+    padding: 8px 16px;
+    border: 1px solid var(--blue);
+    border-radius: var(--radius-sm);
+    background: var(--blue);
+    color: #fff;
+    cursor: pointer;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background .15s ease, border-color .15s ease, transform .05s ease;
+}
+button:hover, .button:hover { background: var(--blue-600); border-color: var(--blue-600); text-decoration: none; }
+button:active, .button:active { transform: translateY(1px); }
+.button.secondary {
+    background: #fff;
+    color: var(--blue);
+}
+.button.secondary:hover { background: #eff6ff; }
+
+/* ---------- 内联/栅格表单 ---------- */
+.inline-form { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
+.inline-form label { min-width: 190px; margin-bottom: 0; }
+.form-grid { display: grid; gap: 0 14px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.catalog-form { max-width: 1120px; }
+.catalog-form > form > label { margin-top: 12px; }
+
+/* ---------- 表格 ---------- */
+table { width: 100%; border-collapse: collapse; }
+.runtime-table, .usage-table, .catalog-table { width: 100%; }
+th, td {
+    padding: 11px 12px;
+    border-top: 1px solid var(--line);
+    vertical-align: top;
+    text-align: left;
+}
+thead th {
+    border-top: 0;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: none;
+    position: sticky;
+    top: 0;
+}
+tbody tr { transition: background .12s ease; }
+tbody tr:hover { background: #f8fafc; }
+.cell-sub { display: block; margin-top: 4px; }
+.mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.muted { color: var(--muted); }
+.empty { padding: 28px; text-align: center; color: var(--muted); }
+.error-text { color: var(--red); font-size: 12px; }
+
+/* ---------- 状态徽章 ---------- */
+.status {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.7;
+}
+.status.ok { background: #dcfce7; color: var(--green); }
+.status.warn { background: #fef3c7; color: var(--amber); }
+.status.neutral { background: #f1f5f9; color: #475569; }
+.result-ok { color: var(--green); font-weight: 500; }
+.result-warn { color: var(--amber); font-weight: 500; }
+
+/* ---------- 提示条 ---------- */
+.alert { padding: 11px 14px; border-radius: var(--radius-sm); font-size: 13px; }
+.alert.notice { border: 1px solid #a7f3d0; background: #ecfdf5; color: #047857; }
+.alert.error { border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; }
+
+/* ---------- 状态切换表单 ---------- */
+.status-form { display: flex; gap: 6px; margin-top: 8px; }
+.status-form select { min-width: 84px; }
+.status-form button { min-height: 32px; padding: 5px 10px; }
+
+/* ---------- 登录页 ---------- */
+.login-body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background:
+        radial-gradient(1200px 600px at 80% -10%, rgba(124, 58, 237, .12), transparent 60%),
+        radial-gradient(900px 500px at -10% 110%, rgba(37, 99, 235, .14), transparent 60%),
+        linear-gradient(180deg, #f8fafc, #eef2ff);
+}
+.login-panel {
+    width: 100%;
+    max-width: 380px;
+    margin: 24px;
+    padding: 40px 36px 36px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, .14);
+    text-align: center;
+}
+.login-panel .brand {
+    justify-content: center;
+    font-size: 18px;
+    margin-bottom: 6px;
+}
+.login-panel h1 { font-size: 20px; font-weight: 600; margin: 4px 0 18px; }
+.login-panel form { text-align: left; }
+.login-panel form label { text-align: left; }
+.login-panel button { width: 100%; margin-top: 6px; }
+.login-panel .alert { text-align: left; margin-bottom: 16px; }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 800px) {
+    .topbar {
+        align-items: flex-start;
+        flex-wrap: wrap;
+        padding: 10px 16px 0;
+        gap: 4px 16px;
+    }
+    .topbar nav { order: 3; width: 100%; overflow: auto; }
+    .topbar nav a { padding: 8px 10px; white-space: nowrap; }
+    .page { padding: 18px 14px 36px; }
+    .page-heading { display: block; }
+    .page-heading .button { margin-top: 12px; }
+    .table-section { overflow: auto; }
+    .catalog-table { min-width: 900px; }
+}

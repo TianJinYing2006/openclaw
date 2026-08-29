@@ -32,6 +32,8 @@ def parse_args():
     parser.add_argument("--base-url", default=os.environ.get("RAGFLOW_BASE_URL", "http://127.0.0.1:9380"))
     parser.add_argument("--api-key", default=os.environ.get("RAGFLOW_API_KEY", ""))
     parser.add_argument("--dataset-id", default=os.environ.get("RAGFLOW_DATASET_ID", ""))
+    parser.add_argument("--clean", action="store_true",
+                        help="上传前先删除该 dataset 下的全部旧文档（幂等重传，避免重复）")
     return parser.parse_args()
 
 
@@ -68,11 +70,51 @@ def trigger_parse(base, api_key, dataset_id, doc_ids):
         raise RuntimeError(f"parse trigger error: {data}")
 
 
+def list_all_doc_ids(base, api_key, dataset_id):
+    """翻页拉出 dataset 下全部文档 id。"""
+    url = f"{base}/api/v1/datasets/{dataset_id}/documents"
+    ids = []
+    page = 1
+    while True:
+        resp = requests.get(url, headers=headers(api_key),
+                            params={"page": page, "page_size": 100}, timeout=30)
+        if resp.status_code != 200:
+            raise RuntimeError(f"list docs failed {resp.status_code}: {resp.text[:300]}")
+        data = resp.json()
+        if data.get("code") != 0:
+            raise RuntimeError(f"list docs error: {data}")
+        docs = (data.get("data") or {}).get("docs") or []
+        if not docs:
+            break
+        ids.extend(d["id"] for d in docs)
+        if len(docs) < 100:
+            break
+        page += 1
+    return ids
+
+
+def delete_docs(base, api_key, dataset_id, doc_ids):
+    """批量删除文档（分批，避免单请求过大）。"""
+    if not doc_ids:
+        return
+    url = f"{base}/api/v1/datasets/{dataset_id}/documents"
+    for i in range(0, len(doc_ids), 100):
+        chunk = doc_ids[i:i + 100]
+        resp = requests.delete(url, headers=headers(api_key),
+                               json={"ids": chunk}, timeout=120)
+        if resp.status_code != 200:
+            raise RuntimeError(f"delete failed {resp.status_code}: {resp.text[:300]}")
+        data = resp.json()
+        if data.get("code") != 0:
+            raise RuntimeError(f"delete error: {data}")
+        print(f"  deleted {min(i + 100, len(doc_ids))}/{len(doc_ids)} docs")
+
+
 def doc_status(base, api_key, dataset_id, doc_id):
     """通过文档列表接口查询单个文档的解析状态。"""
     url = f"{base}/api/v1/datasets/{dataset_id}/documents"
     resp = requests.get(url, headers=headers(api_key),
-                        params={"page": 1, "page_size": 300}, timeout=30)
+                        params={"page": 1, "page_size": 100}, timeout=30)
     if resp.status_code != 200:
         return {"run": "FAIL", "progress": 0}
     data = resp.json().get("data") or {}
@@ -94,6 +136,12 @@ def main():
 
     docs = sorted(DOCS_DIR.glob("outfit_*.md"))
     print(f"共 {len(docs)} 篇文档 -> {args.base_url} dataset={args.dataset_id}")
+
+    if args.clean:
+        print("clean 模式：先删除 dataset 下全部旧文档...")
+        old_ids = list_all_doc_ids(args.base_url, args.api_key, args.dataset_id)
+        print(f"  找到 {len(old_ids)} 篇旧文档")
+        delete_docs(args.base_url, args.api_key, args.dataset_id, old_ids)
 
     all_ids = []
     for i in range(0, len(docs), BATCH_SIZE):
