@@ -64,7 +64,10 @@ public class PersistenceConfiguration {
         return Flyway.configure()
                 .dataSource(applicationDataSource)
                 .locations("classpath:db/migration")
+                // baseline 从 0 开始接管：schema 非空（如 FashionSchemaInitializer 预建的
+                // fashion_seed_fts）时不会把默认版本 1 当作已迁移而跳过 V1
                 .baselineOnMigrate(true)
+                .baselineVersion("0")
                 .load();
     }
 
