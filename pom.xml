@@ -11,11 +11,11 @@
         <relativePath />
     </parent>
 
-    <groupId>com.example</groupId>
-    <artifactId>ykd-summer</artifactId>
+    <groupId>com.wechatbot</groupId>
+    <artifactId>wechatbot</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>ykd-summer</name>
-    <description>Spring Boot demo for YKD-summer</description>
+    <name>wechatbot</name>
+    <description>WeChat-based conversational AI fashion assistant</description>
 
     <properties>
         <java.version>21</java.version>

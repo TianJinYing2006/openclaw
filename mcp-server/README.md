@@ -7,11 +7,11 @@
 | 工具名 | 功能 | 数据源 | 需要 API Key |
 |--------|------|--------|-------------|
 | `get_weather` | 天气查询 | wttr.in 免费 API | 否 |
-| `web_search` | 网页搜索 | DuckDuckGo（默认）/ 博查 | 否（博查需要） |
+| `web_search` | 网页搜索 | cn.bing.com 免费解析（默认）/ 博查 | 否（博查需要） |
 | `garment_cutout` | 服装抠图 | rembg 本地模型 | 否 |
-| `garment_revise` | 服装草稿修订 | rembg 本地模型 | 否 |
+| `garment_revise` | 服装草稿修订 | rembg 本地模型（与抠图同逻辑，占位） | 否 |
 | `wardrobe_photo_analysis` | 衣橱照片识别 | 百炼 qwen-vl-max | 是（DASHSCOPE_API_KEY） |
-| `virtual_try_on` | 虚拟试衣 | 百炼图像 API（占位） | 是（DASHSCOPE_API_KEY） |
+| `virtual_try_on` | 虚拟试衣 | 火山引擎 doubao-seedream-4.0 | 是（ARK_API_KEY） |
 
 ## 前置条件
 
@@ -61,7 +61,7 @@ WeChatBot MCP Server 启动中...
              garment_revise, wardrobe_photo_analysis,
              virtual_try_on
 DASHSCOPE_API_KEY: 已配置
-BOCHA_API_KEY: 未配置（使用 DuckDuckGo）
+BOCHA_API_KEY: 未配置（使用 cn.bing.com 免费搜索）
 ============================================================
 ```
 
@@ -70,9 +70,11 @@ BOCHA_API_KEY: 未配置（使用 DuckDuckGo）
 MCP Server 启动后，在 WeChatBot 的 `application-local.properties` 中添加：
 
 ```properties
-# === MCP Server SSE 连接 ===
-spring.ai.mcp.client.sse.connections.unified-mcp.url=http://localhost:8090
-spring.ai.mcp.client.sse.enabled=true
+# === MCP Server streamable-http 连接 ===
+spring.ai.mcp.client.streamable-http.enabled=true
+spring.ai.mcp.client.streamable-http.connections.unified-mcp.url=http://localhost:8090
+spring.ai.mcp.client.streamable-http.connections.unified-mcp.endpoint=/mcp
+spring.ai.mcp.client.request-timeout=300s
 
 # === 切换全部 provider 为 mcp ===
 app.web-search.provider=mcp
@@ -98,7 +100,7 @@ app.web-search.provider=mcp
 | `DASHSCOPE_API_KEY` | 衣橱识别/试衣需要 | 百炼 API Key，与 WeChatBot 共用 |
 | `DASHSCOPE_BASE_URL` | 否 | 百炼接口地址，默认 `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | `VISION_MODEL` | 否 | 视觉模型名，默认 `qwen-vl-max` |
-| `BOCHA_API_KEY` | 否 | 博查搜索 Key，不填则用 DuckDuckGo |
+| `BOCHA_API_KEY` | 否 | 博查搜索 Key，不填则用 cn.bing.com 免费搜索 |
 | `MCP_SERVER_HOST` | 否 | 监听地址，默认 `0.0.0.0` |
 | `MCP_SERVER_PORT` | 否 | 监听端口，默认 `8090` |
 
@@ -108,7 +110,7 @@ app.web-search.provider=mcp
 调用 [wttr.in](https://wttr.in) 免费 API，无需 Key。返回中文天气描述、温度、风向、风力等级等。
 
 ### 网页搜索（web_search）
-默认使用 DuckDuckGo 免费搜索（无需 Key）。配置 `BOCHA_API_KEY` 后自动切换到博查搜索（效果更好，中文优化）。
+默认使用 cn.bing.com 免费搜索（无需 Key，国内可访问）。配置 `BOCHA_API_KEY` 后自动切换到博查搜索（效果更好，中文优化）。
 
 ### 服装抠图（garment_cutout / garment_revise）
 使用 [rembg](https://github.com/danielgatis/rembg) 本地 AI 模型去除背景，无需 API Key。首次运行自动下载约 170MB 模型文件（u2net），之后离线运行。

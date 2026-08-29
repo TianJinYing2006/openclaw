@@ -6,7 +6,7 @@
     <title>用户实例</title><link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
 </head>
 <body>
-<header class="topbar"><a class="brand" th:href="@{/admin}">YKD Bot 管理</a><nav><a th:href="@{/admin}">概览</a><a class="active" th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a class="active" th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
 <main class="page"><p><a th:href="@{/admin/users}">返回用户列表</a></p><p class="alert notice" th:if="${notice}" th:text="${notice}"></p><p class="alert error" th:if="${error}" th:text="${error}"></p>
     <div class="page-heading"><div><h1 th:text="${user.username}">用户</h1><p th:text="${#strings.isEmpty(user.remark) ? '当前用户的独立 iLink 机器人实例' : user.remark}">备注</p><div class="dashboard-meta"><span th:text="${'平台用户 #' + user.id}">用户</span><span th:text="${currentInstance.hasActiveInstance ? '当前有效实例 v' + currentInstance.generation : '当前没有有效实例'}">实例</span></div></div><span class="status large" th:classappend="${currentInstance.liveTone}" th:text="${currentInstance.liveLabel}">状态</span></div>
     <section class="instance-panel">

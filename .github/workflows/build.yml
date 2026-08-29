@@ -9,6 +9,24 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: wechatbot
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      PERSISTENCE_ENABLED: 'true'
+      PERSISTENCE_JDBC_URL: 'jdbc:mysql://127.0.0.1:3306/wechatbot?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false'
+      PERSISTENCE_USERNAME: root
+      PERSISTENCE_PASSWORD: root
     steps:
       - uses: actions/checkout@v4
 
