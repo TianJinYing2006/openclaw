@@ -6,7 +6,7 @@
     <link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
 </head>
 <body>
-<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a class="active" th:href="@{/admin/retrieval}">检索调试</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a class="active" th:href="@{/admin/retrieval}">检索调试</a><a th:href="@{/admin/agent-trace}">链路耗时</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
 <main class="page">
     <div class="page-heading"><div><h1>检索调试</h1><p>输入自然语言 query，展示 RAG 检索链路三段分数变化：原始候选池 → 规则重排 → 最终结果。对应简历上的 24.6% 严格匹配 + 100% 语义匹配。</p></div></div>
 

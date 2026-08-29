@@ -14,9 +14,9 @@ import sys
 import urllib.request
 import urllib.error
 
-BASE = "http://127.0.0.1:9380"
-RF_KEY = "ragflow-ndA7j5jgyAgqxxIjI-25ENIizPTkfCorJOeAiRQsFFI"
-DATASET_ID = "0424b4608d9211f1929d156e5467d734"
+BASE = os.getenv("RAGFLOW_BASE_URL", "http://127.0.0.1:9380")
+RF_KEY = os.getenv("RAGFLOW_API_KEY") or sys.exit("RAGFLOW_API_KEY 未设置（密钥走环境变量，禁止硬编码）")
+DATASET_ID = os.getenv("RAGFLOW_DATASET_ID") or sys.exit("RAGFLOW_DATASET_ID 未设置")
 
 LOCAL_PROPS = r"D:\项目\WeChatBot\src\main\resources\application-local.properties"
 EVAL_TSV = r"D:\项目\WeChatBot\..\..\..\..\tmp\eval_rerank.tsv"

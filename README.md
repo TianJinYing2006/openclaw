@@ -10,7 +10,7 @@
 
 1. **真正的 Multi-Agent 生产实现**：不是"一个 prompt 假装多角色"，而是 5 个独立 Agent（QueryAnalyzer / Stylist / Critic ∥ Trend / Coordinator）通过结构化 JSON 协议协作，每个环节都有容错与降级阶梯。
 2. **深度和广度同时在线**：RAG 混合检索、MCP 统一工具编排（40 个工具、`@AgentTool` 白名单机制）、Flyway 版本化迁移、异步任务 / 超时 / 限流 / 去重 / 会话隔离全套工程化。
-3. **有真实数据背书**：Critic/Trend 并行评审使全链路时延从约 21s 降到约 10.5s（-50%，真实链路实测）；向量检索异常时自动降级，降级后未出现因检索模块导致的请求失败。
+3. **有真实数据背书**：Critic 与 Trend 并行评审使评审阶段时延从约 12.3s 降到约 8.8s（真实链路实测，约 -28%）；向量检索异常时自动降级，降级后未出现因检索模块导致的请求失败。
 
 ---
 
@@ -22,7 +22,7 @@
 | 注册工具 | 40（`@AgentTool` 白名单自动注册） |
 | RAG 检索路 | 3（RAGFlow 向量 + MySQL FULLTEXT 关键词 + Qdrant 衣橱语义） |
 | 数据库迁移 | Flyway 版本化，迭代至 V24 |
-| 并行评审时延 | 约 21s → 约 10.5s（-50%，真实链路实测） |
+| 并行评审 | 评审阶段 median 约 8s，较串行降低约 28%（实测 12.3s → 8.8s，真实链路） |
 | 检索降级 | 异常自动降级，降级后零请求失败 |
 | 演示 | 纯前端可交互 Demo（见下文） |
 
@@ -115,7 +115,7 @@ AgentCoordinator 编排 5 个 Agent 角色，每一层失败都有明确的兜�
 
 ### 2. 并行评审与结构化 JSON 协议
 
-Critic（质量评审）与 Trend（趋势判断）并行执行，通过固定 JSON 结构 + Prompt 约束（`AgentPrompts`）保障 Agent 间通信稳定。**真实链路实测：并行后全流程约 21s → 约 10.5s（-50%）。**
+Critic（质量评审）与 Trend（趋势判断）并行执行，通过固定 JSON 结构 + Prompt 约束（`AgentPrompts`）保障 Agent 间通信稳定。**真实链路实测：评审阶段串行约 12.3s → 并行约 8.8s（约 -28%），median 约 8s。**
 
 - [Agent 输出模型（内心独白 + 最终结论）](src/main/java/com/wechatbot/fashion/ai/fashion/look/model/)
 
@@ -137,6 +137,33 @@ Critic（质量评审）与 Trend（趋势判断）并行执行，通过固定 J
 ### 5. 工程化兜底（微信实时产品必须的可靠性）
 
 异步任务与超时控制、消息去重、会话隔离与限流、异常降级机制、Flyway 版本化迁移贯穿整个系统——这是从"能跑的 demo"到"能扛真实用户"的分水岭。
+
+---
+
+## RAG 检索评测
+
+检索质量不是拍脑袋，而是基于真实用户查询的**可复现评测闭环**：
+
+| 项 | 说明 |
+| --- | --- |
+| 数据 | `logs/eval_rerank.tsv`：57 条真实用户穿搭查询，GT = 系统实际采纳的参考穿搭编号（自动标注，无人工偏差） |
+| 口径 | top-1 / top-5 / top-20 命中率；检索词由真实 QueryAnalyzer（贪婪采样 + 缓存）构造，与线上完全一致 |
+| 当前基线 | gt 精确命中 top-5 **24.6%**（14/57，3 轮重测 24.6%~26.3%、波动 ≤1 条）；候选池 top-20 覆盖 70.2%；MySQL FULLTEXT 兜底对照仅 3.7% |
+| 回归 | Java 侧 `ResumeBenchmarkLiveTest`（`RESUME_BENCH_LIVE=true` + `RESUME_BENCH_RAG_PROVIDER=ragflow` 时运行）；Python 侧统一入口见下 |
+
+### 运行统一评测
+
+```bash
+# 前置：Docker Desktop + RAGFlow（9380）已启动；密钥从环境变量注入
+export RAGFLOW_API_KEY='ragflow-xxxx'
+export RAGFLOW_DATASET_ID='xxxx'
+python scripts/eval/run.py                  # V1 线上口径 + V2/V3 消融对照，输出 reports/rag-eval-日期.md
+python scripts/eval/run.py --variants v1    # 只跑线上口径 V1
+```
+
+> **数据隐私**：评测 TSV 含真实用户文本，不入库，仅存在于本地 `logs/`（已 gitignore）；报告只写索引号与 GT 编号，不透出原文。
+> **密钥纪律**：所有评测脚本的密钥一律从环境变量读取（`RAGFLOW_API_KEY` / `RAGFLOW_DATASET_ID`），禁止硬编码进公开仓库。
+> 历史 A/B 结论：rerank 与 query 改写均做过受控 A/B 且被数据否定（负收益），详见 [RAG 检索基准设计](docs/rag-benchmark-design.md)。
 
 ---
 
@@ -268,6 +295,25 @@ mvn spring-boot:run -Dmaven.test.skip=true
 # 仅穿搭的轻量实例
 mvn spring-boot:run -Dspring-boot.run.profiles=minimal
 ```
+
+---
+
+## Docker 一键启动
+
+提供全栈编排（app + MySQL + Redis + Qdrant + MCP Server），一行命令拉起：
+
+```bash
+cp .env.example .env     # 填写 DASHSCOPE_API_KEY 等（密钥只存本地 .env，不入库）
+docker compose up -d --build
+```
+
+- 应用默认监听 `127.0.0.1:8080`，启动后访问 `http://127.0.0.1:8080`（管理站）或 `http://127.0.0.1:8080/actuator/health` 验证
+- 应用依赖 MySQL 与 MCP Server 健康检查通过后才启动；Flyway 自动建表
+- `docker compose logs -f app` 查看启动日志；MCP Server 首启会下载 u2net 抠图模型，稍慢属正常
+- 想接真实微信时把 `.env` 里 `ILINK_ENABLED=true` 并补 iLink 配置
+- 停服保留数据：`docker compose down`（数据卷保留）；彻底清理 `docker compose down -v`
+
+`app` 镜像为**多阶段构建**（Maven 打包 → JRE 运行），MCP Server 为独立 Python 镜像（FastMCP + hypercorn，暴露 streamable-http）。
 
 ---
 

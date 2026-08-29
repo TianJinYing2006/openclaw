@@ -13,6 +13,7 @@
 """
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -22,9 +23,9 @@ import httpx
 ROOT = Path(__file__).resolve().parent.parent
 URLS_JSON = ROOT / "data" / "image_urls.json"
 
-RAGFLOW_BASE = "http://127.0.0.1:9380"
-RAGFLOW_KEY = "ragflow-ndA7j5jgyAgqxxIjI-25ENIizPTkfCorJOeAiRQsFFI"
-RAGFLOW_DATASET = "0424b4608d9211f1929d156e5467d734"
+RAGFLOW_BASE = os.getenv("RAGFLOW_BASE_URL", "http://127.0.0.1:9380")
+RAGFLOW_KEY = os.getenv("RAGFLOW_API_KEY") or sys.exit("RAGFLOW_API_KEY 未设置（密钥走环境变量，禁止硬编码）")
+RAGFLOW_DATASET = os.getenv("RAGFLOW_DATASET_ID") or sys.exit("RAGFLOW_DATASET_ID 未设置")
 
 GARMENT_TYPES = {"top", "bottom", "shoes", "outerwear", "dress"}
 

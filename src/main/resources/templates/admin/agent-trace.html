@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Agent 链路耗时 · WeChatBot 管理</title>
+    <link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
+</head>
+<body>
+<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a><a class="active" th:href="@{/admin/agent-trace}">链路耗时</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<main class="page">
+    <div class="page-heading"><div><h1>Agent 链路耗时</h1><p>基于 <code>ai_usage_events</code> 时序（每次模型/工具调用自动落库 duration_ms）。面试演示：Critic 与 Trend 的模型调用会出现在同一时间窗口，佐证「并行评审」与 21s → 10.5s 时延优化。</p></div></div>
+
+    <div th:if="${error}" class="alert error" th:text="${error}">错误</div>
+
+    <section class="table-section" th:if="${summaries != null}">
+        <div class="section-title"><h2>24 小时摘要</h2><span>模型 / 工具调用耗时与工具成功率</span></div>
+        <div class="metrics">
+            <section th:each="s : ${summaries}">
+                <span th:text="${s.kind()}">-</span>
+                <strong th:text="${s.count() + ' 次 | 平均 ' + #numbers.formatDecimal(s.avgMs(), 1, 1) + 'ms | 最大 ' + #numbers.formatDecimal(s.maxMs(), 1, 1) + 'ms'}">-</strong>
+                <small th:if="${s.successRate() != null}"
+                       th:text="'工具成功率 ' + #numbers.formatDecimal(s.successRate(), 1, 1) + '%'">
+                </small>
+            </section>
+            <section th:if="${#lists.isEmpty(summaries)}"><span>24h</span><strong>暂无数据</strong><small>跑几个穿搭咨询后再来看</small></section>
+        </div>
+    </section>
+
+    <section class="table-section" th:if="${toolRanks != null}">
+        <div class="section-title"><h2>工具耗时排行（24h）</h2><span>平均耗时最慢的工具 Top-15，定位性能热点</span></div>
+        <table>
+            <thead><tr><th>#</th><th>工具</th><th>调用次数</th><th>平均耗时</th></tr></thead>
+            <tbody>
+            <tr th:each="r, st : ${toolRanks}">
+                <td th:text="${st.count}">0</td>
+                <td class="mono" th:text="${r.toolName()}">-</td>
+                <td th:text="${r.count()}">0</td>
+                <td><span class="mono" th:text="${#numbers.formatDecimal(r.avgMs(), 1, 1) + ' ms'}">-</span></td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(toolRanks)}"><td colspan="4" class="empty">过去 24h 无工具调用记录。</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section class="table-section" th:if="${recent != null}">
+        <div class="section-title"><h2>最近调用明细</h2><span>最近 50 条（时间 · 用户 · 类型 · 模型/工具 · 耗时）</span></div>
+        <table>
+            <thead><tr><th>时间</th><th>用户</th><th>类型</th><th>模型 / 工具</th><th>耗时</th><th>结果</th></tr></thead>
+            <tbody>
+            <tr th:each="e : ${recent}" th:classappend="${e.failed()} ? 'row-failed'">
+                <td class="mono" th:text="${e.time()}">-</td>
+                <td class="mono" th:text="${e.user()}">-</td>
+                <td th:text="${e.kind()}">-</td>
+                <td class="mono" th:text="${e.subject()}">-</td>
+                <td class="mono" th:text="${#numbers.formatDecimal(e.durationMs(), 0, 0) + ' ms'}">-</td>
+                <td th:text="${e.failed() ? (e.failureReason() != null and !#strings.isEmpty(e.failureReason()) ? e.failureReason() : '失败') : '成功'}">-</td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(recent)}"><td colspan="6" class="empty">暂无调用记录。</td></tr>
+            </tbody>
+        </table>
+    </section>
+</main>
+</body>
+</html>

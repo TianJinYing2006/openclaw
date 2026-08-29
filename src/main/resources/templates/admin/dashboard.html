@@ -6,7 +6,7 @@
     <title>WeChatBot 管理</title><link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
 </head>
 <body>
-<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a class="active" th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a class="active" th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a><a th:href="@{/admin/agent-trace}">链路耗时</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
 <main class="page">
     <div class="page-heading"><div><h1>运行概览</h1><p>实时状态来自当前 Java 进程；持久状态和用量来自 MySQL。页面每 10 秒刷新。</p><div class="dashboard-meta"><span th:text="${'数据快照：' + #temporals.format(dashboardCapturedAt, 'yyyy-MM-dd HH:mm:ss')}">数据快照</span><span th:text="${'统计窗口：北京时间 ' + #temporals.format(usageWindowStart, 'yyyy-MM-dd HH:mm') + ' 起'}">统计窗口</span></div></div><a class="button" th:href="@{/admin/users}">管理用户</a></div>
     <div class="metrics metrics-eight">

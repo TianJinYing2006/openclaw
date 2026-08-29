@@ -6,7 +6,7 @@
     <title>用户与实例</title><link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
 </head>
 <body>
-<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a class="active" th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a class="active" th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a><a th:href="@{/admin/agent-trace}">链路耗时</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
 <main class="page">
     <div class="page-heading"><div><h1>用户与机器人实例</h1><p>一个平台用户对应一个当前有效实例。实时状态来自本次 Java 进程，持久状态来自 MySQL；归档实例保留在回收记录中。</p><div class="dashboard-meta"><span>页面每 10 秒刷新</span><span>重新绑定会清除该实例的当前登录态</span></div></div></div>
     <p class="alert notice" th:if="${notice}" th:text="${notice}"></p><p class="alert error" th:if="${error}" th:text="${error}"></p>
