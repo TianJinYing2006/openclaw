@@ -1,7 +1,6 @@
 package com.example.ykdsummer.ai.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /**
  * 图片生成服务的独立 OpenAI Images API 连接参数。
@@ -9,12 +8,11 @@ import org.springframework.stereotype.Component;
  * <p>文字模型使用 {@code openai.*} 与 Spring AI；本类只负责 {@code openai.image.*}。
  * 两套地址和密钥彼此独立，所以替换图片供应商不会影响微信文字问答。</p>
  */
-@Component
 @ConfigurationProperties(prefix = "openai.image")
 public class ImageOpenAiClientProperties {
 
     /** OpenAI Images API 兼容地址，必须包含 /v1。 */
-    private String baseUrl = "https://api.lk888.ai/v1";
+    private String baseUrl = "";
 
     /** 只能通过环境变量注入，不能提交到 Git。 */
     private String apiKey = "not-configured";

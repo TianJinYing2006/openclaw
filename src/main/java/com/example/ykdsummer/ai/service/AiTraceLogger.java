@@ -3,6 +3,7 @@ package com.example.ykdsummer.ai.service;
 import com.example.ykdsummer.ai.config.AiTraceProperties;
 import com.example.ykdsummer.ai.model.AiFile;
 import com.example.ykdsummer.ai.model.AiImage;
+import com.example.ykdsummer.ai.orchestration.AgentSessionContext;
 import com.example.ykdsummer.weather.WeatherInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,20 +50,24 @@ public class AiTraceLogger {
             return;
         }
         log.info(
-                "[请求] user={} history={} images={} files={} 用户消息=\"{}\" 模型实际输入=\"{}\"",
-                anonymize(userId),
+                "[会话开始] {} history={} images={} files={} message=\"{}\"",
+                userLabel(userId),
                 historyCount,
                 size(images),
                 fileSummary(files),
-                preview(userPrompt),
-                preview(modelPrompt)
+                shortPreview(userPrompt)
         );
     }
 
     public void route(String protocol, String reason, int imageCount, int fileCount) {
+        route(null, protocol, reason, imageCount, fileCount);
+    }
+
+    public void route(String userId, String protocol, String reason, int imageCount, int fileCount) {
         if (properties.isEnabled()) {
             log.info(
-                    "[协议] {}，原因={}，images={}，files={}",
+                    "[模型路由] {} protocol={} reason={} images={} files={}",
+                    userLabel(userId),
                     protocol,
                     reason,
                     imageCount,
@@ -73,25 +78,64 @@ public class AiTraceLogger {
 
     public void toolCall(String toolName, String arguments) {
         if (properties.isEnabled()) {
-            log.info("[工具调用] name={} arguments=\"{}\"", toolName, preview(arguments));
+            log.info("[工具开始] {} tool={} input=\"{}\"", currentUserLabel(), toolName, shortPreview(arguments));
+        }
+    }
+
+    /** 记录本轮实际交给模型的 Tool，不等同于模型一定会调用它们。 */
+    public void toolCatalog(List<String> toolNames) {
+        if (properties.isEnabled()) {
+            log.info("[模型工具集] {} count={} sample={}", currentUserLabel(), toolNames == null ? 0 : toolNames.size(),
+                    toolNames == null ? List.of() : toolNames.stream().limit(12).toList());
         }
     }
 
     public void toolResult(String toolName, Object result) {
         if (properties.isEnabled()) {
-            log.info("[工具结果] name={} result=\"{}\"", toolName, preview(String.valueOf(result)));
+            log.info("[工具完成] {} tool={} result=\"{}\"", currentUserLabel(), toolName, preview(String.valueOf(result)));
+        }
+    }
+
+    public void toolResult(String toolName, Object result, long durationMs) {
+        if (properties.isEnabled()) {
+            log.info("[工具完成] {} tool={} durationMs={} result=\"{}\"",
+                    currentUserLabel(), toolName, durationMs, preview(String.valueOf(result)));
         }
     }
 
     public void toolFailure(String toolName, RuntimeException failure) {
         if (properties.isEnabled()) {
-            log.warn("[工具失败] name={} error={}", toolName, failure.getClass().getSimpleName());
+            log.warn("[工具失败] {} tool={} error={}", currentUserLabel(), toolName, failure.getClass().getSimpleName());
+        }
+    }
+
+    public void toolFailure(String toolName, RuntimeException failure, long durationMs) {
+        if (properties.isEnabled()) {
+            log.warn("[工具失败] {} tool={} durationMs={} error={}",
+                    currentUserLabel(), toolName, durationMs, failure.getClass().getSimpleName());
         }
     }
 
     public void modelReply(String protocol, String model, String text) {
         if (properties.isEnabled()) {
-            log.info("[模型回复] protocol={} model={} text=\"{}\"", protocol, model, preview(text));
+            log.debug("[模型原始响应] {} protocol={} actualModel={} answerChars={}",
+                    currentUserLabel(), protocol, model, text == null ? 0 : text.length());
+        }
+    }
+
+    public void modelCompleted(String userId, String protocol, String model, long durationMs,
+                               AiModelUsage usage, String text) {
+        if (!properties.isEnabled()) return;
+        AiModelUsage safeUsage = usage == null ? AiModelUsage.unknown() : usage;
+        log.info("[模型完成] {} protocol={} actualModel={} durationMs={} tokens={} reportedUsage={} answer=\"{}\"",
+                userLabel(userId), protocol, model, Math.max(0, durationMs), safeUsage.totalTokens(), safeUsage.reported(),
+                shortPreview(text));
+    }
+
+    public void modelFailure(String userId, String protocol, String model, long durationMs, String reason) {
+        if (properties.isEnabled()) {
+            log.warn("[模型失败] {} protocol={} actualModel={} durationMs={} reason={}", userLabel(userId), protocol,
+                    model == null || model.isBlank() ? "未返回" : model, Math.max(0, durationMs), reason);
         }
     }
 
@@ -127,7 +171,7 @@ public class AiTraceLogger {
                 category = "TIMEOUT";
             }
         }
-        log.warn("[失败] protocol={} category={} httpStatus={} type={}",
+        log.warn("[上游失败] {} protocol={} category={} httpStatus={} type={}", currentUserLabel(),
                 protocol, category, status == null ? "-" : status, failure.getClass().getSimpleName());
     }
 
@@ -135,9 +179,42 @@ public class AiTraceLogger {
         if (value == null) {
             return "";
         }
-        String normalized = value.replace("\r", "\\r").replace("\n", "\\n");
+        String normalized = redactUrls(value).replace("\r", "\\r").replace("\n", "\\n");
         int limit = properties.getMaxTextLength();
         return normalized.length() <= limit ? normalized : normalized.substring(0, limit) + "…[已截断]";
+    }
+
+    private String shortPreview(String value) {
+        String preview = preview(value);
+        return preview.length() <= 180 ? preview : preview.substring(0, 180) + "…[摘要]";
+    }
+
+    /**
+     * 日志脱敏：把 URL 中的查询参数（可能含 OSS 签名 / token）整体替换为占位符，
+     * 只保留协议、主机和路径，便于定位又不泄露签名信息。
+     */
+    private static final java.util.regex.Pattern URL_PATTERN =
+            java.util.regex.Pattern.compile("https?://[^\\s\"'，。；）)]+");
+
+    private static String redactUrls(String value) {
+        if (value == null || value.indexOf("http") < 0) {
+            return value;
+        }
+        java.util.regex.Matcher matcher = URL_PATTERN.matcher(value);
+        StringBuilder sb = new StringBuilder();
+        while (matcher.find()) {
+            matcher.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(redactUrl(matcher.group())));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+
+    private static String redactUrl(String url) {
+        int query = url.indexOf('?');
+        if (query <= 0) {
+            return url;
+        }
+        return url.substring(0, query) + "?[query-redacted]";
     }
 
     private static int size(List<?> values) {
@@ -153,7 +230,22 @@ public class AiTraceLogger {
                 .collect(Collectors.joining(",")) + "]";
     }
 
-    private static String anonymize(String userId) {
-        return userId == null ? "unknown" : Integer.toHexString(userId.hashCode());
+    private static String currentUserLabel() {
+        String userId = AgentSessionContext.currentUserId();
+        return "anonymous".equals(userId) ? userLabel(null) : userLabel(userId);
+    }
+
+    private static String userLabel(String userId) {
+        if (userId == null || userId.isBlank() || "unknown".equals(userId) || "anonymous".equals(userId)) {
+            return "chatUser=unknown bot=-";
+        }
+        String instance = "-";
+        if (userId.startsWith("managed:")) {
+            int separator = userId.indexOf(':', "managed:".length());
+            if (separator > 0) {
+                instance = userId.substring("managed:".length(), Math.min("managed:".length() + 8, separator));
+            }
+        }
+        return "chatUser=" + Integer.toHexString(userId.hashCode()) + " bot=" + instance;
     }
 }

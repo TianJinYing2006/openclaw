@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>核心职责：
  * <ul>
- *   <li>应用启动时从 SQLite 恢复所有 WAITING 状态的任务</li>
+ *   <li>应用启动时从 MySQL 恢复所有 WAITING 状态的任务</li>
  *   <li>提供创建、暂停、恢复、取消任务的 API</li>
  *   <li>通过 {@link ScheduledTaskHandler} 接口分发任务执行</li>
  *   <li>应用关闭时优雅停止（取消待触发任务，等待执行中的任务完成）</li>

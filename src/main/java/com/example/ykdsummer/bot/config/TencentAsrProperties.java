@@ -1,7 +1,6 @@
 package com.example.ykdsummer.bot.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 
 import java.time.Duration;
@@ -11,7 +10,6 @@ import java.time.Duration;
  *
  * <p>SecretId 和 SecretKey 只允许从运行环境传入，不能写进源码或配置文件。</p>
  */
-@Component
 @ConfigurationProperties(prefix = "app.asr")
 public class TencentAsrProperties {
 

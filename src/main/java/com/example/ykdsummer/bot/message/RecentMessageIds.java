@@ -37,6 +37,15 @@ public final class RecentMessageIds {
         return messageId != null && ids.containsKey(messageId);
     }
 
+    /** Atomically checks and remembers an ID, closing the contains-then-remember race. */
+    public synchronized boolean claim(Long messageId) {
+        if (messageId == null || ids.containsKey(messageId)) {
+            return false;
+        }
+        ids.put(messageId, Boolean.TRUE);
+        return true;
+    }
+
     /**
      * 在消息被接受入队，或确认是无需回复的旧消息后记住 ID。注意它不表示 AI 和发送已经成功。
      */

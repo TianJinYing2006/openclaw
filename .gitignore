@@ -23,10 +23,16 @@ pnpm-debug.log*
 !.env.example
 application-local.properties
 secret.properties
-ilink/
+/ilink/
 .ilink/
 .documents/
 .ai-assets/
+
+# AI 辅助工具本地计划/运行时产物，不入库
+.mimocode/
+.trae-html-share-packages/
+skill-design-daily-report/
+data/wechat/
 
 # Operating-system files
 .DS_Store
@@ -43,3 +49,18 @@ replay_pid*
 task_plan.md
 findings.md
 progress.md
+
+# Runtime SQLite databases
+.db/
+/tianchi/
+
+# Maven settings with credentials (use ~/.m2/settings.xml instead)
+.m2-settings*.xml
+
+# Binary executables should not be version-controlled
+*.exe
+
+# Python cache and test artifacts
+__pycache__/
+*.pyc
+mcp-server/_tryon_test/

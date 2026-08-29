@@ -1,0 +1,46 @@
+{
+  "suggestions": [
+    {
+      "id": 1,
+      "styleLabel": "清爽防晒风",
+      "outfit": {
+        "top": "浅蓝色宽松防晒衬衫，内搭白色吊带背心",
+        "bottom": "白色高腰短裤",
+        "shoes": "防水凉鞋",
+        "accessories": "草编遮阳帽、墨镜、防水斜挎包"
+      },
+      "colorScheme": "浅蓝、白色、米色",
+      "reasoning": "适合海边防晒、散步和拍照，整体轻盈清爽。",
+      "suitableFor": ["海边散步", "拍照", "短途旅行"],
+      "bodyTypeNotes": "高腰短裤能提高腰线，宽松衬衫对肩臂线条更友好。"
+    },
+    {
+      "id": 2,
+      "styleLabel": "度假连衣裙风",
+      "outfit": {
+        "top": "亮色吊带连衣裙外搭轻薄罩衫",
+        "bottom": "连衣裙一体式下装",
+        "shoes": "细带平底凉鞋",
+        "accessories": "贝壳项链、编织托特包、宽檐帽"
+      },
+      "colorScheme": "珊瑚橘、奶白、浅金色",
+      "reasoning": "照片表现力强，适合海边咖啡店、落日拍照和轻度游玩。",
+      "suitableFor": ["度假拍照", "海边咖啡", "傍晚散步"],
+      "bodyTypeNotes": "外搭罩衫可以修饰手臂，连衣裙要注意腰线位置。"
+    },
+    {
+      "id": 3,
+      "styleLabel": "基础运动休闲风",
+      "outfit": {
+        "top": "黑色紧身速干 T 恤",
+        "bottom": "深色五分运动短裤",
+        "shoes": "普通网面运动鞋",
+        "accessories": "棒球帽、运动手环"
+      },
+      "colorScheme": "黑色、深灰",
+      "reasoning": "行动方便，但颜色偏深，在海边白天容易吸热，拍照氛围较弱。",
+      "suitableFor": ["赶路", "轻运动", "临时出行"],
+      "bodyTypeNotes": "紧身上衣对上半身线条要求较高，五分裤可能压低身高比例。"
+    }
+  ]
+}

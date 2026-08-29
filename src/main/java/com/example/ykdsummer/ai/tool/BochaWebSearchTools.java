@@ -6,13 +6,16 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /** 使用博查 API 检索可公开访问的实时网页信息。 */
 @Component
-public class BochaWebSearchTools {
+@ConditionalOnProperty(prefix = "app.web-search", name = "provider",
+        havingValue = "bocha", matchIfMissing = true)
+public class BochaWebSearchTools implements WebSearchProvider {
 
     private static final String NOT_CONFIGURED = "博查搜索未配置 API Key";
 
@@ -27,6 +30,11 @@ public class BochaWebSearchTools {
     BochaWebSearchTools(String apiKey, RestClient restClient) {
         this.apiKey = apiKey;
         this.restClient = restClient;
+    }
+
+    @Override
+    public String search(String query) {
+        return searchWeb(query);
     }
 
     @Tool(name = "search_web", description = "使用博查搜索公开网页中的实时信息、新闻和热点。"

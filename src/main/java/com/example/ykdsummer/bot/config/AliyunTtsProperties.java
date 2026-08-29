@@ -1,12 +1,10 @@
 package com.example.ykdsummer.bot.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 
 /** 阿里云百炼非实时语音合成配置；API Key 只能通过运行环境注入。 */
-@Component
 @ConfigurationProperties(prefix = "app.tts")
 public class AliyunTtsProperties {
 

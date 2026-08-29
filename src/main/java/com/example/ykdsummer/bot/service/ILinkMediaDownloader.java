@@ -53,6 +53,11 @@ public class ILinkMediaDownloader {
      * @return 已解密且通过格式检查的模型图片，最多 3 张
      */
     public List<AiImage> downloadImages(List<MessageItem> items) {
+        return downloadImages(client, items);
+    }
+
+    /** Uses an explicitly owned client for a managed bot instance. */
+    public List<AiImage> downloadImages(ILinkClient currentClient, List<MessageItem> items) {
         List<ImageItem> imageItems = items.stream()
                 .filter(item -> item != null && ILinkMessageType.from(item.type()) == ILinkMessageType.IMAGE)
                 .map(MessageItem::imageItem)
@@ -62,7 +67,6 @@ public class ILinkMediaDownloader {
             throw new MediaProcessingException("一次最多发送 3 张图片");
         }
 
-        ILinkClient currentClient = client;
         if (currentClient == null) {
             throw new MediaProcessingException("图片读取失败，请重新发送");
         }

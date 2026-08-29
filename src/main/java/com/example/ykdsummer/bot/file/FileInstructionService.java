@@ -16,8 +16,8 @@ import org.springframework.stereotype.Service;
  * 文件消息与 Agent 的桥梁。
  *
  * <p>本类不再解析 {@code FILE_GEN||JSON} 这种隐藏文本协议。文件先登记为用户自己的本地资产，
- * 再把“当前文档 ID、版本、可提取正文”作为模型上下文；模型若要新建、修改、转换或回退，会调用
- * {@code DocumentTools}，工具返回的真实文件由 {@link Result} 交给 iLink 发送。</p>
+ * 再把“当前文档 ID、版本、可提取正文”作为模型上下文；模型基于该上下文直接回答，
+ * 或调用已注册的 Agent 工具，真实文件由 {@link Result} 交给 iLink 发送。</p>
  */
 @Service
 public class FileInstructionService {
@@ -94,15 +94,17 @@ public class FileInstructionService {
                 .filter(artifact -> artifact.type() == AiArtifact.Type.DOCUMENT && artifact.bytes() != null)
                 .findFirst()
                 .map(artifact -> Result.file(answer.text(), artifact.fileName(), artifact.bytes()))
-                .orElseGet(() -> answer.artifacts().stream()
-                        .filter(artifact -> artifact.type() == AiArtifact.Type.IMAGE && artifact.bytes() != null)
-                        .findFirst()
-                        .map(artifact -> Result.image(answer.text(), artifact.bytes()))
-                        .orElseGet(() -> answer.artifacts().stream()
-                                .filter(artifact -> artifact.type() == AiArtifact.Type.AUDIO && artifact.bytes() != null)
-                                .findFirst()
-                                .map(artifact -> Result.audio(answer.text(), artifact.fileName(), artifact.bytes()))
-                                .orElseGet(() -> Result.text(answer.text()))));
+                .orElseGet(() -> {
+                    List<byte[]> images = answer.artifacts().stream()
+                            .filter(artifact -> artifact.type() == AiArtifact.Type.IMAGE && artifact.bytes() != null)
+                            .map(AiArtifact::bytes).toList();
+                    if (!images.isEmpty()) return Result.images(answer.text(), images);
+                    return answer.artifacts().stream()
+                            .filter(artifact -> artifact.type() == AiArtifact.Type.AUDIO && artifact.bytes() != null)
+                            .findFirst()
+                            .map(artifact -> Result.audio(answer.text(), artifact.fileName(), artifact.bytes()))
+                            .orElseGet(() -> Result.text(answer.text()));
+                });
     }
 
     /**
@@ -114,11 +116,15 @@ public class FileInstructionService {
     }
 
     private PromptInput buildPrompt(String userId, String instruction, AiFile sourceFile) {
+        if (sourceFile == null) {
+            // 无文档上下文：直接透传用户指令。此前总是拼接 DOCUMENT_TOOL_INSTRUCTION 模板，
+            // 其中"用户只要求转成 PDF"等固定话术含"只要"，被穿搭路由的入库正则误命中，
+            // 导致"推荐一套穿搭"被挂上抠图入库工具组、模型输出被误导（8.25 修复）。
+            return new PromptInput(instruction, List.of());
+        }
+
         StringBuilder prompt = new StringBuilder(DOCUMENT_TOOL_INSTRUCTION)
                 .append("\n用户本轮请求：").append(instruction);
-        if (sourceFile == null) {
-            return new PromptInput(prompt.toString(), List.of());
-        }
 
         LocalDocumentAssetStore.StoredDocument document = documentStore.importUploaded(userId, sourceFile);
         prompt.append("\n本轮用户上传并已登记为当前文档：assetId=").append(document.assetId())
@@ -140,7 +146,11 @@ public class FileInstructionService {
     private record PromptInput(String modelPrompt, List<AiFile> files) { }
 
     public record Result(String text, String fileName, byte[] bytes, byte[] imageBytes,
-                         String audioFileName, byte[] audioBytes) {
+                         String audioFileName, byte[] audioBytes, List<byte[]> imagePages) {
+        public Result(String text, String fileName, byte[] bytes, byte[] imageBytes,
+                      String audioFileName, byte[] audioBytes) {
+            this(text, fileName, bytes, imageBytes, audioFileName, audioBytes, List.of());
+        }
         public Result(String text, String fileName, byte[] bytes) {
             this(text, fileName, bytes, null, null, null);
         }
@@ -149,19 +159,28 @@ public class FileInstructionService {
             bytes = bytes == null ? null : bytes.clone();
             imageBytes = imageBytes == null ? null : imageBytes.clone();
             audioBytes = audioBytes == null ? null : audioBytes.clone();
+            imagePages = imagePages == null ? List.of() : imagePages.stream()
+                    .filter(value -> value != null && value.length > 0).map(byte[]::clone).toList();
         }
 
         public static Result text(String value) { return new Result(value, null, null); }
         public static Result file(String text, String fileName, byte[] bytes) { return new Result(text, fileName, bytes); }
         /** 兼容旧调用：没有附加说明时只发送文件。 */
         public static Result file(String fileName, byte[] bytes) { return new Result("", fileName, bytes); }
-        public static Result image(String text, byte[] imageBytes) { return new Result(text, null, null, imageBytes, null, null); }
+        public static Result image(String text, byte[] imageBytes) { return images(text, List.of(imageBytes)); }
+        public static Result images(String text, List<byte[]> imagePages) {
+            List<byte[]> values = imagePages == null ? List.of() : imagePages.stream()
+                    .filter(value -> value != null && value.length > 0).map(byte[]::clone).toList();
+            return new Result(text, null, null, values.isEmpty() ? null : values.getFirst(), null, null, values);
+        }
         public static Result audio(String text, String fileName, byte[] audioBytes) { return new Result(text, null, null, null, fileName, audioBytes); }
         public boolean hasFile() { return fileName != null && bytes != null; }
         public boolean hasImage() { return imageBytes != null; }
+        public boolean hasImagePages() { return !imagePages.isEmpty(); }
         public boolean hasAudio() { return audioFileName != null && audioBytes != null; }
         @Override public byte[] bytes() { return bytes == null ? null : bytes.clone(); }
         @Override public byte[] imageBytes() { return imageBytes == null ? null : imageBytes.clone(); }
         @Override public byte[] audioBytes() { return audioBytes == null ? null : audioBytes.clone(); }
+        @Override public List<byte[]> imagePages() { return imagePages.stream().map(byte[]::clone).toList(); }
     }
 }

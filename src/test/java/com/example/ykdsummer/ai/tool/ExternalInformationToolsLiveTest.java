@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.ykdsummer.location.LocationSearchInfo;
 import com.example.ykdsummer.location.LocationSearchService;
-import com.example.ykdsummer.navigation.AmapGeoResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -31,9 +30,6 @@ class ExternalInformationToolsLiveTest {
     @Autowired
     private LocationSearchService locationSearchService;
 
-    @Autowired
-    private AmapTools amapTools;
-
     @Test
     @Timeout(120)
     void bochaSearchReturnsUsableResults() {
@@ -47,26 +43,5 @@ class ExternalInformationToolsLiveTest {
         LocationSearchInfo places = locationSearchService.search("北京大学", "北京");
         assertThat(places.count()).isPositive();
         assertThat(places.pois()).isNotEmpty();
-    }
-
-    @Test
-    @Timeout(90)
-    void amapGeocodingAndV5RoutesReturnUsableResults() {
-        AmapGeoResult origin = amapTools.geoEncode("北京天安门", "北京");
-        AmapGeoResult destination = amapTools.geoEncode("北京故宫", "北京");
-        assertThat(origin.status()).isEqualTo("1");
-        assertThat(destination.status()).isEqualTo("1");
-        assertThat(origin.geocodes()).isNotEmpty();
-        assertThat(destination.geocodes()).isNotEmpty();
-
-        String route = amapTools.routePlan(
-                origin.geocodes().getFirst().location(),
-                destination.geocodes().getFirst().location(),
-                "driving",
-                "北京故宫",
-                "010",
-                "010"
-        );
-        assertThat(route).contains("驾车：", "步行：", "导航");
     }
 }

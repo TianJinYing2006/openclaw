@@ -44,7 +44,7 @@ public class FileCleanupService {
     /**
      * 按配置的间隔执行兜底清理。扫描根目录下所有 userId 目录，删除其中过期的 session 目录。
      */
-    @Scheduled(fixedDelayString = "#{@fileStorageProperties.cleanupInterval.toMillis()}")
+    @Scheduled(fixedDelayString = "${app.workspace.cleanup-interval:1m}")
     void cleanup() {
         Path root = properties.getRoot();
         if (!Files.isDirectory(root)) {

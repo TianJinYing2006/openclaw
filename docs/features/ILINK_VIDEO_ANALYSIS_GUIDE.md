@@ -95,7 +95,7 @@ TENCENT_ASR_REGION=
 `SecretId/SecretKey` 禁止写入 `application.properties` 或提交到 Git。没有配置时不会阻止
 视频画面分析，只会在提示词中说明“没有可用的音频转写”。
 
-图片生成仍使用独立的 `AI_IMAGE_API_KEY`。视频理解不使用图片生成 API。
+图片生成仍使用独立的 `IMAGE_API_KEY`。视频理解不使用图片生成 API。
 
 如果自动发现失败，可以在 IntelliJ 环境变量中额外填写：
 
@@ -310,5 +310,4 @@ DataLen = WAV 原始字节数
 
 OpenAI 官方资料：
 
-- [GPT-5.6 Sol 模型输入输出能力](https://developers.openai.com/api/docs/models/gpt-5.6-sol)
 - [Responses API 图片与视觉输入](https://developers.openai.com/api/docs/guides/images-vision)

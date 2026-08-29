@@ -44,12 +44,19 @@ public class LocationSearchService {
         if (keyword == null || keyword.isBlank()) {
             throw new IllegalArgumentException("搜索关键词不能为空");
         }
-        if (radiusMeters <= 0) {
-            radiusMeters = 1000;
-        }
+        radiusMeters = normalizeNearbyRadius(radiusMeters);
 
         String boundary = "nearby(" + lat + "," + lng + "," + radiusMeters + ")";
         return doSearch(keyword, boundary);
+    }
+
+    private static int normalizeNearbyRadius(int radiusMeters) {
+        if (radiusMeters <= 0) {
+            return 1000;
+        }
+        // Tencent Maps only accepts 10 to 1000 meters. Clamp model-provided values
+        // so an imprecise radius does not turn an otherwise valid tool call into an API error.
+        return Math.max(10, Math.min(1000, radiusMeters));
     }
 
     private LocationSearchInfo doSearch(String keyword, String boundary) {

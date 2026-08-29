@@ -1,6 +1,7 @@
 package com.example.ykdsummer.weather;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -9,7 +10,9 @@ import org.springframework.web.client.RestClient;
  * 天气业务服务。它只负责参数校验和调用天气数据源，不包含任何大模型提示词。
  */
 @Service
-public class WeatherService {
+@ConditionalOnProperty(prefix = "app.weather", name = "provider",
+        havingValue = "uapis", matchIfMissing = true)
+public class WeatherService implements WeatherProvider {
 
     private static final String BASE_URL = "https://uapis.cn";
 
@@ -19,6 +22,7 @@ public class WeatherService {
         this.restClient = restClientBuilder.baseUrl(BASE_URL).build();
     }
 
+    @Override
     public WeatherInfo getCurrentWeather(String city) {
         String normalizedCity = normalizeCity(city);
         WeatherApiResponse response = restClient.get()

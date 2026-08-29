@@ -3,6 +3,8 @@ package com.example.ykdsummer.bot.video;
 import com.example.ykdsummer.ai.model.AiImage;
 import com.example.ykdsummer.bot.config.VideoProcessingProperties;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -20,6 +22,8 @@ import java.util.stream.Stream;
 /** 使用本机 ffprobe 获取时长，再调用 FFmpeg 按等分区间中点抽取 JPEG 帧。 */
 @Component
 public class FfmpegVideoFrameExtractor implements VideoFrameExtractor {
+
+    private static final Logger log = LoggerFactory.getLogger(FfmpegVideoFrameExtractor.class);
 
     private final VideoProcessingProperties properties;
     private final String ffmpegExecutable;
@@ -75,6 +79,11 @@ public class FfmpegVideoFrameExtractor implements VideoFrameExtractor {
             }
             return List.copyOf(frames);
         } catch (VideoProcessingException exception) {
+            log.warn(
+                    "Video frame extraction failed, reason={}, ffmpegDetails={}",
+                    exception.userMessage(),
+                    diagnosticSnippet(workDirectory)
+            );
             throw exception;
         } catch (IOException exception) {
             throw new VideoProcessingException("视频临时文件处理失败，请稍后重试", exception);
@@ -174,6 +183,38 @@ public class FfmpegVideoFrameExtractor implements VideoFrameExtractor {
                 && (bytes[0] & 0xFF) == 0xFF
                 && (bytes[1] & 0xFF) == 0xD8
                 && (bytes[2] & 0xFF) == 0xFF;
+    }
+
+    /**
+     * 只在本机日志中保留 FFmpeg 的短错误摘要，便于区分容器、解码器和抽帧问题；
+     * 临时目录仍会在 finally 中删除，不保留用户视频或完整命令输出。
+     */
+    private static String diagnosticSnippet(Path workDirectory) {
+        if (workDirectory == null) {
+            return "unavailable";
+        }
+        StringBuilder result = new StringBuilder();
+        for (String name : List.of("ffprobe-error.txt", "ffmpeg.log")) {
+            Path file = workDirectory.resolve(name);
+            if (!Files.isRegularFile(file)) {
+                continue;
+            }
+            try {
+                String text = Files.readString(file, StandardCharsets.UTF_8)
+                        .replaceAll("\\s+", " ")
+                        .trim();
+                if (text.isBlank()) {
+                    continue;
+                }
+                if (!result.isEmpty()) {
+                    result.append(" | ");
+                }
+                result.append(name).append('=').append(text, 0, Math.min(text.length(), 600));
+            } catch (IOException ignored) {
+                // 诊断日志不可读不影响原始用户提示和临时文件清理。
+            }
+        }
+        return result.isEmpty() ? "none" : result.toString();
     }
 
     /**
