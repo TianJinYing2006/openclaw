@@ -123,6 +123,51 @@ public final class FashionResultBuilders {
         return refId == null ? "" : refId;
     }
 
+    /** 从 RAG 上下文提取全部合法 outfit 编号（规范化，保持出现顺序）。 */
+    public static Set<String> validOutfitIds(String ragContext) {
+        if (ragContext == null || ragContext.isBlank()) {
+            return Set.of();
+        }
+        Set<String> ids = new java.util.LinkedHashSet<>();
+        Matcher matcher = OUTFIT_ID_MARKER.matcher(ragContext);
+        while (matcher.find()) {
+            String normalized = normalizeOutfitId(matcher.group(1));
+            if (!normalized.isBlank()) {
+                ids.add(normalized);
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * 校验并纠正最终方案的 {@code referenceOutfitId}：必须是本次检索上下文里真实存在的编号，
+     * 否则回退到上下文首个编号。
+     *
+     * <p>动机：Stylist/Coordinator 的 LLM 可能从注入的近期对话摘要里复述上一套编号（造成"重新推荐
+     * 却给出重复穿搭"），或直接幻觉编号；这里以检索上下文为准做确定性纠正，保证图文与"换一套"语义一致。
+     */
+    public static FashionResult withValidatedReferenceOutfit(FashionResult result, Set<String> validIds) {
+        if (result == null || validIds == null || validIds.isEmpty()
+                || result.coordinator() == null || result.coordinator().refinedOutfit() == null) {
+            return result;
+        }
+        CoordinatorOutput coordinator = result.coordinator();
+        CoordinatorOutput.RefinedOutfit outfit = coordinator.refinedOutfit();
+        String current = normalizeOutfitId(outfit.referenceOutfitId());
+        if (!current.isBlank() && validIds.contains(current)) {
+            return result;
+        }
+        String fallback = validIds.iterator().next();
+        CoordinatorOutput.RefinedOutfit fixedOutfit = new CoordinatorOutput.RefinedOutfit(
+                outfit.top(), outfit.bottom(), outfit.shoes(), outfit.accessories(), fallback);
+        CoordinatorOutput fixedCoordinator = new CoordinatorOutput(
+                coordinator.finalRecommendation(), fixedOutfit,
+                coordinator.finalReasoning(), coordinator.practicalTips());
+        return new FashionResult(
+                result.success(), fixedCoordinator, result.stylist(), result.critic(), result.trend(),
+                result.ragContext(), result.analyzedQuery(), result.errorMessage(), result.degraded());
+    }
+
     /** 将 "002"/"outfit_002"/"[outfit_002]" 统一为 "002"（与 image_urls.json 的 key 格式对齐）。 */
     public static String normalizeOutfitId(String raw) {
         if (raw == null) {

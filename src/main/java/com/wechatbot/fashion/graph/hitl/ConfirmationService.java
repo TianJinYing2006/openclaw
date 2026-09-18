@@ -54,6 +54,14 @@ public class ConfirmationService {
         return store.confirm(record.confirmationId(), approved, reply);
     }
 
+    /** 标记「确认后已执行完毕」并写入结果摘要；再次触发将重放该结果。 */
+    public boolean consume(ConfirmationRecord record, String resultSummary) {
+        if (record == null) {
+            return false;
+        }
+        return store.markConsumed(record.confirmationId(), resultSummary);
+    }
+
     public int expireOverdue() {
         return store.expireOverdue(Instant.now());
     }

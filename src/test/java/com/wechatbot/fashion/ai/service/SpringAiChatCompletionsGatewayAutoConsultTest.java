@@ -600,8 +600,8 @@ class SpringAiChatCompletionsGatewayAutoConsultTest {
     private static String invokeAutoTryOn(SpringAiChatCompletionsGateway gateway, String userId,
                                           String prompt, String text) throws Exception {
         java.lang.reflect.Method method = SpringAiChatCompletionsGateway.class
-                .getDeclaredMethod("maybeAutoTryOn", String.class, String.class, String.class);
+                .getDeclaredMethod("maybeAutoTryOn", String.class, String.class, String.class, java.util.List.class);
         method.setAccessible(true);
-        return (String) method.invoke(gateway, userId, prompt, text);
+        return (String) method.invoke(gateway, userId, prompt, text, java.util.List.of());
     }
 }
