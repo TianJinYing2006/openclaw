@@ -73,6 +73,22 @@ class ConfirmationServiceTest {
     }
 
     @Test
+    void consumeMarksConsumedAndReplaysResult() {
+        ConfirmationService service = serviceWithoutPersistence();
+        ConfirmationRecord record = service.request("run-c", "user-c", ConfirmationService.ACTION_PAID_OPERATION);
+        service.markResolved(record, true, "");
+
+        ConfirmationRecord confirmed = service.latest("run-c", ConfirmationService.ACTION_PAID_OPERATION).orElseThrow();
+        assertThat(service.consume(confirmed, "试穿任务已提交")).isTrue();
+
+        ConfirmationRecord consumed = service.latest("run-c", ConfirmationService.ACTION_PAID_OPERATION).orElseThrow();
+        assertThat(consumed.status()).isEqualTo(ConfirmationRecord.STATUS_CONSUMED);
+        assertThat(service.resolvedReply(consumed)).contains("试穿任务已提交");
+        // 已消费后再消费无效
+        assertThat(service.consume(consumed, "again")).isFalse();
+    }
+
+    @Test
     void unresolvedRecordHasNoReplay() {
         ConfirmationService service = serviceWithoutPersistence();
         ConfirmationRecord record = service.request("run-5", "user-5", ConfirmationService.ACTION_PAID_OPERATION);

@@ -22,6 +22,9 @@ public interface ConfirmationStore {
     /** 标记确认结果；仅当当前为 PENDING 时生效，返回是否发生迁移。 */
     boolean confirm(String confirmationId, boolean approved, String resultSummary);
 
+    /** 标记「确认后已执行」，写入结果摘要；返回是否发生迁移。 */
+    boolean markConsumed(String confirmationId, String resultSummary);
+
     /** 待确认列表（管理站展示）。 */
     List<ConfirmationRecord> listPending(int limit);
 

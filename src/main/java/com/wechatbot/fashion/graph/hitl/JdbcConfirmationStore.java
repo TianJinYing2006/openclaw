@@ -85,6 +85,20 @@ public class JdbcConfirmationStore implements ConfirmationStore {
     }
 
     @Override
+    public boolean markConsumed(String confirmationId, String resultSummary) {
+        JdbcTemplate jdbc = jdbcProvider.getIfAvailable();
+        if (jdbc == null) {
+            return memoryConsume(confirmationId, resultSummary);
+        }
+        int updated = jdbc.update("""
+                UPDATE agent_confirmations
+                SET status = 'CONSUMED', result_summary = ?, confirmed_at = CURRENT_TIMESTAMP
+                WHERE confirmation_id = ? AND status = 'CONFIRMED'
+                """, truncate(resultSummary, 1000), confirmationId);
+        return updated > 0;
+    }
+
+    @Override
     public List<ConfirmationRecord> listPending(int limit) {
         JdbcTemplate jdbc = jdbcProvider.getIfAvailable();
         if (jdbc == null) {
@@ -149,6 +163,18 @@ public class JdbcConfirmationStore implements ConfirmationStore {
         memoryById.put(confirmationId, new ConfirmationRecord(
                 current.confirmationId(), current.runId(), current.userId(), current.action(),
                 approved ? ConfirmationRecord.STATUS_CONFIRMED : ConfirmationRecord.STATUS_REJECTED,
+                truncate(resultSummary, 1000), current.createdAt(), Instant.now(), current.expiresAt()));
+        return true;
+    }
+
+    private synchronized boolean memoryConsume(String confirmationId, String resultSummary) {
+        ConfirmationRecord current = memoryById.get(confirmationId);
+        if (current == null || !ConfirmationRecord.STATUS_CONFIRMED.equals(current.status())) {
+            return false;
+        }
+        memoryById.put(confirmationId, new ConfirmationRecord(
+                current.confirmationId(), current.runId(), current.userId(), current.action(),
+                ConfirmationRecord.STATUS_CONSUMED,
                 truncate(resultSummary, 1000), current.createdAt(), Instant.now(), current.expiresAt()));
         return true;
     }

@@ -69,7 +69,7 @@ public class AgentTraceController {
         List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT kind, COUNT(*) AS cnt, ROUND(AVG(duration_ms), 1) AS avg_ms, ROUND(MAX(duration_ms), 1) AS max_ms
                 FROM (
-                    SELECT CASE WHEN usage_kind LIKE 'TOOL%' THEN 'TOOL'
+                    SELECT CASE WHEN usage_kind LIKE 'TOOL%%' THEN 'TOOL'
                                 WHEN usage_kind = 'MODEL' THEN 'MODEL' ELSE 'OTHER' END AS kind,
                            duration_ms
                     FROM ai_usage_events

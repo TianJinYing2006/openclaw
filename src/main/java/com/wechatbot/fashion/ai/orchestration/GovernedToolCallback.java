@@ -1,6 +1,8 @@
 package com.wechatbot.fashion.ai.orchestration;
 
 import com.wechatbot.fashion.graph.budget.RunBudgetTracker;
+import com.wechatbot.fashion.graph.hitl.ConfirmationRecord;
+import com.wechatbot.fashion.graph.hitl.ConfirmationService;
 import com.wechatbot.fashion.graph.trajectory.AgentTrajectoryRecorder;
 import com.wechatbot.fashion.graph.trajectory.TrajectoryRunContext;
 import org.slf4j.Logger;
@@ -40,22 +42,39 @@ public final class GovernedToolCallback implements ToolCallback {
     private final RunBudgetTracker budgetTracker;
     private final AgentTrajectoryRecorder auditRecorder;
     private final ExecutorService executor;
+    /** 工具级 HITL 确认（{@link ToolPolicy#requiresConfirmation()} 为真时生效）；可空。 */
+    private final ConfirmationService confirmationService;
 
     /** 生产用：策略按工具名从 {@link ToolGovernance} 解析。 */
     public GovernedToolCallback(ToolCallback delegate, RunBudgetTracker budgetTracker,
                                 AgentTrajectoryRecorder auditRecorder, ExecutorService executor) {
         this(delegate, ToolGovernance.policyOf(delegate.getToolDefinition().name()),
-                budgetTracker, auditRecorder, executor);
+                budgetTracker, auditRecorder, executor, null);
+    }
+
+    /** 生产用（含 HITL）：策略按工具名解析。 */
+    public GovernedToolCallback(ToolCallback delegate, RunBudgetTracker budgetTracker,
+                                AgentTrajectoryRecorder auditRecorder, ExecutorService executor,
+                                ConfirmationService confirmationService) {
+        this(delegate, ToolGovernance.policyOf(delegate.getToolDefinition().name()),
+                budgetTracker, auditRecorder, executor, confirmationService);
     }
 
     /** 可注入策略（测试用）。 */
     public GovernedToolCallback(ToolCallback delegate, ToolPolicy policy, RunBudgetTracker budgetTracker,
                                 AgentTrajectoryRecorder auditRecorder, ExecutorService executor) {
+        this(delegate, policy, budgetTracker, auditRecorder, executor, null);
+    }
+
+    public GovernedToolCallback(ToolCallback delegate, ToolPolicy policy, RunBudgetTracker budgetTracker,
+                                AgentTrajectoryRecorder auditRecorder, ExecutorService executor,
+                                ConfirmationService confirmationService) {
         this.delegate = delegate;
         this.policy = policy;
         this.budgetTracker = budgetTracker;
         this.auditRecorder = auditRecorder;
         this.executor = executor;
+        this.confirmationService = confirmationService;
     }
 
     @Override
@@ -88,10 +107,40 @@ public final class GovernedToolCallback implements ToolCallback {
             return "工具调用被拒绝：已达预算上限（" + name + "）。";
         }
 
+        // HITL 工具级闸门：付费且需确认的工具（虚拟试衣）在执行前需用户确认，确认后仅执行一次
+        ConfirmationRecord gate = null;
+        if (policy.requiresConfirmation() && confirmationService != null) {
+            String uid = AgentSessionContext.currentUserId();
+            gate = confirmationService.latest(uid, name).orElse(null);
+            if (gate == null) {
+                confirmationService.request(uid, uid, name);
+                audit(runId, node, name, "DENIED", 0, "await-confirmation", toolInput);
+                return "试穿会消耗生成额度，请回复「确认」继续，回复「取消」放弃。";
+            }
+            if (ConfirmationRecord.STATUS_PENDING.equals(gate.status())) {
+                audit(runId, node, name, "DENIED", 0, "await-confirmation", toolInput);
+                return "试穿会消耗生成额度，请回复「确认」继续，回复「取消」放弃。";
+            }
+            if (ConfirmationRecord.STATUS_REJECTED.equals(gate.status())) {
+                return "已取消该操作。";
+            }
+            if (gate.isConsumed()) {
+                String replay = gate.resultSummary();
+                return replay == null || replay.isBlank() ? "该操作已完成。" : replay;
+            }
+        }
+
         long start = System.nanoTime();
         try {
             String result = invokeWithTimeout(toolInput, toolContext);
-            audit(runId, node, name, "SUCCESS", elapsedMs(start), null, toolInput);
+            if (gate != null && ConfirmationRecord.STATUS_CONFIRMED.equals(gate.status())) {
+                confirmationService.consume(gate, result);
+            }
+            // 工具可能用「返回失败文案」而非抛异常来表达失败（项目内失败文案统一以「抱歉」开头），
+            // 此处如实记为 FAILED，避免管理台把失败调用显示为成功。
+            boolean failedByText = looksLikeFailure(result);
+            audit(runId, node, name, failedByText ? "FAILURE" : "SUCCESS", elapsedMs(start),
+                    failedByText ? "tool-returned-failure-text" : null, toolInput);
             return result;
         } catch (TimeoutException e) {
             log.warn("Tool call timed out after {}ms: {}", policy.timeoutMillis(), name);
@@ -107,8 +156,11 @@ public final class GovernedToolCallback implements ToolCallback {
         if (policy.timeoutMillis() <= 0 || executor == null) {
             return toolContext == null ? delegate.call(toolInput) : delegate.call(toolInput, toolContext);
         }
-        Future<String> future = executor.submit(() ->
-                toolContext == null ? delegate.call(toolInput) : delegate.call(toolInput, toolContext));
+        // 关键：工具在独立执行器线程上跑，ThreadLocal(AgentSessionContext/TrajectoryRunContext) 不会自动继承，
+        // 必须在提交前捕获、在线程内应用（否则 requireUserId() 会失败、轨迹丢 runId）。
+        AgentExecutionContext.Snapshot execCtx = AgentExecutionContext.capture();
+        Future<String> future = executor.submit(() -> AgentExecutionContext.callWith(execCtx,
+                () -> toolContext == null ? delegate.call(toolInput) : delegate.call(toolInput, toolContext)));
         try {
             return future.get(policy.timeoutMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
@@ -148,6 +200,16 @@ public final class GovernedToolCallback implements ToolCallback {
 
     private static long elapsedMs(long startNanos) {
         return (System.nanoTime() - startNanos) / 1_000_000;
+    }
+
+    /** 工具以「返回失败文案」表达失败时的识别（项目失败文案统一以「抱歉」开头或含「暂时遇到」）。 */
+    static boolean looksLikeFailure(String result) {
+        if (result == null) {
+            return false;
+        }
+        String r = result.strip();
+        return r.startsWith("抱歉") || r.contains("暂时遇到")
+                || r.startsWith("工具调用超时") || r.startsWith("工具调用被拒绝");
     }
 
     /** 输入脱敏：只保留 sha256 前 16 位 + 长度，避免敏感参数落库。 */

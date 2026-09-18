@@ -108,8 +108,9 @@ public final class ToolGovernance {
                 "update_wardrobe_candidate_labels");
 
         // ---- 付费算力 ----
-        add(m, ToolRisk.PAID_OPERATION,
-                "generate_image", "create_image_revision",
+        add(m, ToolRisk.PAID_OPERATION, "generate_image", "create_image_revision");
+        // 虚拟试衣消耗付费算力，执行前需用户确认（HITL 工具级闸门）
+        addConfirm(m, ToolRisk.PAID_OPERATION,
                 "virtual_try_on_wardrobe_item", "virtual_try_on_reference_outfit");
 
         // ---- 外部副作用 ----

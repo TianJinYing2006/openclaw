@@ -94,6 +94,9 @@ public class ResponderNode implements AsyncNodeAction {
             }
         }
 
+        // 校验并纠正最终编号：必须是本次检索上下文里的真实编号，避免复用上一套/幻觉编号导致"重复推荐"
+        result = FashionResultBuilders.withValidatedReferenceOutfit(
+                result, FashionResultBuilders.validOutfitIds(ragContext));
         maybePersist(state, result);
         return CompletableFuture.completedFuture(Map.of(FashionState.RESULT, FashionState.writeJson(result, ctx.objectMapper())));
     }

@@ -27,9 +27,16 @@ public record ConfirmationRecord(
     public static final String STATUS_CONFIRMED = "CONFIRMED";
     public static final String STATUS_REJECTED = "REJECTED";
     public static final String STATUS_EXPIRED = "EXPIRED";
+    /** 确认后已执行完毕（副作用已发生）；再次触发应重放结果而非重复执行。 */
+    public static final String STATUS_CONSUMED = "CONSUMED";
 
     public boolean isResolved() {
-        return STATUS_CONFIRMED.equals(status) || STATUS_REJECTED.equals(status);
+        return STATUS_CONFIRMED.equals(status) || STATUS_REJECTED.equals(status)
+                || STATUS_CONSUMED.equals(status);
+    }
+
+    public boolean isConsumed() {
+        return STATUS_CONSUMED.equals(status);
     }
 
     public boolean isExpired(Instant now) {

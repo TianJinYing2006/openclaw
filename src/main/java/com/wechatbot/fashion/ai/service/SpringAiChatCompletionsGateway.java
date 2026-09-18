@@ -141,6 +141,13 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private volatile com.wechatbot.fashion.wardrobe.application.FashionWardrobeIngestionService wardrobeIngestion;
     /** 工具治理：run 预算（图外工具调用也纳入；未装配时仅超时生效）。 */
     private volatile RunBudgetTracker runBudgetTracker;
+    /** HITL 确认（工具级闸门：试穿等付费工具执行前需确认）。 */
+    private volatile com.wechatbot.fashion.graph.hitl.ConfirmationService confirmationService;
+
+    @Autowired(required = false)
+    public void setConfirmationService(com.wechatbot.fashion.graph.hitl.ConfirmationService confirmationService) {
+        this.confirmationService = confirmationService;
+    }
     /** 工具治理：工具调用审计写入轨迹。 */
     private volatile AgentTrajectoryRecorder trajectoryRecorder;
     /** 工具治理：单工具超时执行器。 */
@@ -237,6 +244,8 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         // 工具治理：每次对话请求建立一个 run 作用域，使图外工具调用也纳入预算与审计
         String toolRunId = UUID.randomUUID().toString();
         long toolRunStart = System.currentTimeMillis();
+        boolean ok = false;
+        String failureReason = null;
         try {
             if (artifacts != null) {
                 artifacts.begin(userId);
@@ -276,7 +285,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             // 兜底：模型漏调 fashion_consultant（如先查天气后直接输出文字）时自动补调，保证推荐带参考图
             text = maybeAutoConsult(userId, prompt, text);
             // 兜底：模型漏调试穿工具（只口头承诺"正在试穿"未执行）时自动补调最近推荐方案，保证用户能收到效果图
-            text = maybeAutoTryOn(userId, prompt, text);
+            text = maybeAutoTryOn(userId, prompt, text, history);
             // 兜底：衣橱单品意图被错调成推荐方案试穿时追加纠正提示，避免用户收到错误效果图而无感知
             text = maybeCorrectWardrobeMisroute(userId, prompt, text);
             // 兜底：照片入库意图被模型只回承诺文案（"正在提取/正在抠图"）而未调入库工具时，
@@ -288,6 +297,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                     : response.getMetadata().getModel();
             log.info("Spring AI chat completion completed, model={}", actualModel);
             trace.modelReply("Chat Completions", actualModel, text);
+            ok = true;
             return new LlmGateway.ModelReply(
                     text,
                     actualModel,
@@ -296,9 +306,11 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                     "chat-completions"
             );
         } catch (AiGatewayException exception) {
+            failureReason = exception.getMessage();
             if (artifacts != null) artifacts.discard();
             throw exception;
         } catch (RuntimeException exception) {
+            failureReason = exception.getMessage();
             if (artifacts != null) artifacts.discard();
             trace.failure("Chat Completions (/v1/chat/completions)", exception);
             AiGatewayException.Kind kind = isAuthenticationFailure(exception)
@@ -320,8 +332,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                 runBudgetTracker.finish(toolRunId);
             }
             if (trajectoryRecorder != null) {
-                trajectoryRecorder.finishRun(toolRunId, "SUCCESS",
-                        System.currentTimeMillis() - toolRunStart, null);
+                // 失败必须如实落库，避免管理台把失败请求显示为成功
+                trajectoryRecorder.finishRun(toolRunId, ok ? "SUCCESS" : "FAILED",
+                        System.currentTimeMillis() - toolRunStart, failureReason);
             }
         }
     }
@@ -331,7 +344,7 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
         ToolCallback[] callbacks = ToolCallbacks.from(tools);
         for (int i = 0; i < callbacks.length; i++) {
             callbacks[i] = new GovernedToolCallback(
-                    callbacks[i], runBudgetTracker, trajectoryRecorder, toolTimeoutExecutor);
+                    callbacks[i], runBudgetTracker, trajectoryRecorder, toolTimeoutExecutor, confirmationService);
         }
         return callbacks;
     }
@@ -496,11 +509,28 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
      * 自动补调一次 {@code virtual_try_on_reference_outfit}（取最近一次推荐编号整套试穿），
      * 把后台任务提示追加到回复，避免用户等不到效果图。
      */
-    private String maybeAutoTryOn(String userId, String prompt, String text) {
+    private String maybeAutoTryOn(String userId, String prompt, String text, List<ConversationMessage> history) {
         if (toolCallingManager == null || toolRegistry == null || fashionConversationService == null) {
             return text;
         }
         String stripped = stripInternalContext(prompt);
+        // HITL：存在待确认的试穿时，先按用户本轮回复结算确认（肯定→确认，否定→取消），
+        // 确认后下方的自动补调会真正触发执行（工具闸门此时已 CONFIRMED）。
+        if (confirmationService != null) {
+            com.wechatbot.fashion.graph.hitl.ConfirmationRecord pending =
+                    confirmationService.latest(userId, TRY_ON_TOOL).orElse(null);
+            if (pending != null
+                    && com.wechatbot.fashion.graph.hitl.ConfirmationRecord.STATUS_PENDING.equals(pending.status())) {
+                Boolean decision = com.wechatbot.fashion.ai.fashion.look.ConfirmationReply.parse(stripped);
+                if (Boolean.FALSE.equals(decision)) {
+                    confirmationService.markResolved(pending, false, "已取消本轮试穿");
+                    return text + "\n\n（已取消本轮试穿。）";
+                }
+                if (Boolean.TRUE.equals(decision) || isAffirmativeToTryOnOffer(stripped, history)) {
+                    confirmationService.markResolved(pending, true, "");
+                }
+            }
+        }
         Set<String> called = toolCallingManager.calledToolNames();
         // 已提交过试穿或本轮正在换推荐（consult）时不再补调；仅查询衣橱（search_wardrobe 等）
         // 不算提交试穿，模型可能查完单品却漏调试穿工具（8.28），仍需兜底。
@@ -508,7 +538,9 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                 || called.contains("fashion_consultant")) {
             return text;
         }
-        if (!hasTryOnIntent(stripped)) {
+        // 显式试穿意图，或「上一句机器人邀约试穿 + 用户简短肯定（好呀/可以）」——后者是真实漏调场景：
+        // 用户回"好呀"不含"试穿"关键词，模型常只口头承诺"已经开始试穿"却不调用工具。
+        if (!hasTryOnIntent(stripped) && !isAffirmativeToTryOnOffer(stripped, history)) {
             return text;
         }
         // 衣橱单品试穿（如"试穿这件白色T恤"）：模型只查了单品未调试穿工具时，
@@ -600,6 +632,38 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             return false;
         }
         return TRY_ON_INTENT.matcher(prompt).find();
+    }
+
+    /** 短肯定回复（用户对机器人邀约的同意）。 */
+    private static final Pattern AFFIRMATIVE_REPLY = Pattern.compile(
+            "确认|确定|好呀|好的|好啊|好|可以|可以呀|行|行呀|要|嗯|嗯嗯|来吧|试试|试穿一下|"
+                    + "ok|OK|Ok|yes|Yes", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * 「上一句机器人邀约试穿 + 用户简短肯定」判定。
+     *
+     * <p>真实漏调场景：机器人问"需要试穿看看效果吗？"，用户回"好呀"（不含"试穿"关键词），
+     * 模型常只口头承诺"已经开始试穿"却不调用工具。此判定让兜底也能覆盖这类肯定回复。
+     */
+    static boolean isAffirmativeToTryOnOffer(String userMessage, List<ConversationMessage> history) {
+        if (userMessage == null || userMessage.isBlank() || history == null || history.isEmpty()) {
+            return false;
+        }
+        String u = userMessage.strip();
+        if (u.length() > 6 || !AFFIRMATIVE_REPLY.matcher(u).matches()) {
+            return false;
+        }
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ConversationMessage message = history.get(i);
+            if (message == null || message.text() == null) {
+                continue;
+            }
+            if (message.role() == ConversationMessage.Role.ASSISTANT) {
+                String assistant = message.text();
+                return assistant.contains("试穿") || assistant.contains("上身") || assistant.contains("效果图");
+            }
+        }
+        return false;
     }
 
     /**

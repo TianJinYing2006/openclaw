@@ -27,7 +27,25 @@ class GovernedToolCallbackTest {
     @AfterEach
     void clear() {
         TrajectoryRunContext.clear();
+        AgentSessionContext.clear();
         executor.shutdownNow();
+    }
+
+    @Test
+    void propagatesSessionContextToTimeoutExecutor() {
+        AgentSessionContext.set("user-ctx", "sess-ctx");
+        java.util.concurrent.atomic.AtomicReference<String> seen = new java.util.concurrent.atomic.AtomicReference<>();
+        GovernedToolCallback governed = new GovernedToolCallback(
+                delegate("fashion_consultant", () -> {
+                    seen.set(AgentSessionContext.currentUserId());
+                    return "ok";
+                }),
+                new ToolPolicy(ToolRisk.READ_ONLY, 0, false, 1000, 0),
+                null, null, executor);
+
+        governed.call("{}");
+
+        assertThat(seen.get()).as("工具在超时执行器线程上仍能看到会话上下文").isEqualTo("user-ctx");
     }
 
     private static ToolCallback delegate(String name, java.util.function.Supplier<String> body) {
@@ -121,6 +139,59 @@ class GovernedToolCallbackTest {
         assertThat(step.toolName()).isEqualTo("get_current_weather");
         assertThat(step.status()).isEqualTo("SUCCESS");
         assertThat(step.inputSummary()).startsWith("sha256=").doesNotContain("杭州");
+    }
+
+    @Test
+    void confirmationGateExecutesOnceThenReplays() {
+        org.springframework.beans.factory.ObjectProvider<org.springframework.jdbc.core.JdbcTemplate> provider =
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(null);
+        com.wechatbot.fashion.graph.hitl.ConfirmationService confirmations =
+                new com.wechatbot.fashion.graph.hitl.ConfirmationService(
+                        new com.wechatbot.fashion.graph.hitl.JdbcConfirmationStore(provider));
+        AgentSessionContext.set("user-hitl", "s");
+
+        java.util.concurrent.atomic.AtomicInteger invoked = new java.util.concurrent.atomic.AtomicInteger();
+        GovernedToolCallback governed = new GovernedToolCallback(
+                delegate("virtual_try_on_reference_outfit", () -> {
+                    invoked.incrementAndGet();
+                    return "试穿任务已提交，编号：abc";
+                }),
+                new ToolPolicy(ToolRisk.PAID_OPERATION, 0, true, 1000, 5),
+                null, null, executor, confirmations);
+
+        String first = governed.call("\"153\"");
+        assertThat(first).contains("确认");
+        assertThat(invoked.get()).as("未确认前不应执行").isZero();
+
+        com.wechatbot.fashion.graph.hitl.ConfirmationRecord rec = confirmations
+                .latest("user-hitl", "virtual_try_on_reference_outfit").orElseThrow();
+        confirmations.markResolved(rec, true, "");
+
+        String second = governed.call("\"153\"");
+        assertThat(second).contains("试穿任务已提交");
+        assertThat(invoked.get()).isEqualTo(1);
+
+        String third = governed.call("\"153\"");
+        assertThat(third).contains("试穿任务已提交");
+        assertThat(invoked.get()).as("已消费后应重放结果、不重复执行").isEqualTo(1);
+    }
+
+    @Test
+    void recordsFailureWhenToolReturnsFailureText() {
+        CapturingRecorder recorder = new CapturingRecorder();
+        TrajectoryRunContext.set("run-fail", "chat");
+
+        GovernedToolCallback governed = new GovernedToolCallback(
+                delegate("fashion_consultant", () -> "抱歉，穿搭推荐服务暂时遇到了问题，请稍后再试。"),
+                new ToolPolicy(ToolRisk.READ_ONLY, 0, false, 1000, 0),
+                null, recorder, executor);
+
+        governed.call("{}");
+
+        assertThat(recorder.steps).hasSize(1);
+        assertThat(recorder.steps.get(0).status()).isEqualTo("FAILURE");
+        assertThat(recorder.steps.get(0).errorMessage()).isEqualTo("tool-returned-failure-text");
     }
 
     @Test
