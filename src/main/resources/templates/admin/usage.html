@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>用量分析 · WeChatBot 管理</title><link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
+    <style>
+        .metrics-three{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .range-switch{display:inline-flex;gap:6px}
+        .range-switch a{padding:4px 10px;border:1px solid #d9dde3;border-radius:6px;text-decoration:none;color:#444}
+        .range-switch a.active{background:#2d6cdf;color:#fff;border-color:#2d6cdf}
+        .bar-cell{width:42%}
+        .bar{height:14px;background:#2d6cdf;border-radius:3px;min-width:2px}
+        .bar-chart{width:100%;height:auto;display:block;background:#fff;border:1px solid #e6eaf0;border-radius:8px}
+        .bar-chart .grid{stroke:#e6eaf0;stroke-width:1}
+        .bar-chart .axis{stroke:#aab;stroke-width:1}
+        .bar-chart rect.bar-seg{transition:opacity .15s}
+        .bar-chart rect.bar-seg:hover{opacity:.82}
+        .bar-chart text{fill:#667;font-size:12px}
+        .bar-chart .axis-label{font-size:13px;fill:#445;font-weight:600}
+        .bar-chart-hint{color:#889;font-size:12px;margin:8px 2px 0}
+        .legend{display:flex;gap:16px;flex-wrap:wrap;margin:10px 2px 4px;font-size:13px;color:#445}
+        .legend span{display:inline-flex;align-items:center;gap:6px}
+        .legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+        .notice{padding:12px;background:#fff7e6;border:1px solid #ffe08a;border-radius:8px;color:#8a6100;margin-bottom:16px}
+    </style>
+</head>
+<body>
+<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav>
+    <a th:href="@{/admin}">概览</a>
+    <a th:href="@{/admin/users}">用户与实例</a>
+    <a th:href="@{/admin/chat-users}">聊天用户</a>
+    <a th:href="@{/admin/catalog}">商品橱窗</a>
+    <a th:href="@{/admin/retrieval}">检索调试</a>
+    <a th:href="@{/admin/agent-trace}">链路耗时</a>
+    <a class="active" th:href="@{/admin/usage}">用量分析</a>
+    <a th:href="@{/admin/agent-trajectory}">轨迹回放</a>
+</nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<main class="page">
+    <div class="page-heading"><div><h1>AI Token 用量分析</h1>
+        <p>数据来自 Langfuse（按 GENERATION observation 聚合，每 5 分钟缓存）。成本为按配置单价的估算值。</p></div>
+        <div class="range-switch">
+            <a th:classappend="${days==7?'active':''}" th:href="@{/admin/usage(days=7)}">近 7 天</a>
+            <a th:classappend="${days==30?'active':''}" th:href="@{/admin/usage(days=30)}">近 30 天</a>
+            <a th:classappend="${days==90?'active':''}" th:href="@{/admin/usage(days=90)}">近 90 天</a>
+        </div>
+    </div>
+
+    <div th:if="${unconfigured}" class="notice">未配置 Langfuse 查询密钥，无法拉取用量。请在启动应用时设置环境变量 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY。</div>
+    <div th:if="${report!=null and report.errorMessage!=null}" class="error-text" th:text="${report.errorMessage}"></div>
+
+    <div th:if="${report!=null and !report.unconfigured and report.errorMessage==null}">
+        <div th:if="${report.note!=null}" class="notice" th:text="${report.note}"></div>
+        <div class="metrics metrics-three">
+            <section><span>总 Token</span><strong th:text="${#numbers.formatInteger(report.totalTokens, 1, 'COMMA')}">0</strong></section>
+            <section><span>模型调用</span><strong th:text="${#numbers.formatInteger(report.totalRequests, 1, 'COMMA')}">0</strong></section>
+            <section><span>估算成本（元）</span><strong th:text="${#numbers.formatDecimal(report.totalCost, 1, 2)}">0</strong></section>
+        </div>
+
+        <section class="table-section"><div class="section-title"><h2>按模型拆分</h2></div>
+            <table class="usage-table"><thead><tr><th>模型</th><th>输入 Token</th><th>输出 Token</th><th>合计 Token</th><th>调用次数</th><th>估算成本（元）</th></tr></thead>
+            <tbody><tr th:each="m : ${report.byModel}">
+                <td th:text="${m.model}"></td>
+                <td th:text="${#numbers.formatInteger(m.prompt, 1, 'COMMA')}">0</td>
+                <td th:text="${#numbers.formatInteger(m.completion, 1, 'COMMA')}">0</td>
+                <td th:text="${#numbers.formatInteger(m.total, 1, 'COMMA')}">0</td>
+                <td th:text="${#numbers.formatInteger(m.count, 1, 'COMMA')}">0</td>
+                <td th:text="${#numbers.formatDecimal(m.cost, 1, 4)}">0</td>
+            </tr><tr th:if="${#lists.isEmpty(report.byModel)}"><td colspan="6" class="empty">暂无数据</td></tr></tbody></table>
+        </section>
+
+        <section class="table-section"><div class="section-title"><h2>按用户排名（Top 20）</h2></div>
+            <table class="usage-table"><thead><tr><th>用户</th><th>Token 消耗</th></tr></thead>
+            <tbody><tr th:each="u : ${report.byUser}">
+                <td th:text="${u.user}"></td>
+                <td th:text="${#numbers.formatInteger(u.total, 1, 'COMMA')}">0</td>
+            </tr><tr th:if="${#lists.isEmpty(report.byUser)}"><td colspan="2" class="empty">暂无数据</td></tr></tbody></table>
+        </section>
+
+        <section class="table-section"><div class="section-title"><h2>历史趋势（按天 · 按模型堆叠）</h2></div>
+            <svg class="bar-chart" viewBox="0 0 1000 420" preserveAspectRatio="xMidYMid meet" th:if="${!#lists.isEmpty(report.chartDays)}">
+                <g th:each="t : ${report.yTicks}">
+                    <line class="grid" x1="64" th:x2="${64 + 916}" th:y1="${t.y}" th:y2="${t.y}"></line>
+                    <text th:x="58" th:y="${t.y + 4}" text-anchor="end" th:text="${t.label}">0</text>
+                </g>
+                <line class="axis" x1="64" y1="356" x2="980" y2="356"></line>
+                <line class="axis" x1="64" y1="28" x2="64" y2="356"></line>
+                <g th:each="d,iterStat : ${report.chartDays}">
+                    <g th:each="s : ${d.segments}">
+                        <rect class="bar-seg" th:x="${s.x}" th:y="${s.y}" th:width="${s.w}" th:height="${s.h}" th:fill="${s.fill}">
+                            <title th:text="${d.date + ' · ' + s.model + '：' + #numbers.formatInteger(s.tokens,1,'COMMA') + ' Token（成本 ' + #numbers.formatDecimal(s.cost,1,4) + ' 元）'}"></title>
+                        </rect>
+                    </g>
+                    <text class="axis-label" th:if="${iterStat.index % report.labelSkip == 0}" th:x="${d.segments[0].x + d.segments[0].w / 2}" y="376" text-anchor="middle" th:text="${#strings.substring(d.date,5)}">MM-DD</text>
+                </g>
+            </svg>
+            <div th:if="${#lists.isEmpty(report.chartDays)}" class="empty">暂无数据</div>
+            <div class="legend" th:if="${!#lists.isEmpty(report.byModel)}">
+                <span th:each="m,stat : ${report.byModel}"><i th:style="'background:' + ${T(com.wechatbot.fashion.admin.service.LangfuseUsageService).CHART_PALETTE[stat.index % 10]}"></i><b th:text="${m.model}"></b></span>
+            </div>
+            <p class="bar-chart-hint">纵轴为 Token 数量，横轴为日期；每天一根柱子，按模型分色堆叠。鼠标悬停可查看当天具体模型的 Token 与估算成本。</p>
+        </section>
+    </div>
+</main>
+</body></html>

@@ -16,10 +16,15 @@
 /**
  * 定时任务调度器集成测试。
  *
- * <p>启动完整 Spring 上下文，测试一次性任务和 CRON 任务的创建与执行。</p>
+ * <p>启动完整 Spring 上下文 + 真实 MySQL，测试一次性任务和 CRON 任务的创建与执行。
+ * 命名带 {@code IntegrationTest} 后缀，由 unit profile 排除、integration profile 纳入。</p>
  */
-@SpringBootTest
-class DynamicTaskSchedulerTest {
+@SpringBootTest(properties = {
+        "ilink.enabled=false",
+        "app.fashion.semantic.enabled=false",
+        "app.fashion.reference.enabled=false"
+})
+class DynamicTaskSchedulerIntegrationTest {
 
     @Autowired
     private DynamicTaskScheduler scheduler;

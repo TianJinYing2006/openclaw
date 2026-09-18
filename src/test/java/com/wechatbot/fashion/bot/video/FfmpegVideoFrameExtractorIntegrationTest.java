@@ -3,6 +3,7 @@ package com.wechatbot.fashion.bot.video;
 import com.wechatbot.fashion.ai.model.AiImage;
 import com.wechatbot.fashion.bot.config.VideoProcessingProperties;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -18,7 +19,13 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-/** 有可用 FFmpeg 时验证真实视频解码；其他机器没有安装时自动跳过。 */
+/**
+ * 有可用 FFmpeg 时验证真实视频解码；其他机器没有安装时自动跳过。
+ *
+ * <p>FFmpeg 是宿主依赖且部分环境会卡住/占用临时文件，默认跳过；显式设置
+ * {@code FFMPEG_INTEGRATION=true} 时才运行。</p>
+ */
+@EnabledIfEnvironmentVariable(named = "FFMPEG_INTEGRATION", matches = "true")
 class FfmpegVideoFrameExtractorIntegrationTest {
 
     @TempDir

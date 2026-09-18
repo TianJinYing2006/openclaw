@@ -7,7 +7,36 @@ on:
     branches: [ main, master ]
 
 jobs:
-  build:
+  unit:
+    name: Unit tests (must be green)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run unit tests
+        run: mvn -B test
+
+      - name: Summarize test results
+        if: always()
+        run: bash .github/scripts/test-summary.sh >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports-unit
+          path: target/surefire-reports/**
+          if-no-files-found: ignore
+
+  integration:
+    name: Integration tests (MySQL + Redis)
     runs-on: ubuntu-latest
     services:
       mysql:
@@ -19,6 +48,15 @@ jobs:
           - 3306:3306
         options: >-
           --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
@@ -37,12 +75,17 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Build and run unit tests
-        run: mvn -B verify
+      - name: Run integration tests
+        run: mvn -B test -Pintegration
 
-      - name: Upload surefire reports on failure
-        if: failure()
+      - name: Summarize test results
+        if: always()
+        run: bash .github/scripts/test-summary.sh >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload surefire reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: surefire-reports
-          path: target/surefire-reports/
+          name: surefire-reports-integration
+          path: target/surefire-reports/**
+          if-no-files-found: ignore

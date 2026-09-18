@@ -5,7 +5,7 @@
     <title>商品橱窗</title><link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
 </head>
 <body>
-<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a class="active" th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a><a th:href="@{/admin/agent-trace}">链路耗时</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a class="active" th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a><a th:href="@{/admin/agent-trace}">链路耗时</a><a th:href="@{/admin/agent-trajectory}">轨迹回放</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
 <main class="page">
     <div class="page-heading"><div><h1>商品橱窗</h1><p>这是平台商品库，不属于任何一个微信用户。Agent 只能检索状态为“在售”的商品；同一商品编号会更新原商品。</p><div class="dashboard-meta"><span>首批为男女通用基础款</span><span>图片可填写 OSS 或公开 URL</span></div></div></div>
     <p class="alert notice" th:if="${notice}" th:text="${notice}"></p><p class="alert error" th:if="${error}" th:text="${error}"></p>

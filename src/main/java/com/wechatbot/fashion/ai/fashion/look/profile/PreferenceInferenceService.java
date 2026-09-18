@@ -85,6 +85,8 @@ public class PreferenceInferenceService {
         }
         String evidence = feedbackText.length() <= MAX_EVIDENCE
                 ? feedbackText : feedbackText.substring(0, MAX_EVIDENCE) + "…";
+        // 记忆治理：一次性表达（"这次不要红色"）记为 SESSION 并带过期，避免污染长期偏好
+        PreferenceScope scope = PreferenceScope.classify(feedbackText, java.time.Instant.now());
         int recorded = 0;
         for (InferredPreference preference : inferred) {
             if (!preference.valid()) {
@@ -98,7 +100,9 @@ public class PreferenceInferenceService {
                         WEIGHT,
                         CONFIDENCE,
                         SOURCE,
-                        evidence
+                        evidence,
+                        scope.scope(),
+                        scope.expiresAt()
                 ));
                 recorded++;
             } catch (RuntimeException exception) {

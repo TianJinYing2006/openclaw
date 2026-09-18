@@ -166,6 +166,37 @@ class FashionResponseFormatterTest {
         assertFalse(text.contains("可试穿方案编号"));
     }
 
+    @Test
+    void stripsInternalOutfitMarkersFromUserFacingText() {
+        FashionResult result = new FashionResult(
+                true,
+                new CoordinatorOutput(
+                        new CoordinatorOutput.FinalRecommendation(1, "海边首选", Map.of()),
+                        new CoordinatorOutput.RefinedOutfit("白色T恤 [outfit_12]", "亚麻短裤", "帆布鞋", "编织包", "235"),
+                        "参考 outfit_235 的配色，整体清爽。",
+                        List.of("参考 outfit_7 的防晒建议。")
+                ),
+                new StylistOutput(List.of(
+                        new StylistOutput.OutfitSuggestion(1, "清爽度假风",
+                                new StylistOutput.Outfit("白色T恤", "亚麻短裤", "帆布鞋", "编织包"),
+                                "白+米", "轻松清爽", List.of("海边"), "不挑身形", "235")
+                )),
+                CriticOutput.empty(),
+                TrendOutput.neutral(),
+                "",
+                analyzed("beach"),
+                null,
+                false
+        );
+
+        String text = formatter.format(result);
+
+        assertFalse(text.contains("outfit_"), "用户可见文案不应出现内部知识库编号：" + text);
+        assertTrue(text.contains("上衣：白色T恤"));
+        // 试穿对齐所需的编号由独立字段输出，不受清理影响
+        assertTrue(text.contains("可试穿方案编号：235"));
+    }
+
     private static AnalyzedQuery analyzed(String scene) {
         return new AnalyzedQuery(
                 "今天穿什么",

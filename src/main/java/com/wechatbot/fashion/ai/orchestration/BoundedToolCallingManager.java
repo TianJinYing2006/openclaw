@@ -43,7 +43,32 @@ public final class BoundedToolCallingManager implements ToolCallingManager {
         }
         rounds.set(nextRound);
         recordCalledTools(chatResponse);
+        enforceInputLimits(chatResponse);
         return delegate.executeToolCalls(prompt, chatResponse);
+    }
+
+    /**
+     * 工具治理执行层：按 {@link ToolGovernance} 校验每个 tool_call 的参数长度，超限则拒绝执行。
+     * 未声明输入上限（{@code maxInputChars == 0}）的工具不受影响。
+     */
+    private void enforceInputLimits(ChatResponse chatResponse) {
+        if (chatResponse == null || chatResponse.getResult() == null
+                || !(chatResponse.getResult().getOutput() instanceof AssistantMessage assistant)) {
+            return;
+        }
+        List<?> calls = assistant.getToolCalls();
+        if (calls == null || calls.isEmpty()) {
+            return;
+        }
+        for (Object call : calls) {
+            if (call instanceof AssistantMessage.ToolCall toolCall && toolCall.name() != null) {
+                int max = ToolGovernance.policyOf(toolCall.name()).maxInputChars();
+                String arguments = toolCall.arguments();
+                if (max > 0 && arguments != null && arguments.length() > max) {
+                    throw new ToolInputLimitExceededException(toolCall.name(), arguments.length(), max);
+                }
+            }
+        }
     }
 
     /** 从模型本轮 tool_calls 中记录实际请求的工具名。 */

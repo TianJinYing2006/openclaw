@@ -96,15 +96,18 @@ public class JdbcFashionCoreRepository implements FashionCoreRepository {
         String polarity = oneOf(update.polarity(), "POSITIVE", "NEGATIVE");
         BigDecimal weight = bounded(update.weight(), BigDecimal.ZERO, new BigDecimal("100"), "weight");
         BigDecimal confidence = bounded(update.confidence(), BigDecimal.ZERO, BigDecimal.ONE, "confidence");
+        String scopeCode = oneOf(defaulted(update.scope(), "LONG_TERM"), "LONG_TERM", "SESSION");
+        java.sql.Timestamp expiresAt = update.expiresAt() == null
+                ? null : java.sql.Timestamp.from(update.expiresAt());
         jdbc.update("""
-                INSERT INTO fashion_user_preferences(app_user_id, dimension_code, value_code, polarity, weight, confidence, source, last_evidence)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO fashion_user_preferences(app_user_id, dimension_code, value_code, polarity, weight, confidence, source, scope, last_evidence, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE weight = VALUES(weight), confidence = VALUES(confidence), source = VALUES(source),
-                    last_evidence = VALUES(last_evidence), updated_at = CURRENT_TIMESTAMP
+                    scope = VALUES(scope), last_evidence = VALUES(last_evidence), expires_at = VALUES(expires_at), updated_at = CURRENT_TIMESTAMP
                 """, scope.appUserId(), dimension, value, polarity, weight, confidence,
-                text(defaulted(update.source(), "USER_DECLARED"), 32), text(update.evidence(), 512));
+                text(defaulted(update.source(), "USER_DECLARED"), 32), scopeCode, text(update.evidence(), 512), expiresAt);
         return jdbc.queryForObject("""
-                SELECT app_user_id, dimension_code, value_code, polarity, weight, confidence, source, last_evidence, created_at, updated_at
+                SELECT app_user_id, dimension_code, value_code, polarity, weight, confidence, source, scope, last_evidence, expires_at, created_at, updated_at
                 FROM fashion_user_preferences
                 WHERE app_user_id = ? AND dimension_code = ? AND value_code = ? AND polarity = ?
                 """, (rs, row) -> preference(rs), scope.appUserId(), dimension, value, polarity);
@@ -113,10 +116,32 @@ public class JdbcFashionCoreRepository implements FashionCoreRepository {
     @Override
     public List<FashionUserPreference> preferences(String externalUserId) {
         FashionUserScope scope = scopes.resolve(externalUserId);
+        // 记忆治理：过期（SESSION 到期）偏好不再参与排序/画像
         return jdbc.query("""
-                SELECT app_user_id, dimension_code, value_code, polarity, weight, confidence, source, last_evidence, created_at, updated_at
-                FROM fashion_user_preferences WHERE app_user_id = ? ORDER BY dimension_code, value_code, polarity
+                SELECT app_user_id, dimension_code, value_code, polarity, weight, confidence, source, scope, last_evidence, expires_at, created_at, updated_at
+                FROM fashion_user_preferences
+                WHERE app_user_id = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                ORDER BY dimension_code, value_code, polarity
                 """, (rs, row) -> preference(rs), scope.appUserId());
+    }
+
+    @Override
+    public boolean deletePreference(String externalUserId, String dimensionCode, String valueCode, String polarity) {
+        FashionUserScope scope = scopes.resolve(externalUserId);
+        int deleted = jdbc.update("""
+                DELETE FROM fashion_user_preferences
+                WHERE app_user_id = ? AND dimension_code = ? AND value_code = ? AND polarity = ?
+                """, scope.appUserId(),
+                code(dimensionCode, 32, "dimensionCode"),
+                code(valueCode, 128, "valueCode"),
+                oneOf(polarity, "POSITIVE", "NEGATIVE"));
+        return deleted > 0;
+    }
+
+    @Override
+    public int clearPreferences(String externalUserId) {
+        FashionUserScope scope = scopes.resolve(externalUserId);
+        return jdbc.update("DELETE FROM fashion_user_preferences WHERE app_user_id = ?", scope.appUserId());
     }
 
     @Override
@@ -449,7 +474,8 @@ public class JdbcFashionCoreRepository implements FashionCoreRepository {
     private FashionUserPreference preference(ResultSet rs) throws java.sql.SQLException {
         return new FashionUserPreference(rs.getLong("app_user_id"), rs.getString("dimension_code"), rs.getString("value_code"),
                 rs.getString("polarity"), rs.getBigDecimal("weight"), rs.getBigDecimal("confidence"), rs.getString("source"),
-                rs.getString("last_evidence"), instant(rs.getTimestamp("created_at")), instant(rs.getTimestamp("updated_at")));
+                rs.getString("scope"), rs.getString("last_evidence"), instant(rs.getTimestamp("expires_at")),
+                instant(rs.getTimestamp("created_at")), instant(rs.getTimestamp("updated_at")));
     }
 
     private WardrobeItem wardrobeItem(ResultSet rs) throws java.sql.SQLException {

@@ -44,12 +44,17 @@ public class ToolRegistry implements ApplicationListener<ContextRefreshedEvent> 
         collectTools(applicationContext);
     }
 
-    /** 返回所有工具的元信息（用于构建 LLM 的 tool description prompt）。 */
+    /** 返回所有工具的元信息（用于构建 LLM 的 tool description prompt + 风险审计）。 */
     public List<ToolMeta> allToolMeta() {
         if (tools == null) return List.of();
         return tools.values().stream()
-                .map(entry -> new ToolMeta(entry.name, entry.description))
+                .map(entry -> new ToolMeta(entry.name, entry.description, ToolGovernance.riskOf(entry.name)))
                 .toList();
+    }
+
+    /** 查询单个工具的治理策略（风险等级 / 输入上限 / 是否需确认）。 */
+    public ToolPolicy policyFor(String toolName) {
+        return ToolGovernance.policyOf(toolName);
     }
 
     /**
@@ -206,6 +211,6 @@ public class ToolRegistry implements ApplicationListener<ContextRefreshedEvent> 
     /** 单个工具的注册条目。 */
     public record ToolEntry(String name, String description, Object bean, Method method) {}
 
-    /** 工具的元信息（用于构建 Prompt）。 */
-    public record ToolMeta(String name, String description) {}
+    /** 工具的元信息（用于构建 Prompt / 观测）。risk 由 {@link ToolGovernance} 集中声明。 */
+    public record ToolMeta(String name, String description, ToolRisk risk) {}
 }

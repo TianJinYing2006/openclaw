@@ -2,6 +2,7 @@ package com.wechatbot.fashion.admin.web;
 
 import com.wechatbot.fashion.admin.ilink.ManagedBotInstanceManager;
 import com.wechatbot.fashion.admin.service.AdminPlatformService;
+import com.wechatbot.fashion.admin.service.LangfuseUsageService;
 import com.wechatbot.fashion.bot.runtime.ILinkRuntimeState;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.EncodeHintType;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -37,6 +39,8 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 public class AdminController {
     private final AdminPlatformService platform;
     private final ManagedBotInstanceManager instances;
+    @Autowired(required = false)
+    private LangfuseUsageService langfuseUsageService;
 
     public AdminController(AdminPlatformService platform, ManagedBotInstanceManager instances) {
         this.platform = platform;
@@ -66,6 +70,19 @@ public class AdminController {
         model.addAttribute("usageWindowStart", snapshot.usageWindowStart());
         model.addAttribute("activePage", "dashboard");
         return "admin/dashboard";
+    }
+
+    @GetMapping("/usage")
+    public String usage(@RequestParam(defaultValue = "7") int days, Model model) {
+        model.addAttribute("activePage", "usage");
+        if (langfuseUsageService == null || !langfuseUsageService.isConfigured()) {
+            model.addAttribute("unconfigured", true);
+            return "admin/usage";
+        }
+        int d = days == 30 ? 30 : days == 90 ? 90 : 7;
+        model.addAttribute("days", d);
+        model.addAttribute("report", langfuseUsageService.report(java.time.Duration.ofDays(d)));
+        return "admin/usage";
     }
 
     @GetMapping("/users")

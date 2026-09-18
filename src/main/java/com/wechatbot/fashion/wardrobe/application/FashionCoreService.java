@@ -56,6 +56,16 @@ public class FashionCoreService {
     public FashionUserProfile saveProfile(String externalUserId, FashionProfileUpdate update) { return repository.saveProfile(externalUserId, update); }
     public FashionUserPreference updatePreference(String externalUserId, FashionPreferenceUpdate update) { return repository.upsertPreference(externalUserId, update); }
     public List<FashionUserPreference> preferences(String externalUserId) { return repository.preferences(externalUserId); }
+
+    /** 删除单条偏好（用户纠正/遗忘）。 */
+    public boolean deletePreference(String externalUserId, String dimensionCode, String valueCode, String polarity) {
+        return repository.deletePreference(externalUserId, dimensionCode, valueCode, polarity);
+    }
+
+    /** 清空该用户全部偏好（关闭画像学习/隐私诉求）。 */
+    public int clearPreferences(String externalUserId) {
+        return repository.clearPreferences(externalUserId);
+    }
     @Transactional
     public WardrobeItem addWardrobeItem(String externalUserId, WardrobeItemDraft draft) {
         WardrobeItem item = repository.createWardrobeItem(externalUserId, draft);

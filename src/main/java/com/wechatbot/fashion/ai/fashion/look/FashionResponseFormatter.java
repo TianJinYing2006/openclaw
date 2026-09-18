@@ -4,6 +4,7 @@ import com.wechatbot.fashion.ai.fashion.look.model.*;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 穿搭推荐结果格式化器。
@@ -15,6 +16,13 @@ public class FashionResponseFormatter {
 
     private static final int MAX_TIPS = 3;
     private static final int MAX_ALTERNATIVES = 2;
+
+    /**
+     * 内部知识库编号（outfit_XXX）不应出现在用户可见文案里（LLM 有时会把它写进理由）。
+     * 试穿对齐所需的编号由 {@link #referenceOutfitId} 单独以「可试穿方案编号」输出，不经过此清理。
+     */
+    private static final Pattern INTERNAL_OUTFIT_MARKER = Pattern.compile(
+            "\\s*[\\[【(（]?outfit[_-]?\\d+[\\]】)）]?", Pattern.CASE_INSENSITIVE);
 
     /**
      * 将 FashionResult 格式化为微信回复文案。
@@ -181,9 +189,18 @@ public class FashionResponseFormatter {
     }
 
     private static void appendLine(StringBuilder sb, String label, String value) {
-        if (value != null && !value.isBlank()) {
-            sb.append(label).append("：").append(value.strip()).append("\n");
+        String clean = sanitize(value);
+        if (clean != null && !clean.isBlank()) {
+            sb.append(label).append("：").append(clean).append("\n");
         }
+    }
+
+    /** 剥离用户可见文案中的内部知识库编号（outfit_XXX）。 */
+    private static String sanitize(String value) {
+        if (value == null) {
+            return null;
+        }
+        return INTERNAL_OUTFIT_MARKER.matcher(value).replaceAll(" ").replaceAll("\\s{2,}", " ").strip();
     }
 
     private static String nonBlank(String value, String fallback) {
@@ -191,10 +208,11 @@ public class FashionResponseFormatter {
     }
 
     private static String compact(String value, int maxLength) {
-        if (value == null) {
+        String clean = sanitize(value);
+        if (clean == null) {
             return "";
         }
-        String normalized = value.strip().replaceAll("\\s+", " ");
+        String normalized = clean.replaceAll("\\s+", " ");
         return normalized.length() <= maxLength
                 ? normalized
                 : normalized.substring(0, Math.max(0, maxLength - 1)) + "…";

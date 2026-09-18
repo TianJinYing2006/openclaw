@@ -1,8 +1,11 @@
 package com.wechatbot.fashion.ai.fashion.look;
 
-import com.wechatbot.fashion.ai.fashion.look.agent.AgentCoordinator;
+import com.wechatbot.fashion.ai.fashion.look.model.AnalyzedQuery;
 import com.wechatbot.fashion.ai.fashion.look.model.FashionRequest;
 import com.wechatbot.fashion.ai.fashion.look.model.FashionResult;
+import com.wechatbot.fashion.graph.FashionResultBuilders;
+import com.wechatbot.fashion.graph.hitl.ConfirmationRecord;
+import com.wechatbot.fashion.graph.hitl.ConfirmationService;
 import com.wechatbot.fashion.ai.fashion.look.profile.FashionConversationService;
 import com.wechatbot.fashion.ai.fashion.look.profile.PreferenceInferenceService;
 import com.wechatbot.fashion.ai.fashion.look.rag.QueryAnalyzer;
@@ -43,7 +46,7 @@ import java.util.regex.Pattern;
  * 穿搭推荐服务（对外入口）。
  *
  * <p>注册为 @Tool，由通用 LLM 在检测到穿搭类请求时自动调用。
- * 内部委托给 AgentCoordinator 执行多 Agent 协作管道。
+ * 内部委托给 Fashion 子图（spring-ai-alibaba-graph）执行多 Agent 协作管道。
  */
 @Component
 public class FashionAgentService {
@@ -79,8 +82,20 @@ public class FashionAgentService {
         this.referenceImageDedupWindowMillis = dedupWindow.toMillis();
     }
 
-    private final AgentCoordinator coordinator;
     private final FashionResponseFormatter formatter;
+
+    /**
+     * Fashion 子图运行器（阶段 3 引入）。仅在 {@code app.fashion.graph.enabled=true} 时作为 Bean 存在；
+     * 关闭或 Bean 缺失时本字段为 null，管道降级为安全兜底结果。注入 required=false 以保证
+     * 图未启用时应用仍可独立启动。
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.wechatbot.fashion.graph.FashionGraphRunner graphRunner;
+
+    public void setGraphRunner(com.wechatbot.fashion.graph.FashionGraphRunner runner) {
+        this.graphRunner = runner;
+    }
+
     /** 反馈检测已由主路径 {@link FashionFeedbackRecorder} 覆盖，此字段仅保留以兼容既有构造签名与测试。 */
     private final FashionConversationService conversationService;
     private final QueryAnalyzer queryAnalyzer;
@@ -95,6 +110,13 @@ public class FashionAgentService {
     private volatile FashionVisualPreviewService visualPreviews;
     /** 参考图异步发送池（虚拟线程）；未装配（如单测）时降级为串行发送。 */
     private volatile ExecutorService executor;
+    /** HITL 确认服务（幂等）；未装配时退化为无记录的确认流程。 */
+    private volatile ConfirmationService confirmationService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setConfirmationService(ConfirmationService confirmationService) {
+        this.confirmationService = confirmationService;
+    }
 
     /** 参考图下载器；默认走 {@link #httpClient} 直连，测试可注入替身。 */
     public interface ReferenceImageDownloader {
@@ -103,15 +125,13 @@ public class FashionAgentService {
 
     private ReferenceImageDownloader downloader;
 
-    public FashionAgentService(AgentCoordinator coordinator,
-                               FashionResponseFormatter formatter,
+    public FashionAgentService(FashionResponseFormatter formatter,
                                FashionConversationService conversationService,
                                QueryAnalyzer queryAnalyzer,
                                ReferenceImageResolver imageResolver,
                                ImageTaskRunner imageTaskRunner,
                                ImageTaskCompletionPublisher completionPublisher,
                                ReferenceImageSendGate imageSendGate) {
-        this.coordinator = coordinator;
         this.formatter = formatter;
         this.conversationService = conversationService;
         this.queryAnalyzer = queryAnalyzer;
@@ -187,8 +207,23 @@ public class FashionAgentService {
         log.info("Fashion consult request from user {}: {}", userId, userInput);
 
         try {
+            // HITL：上一条请求暂停在确认点，本条输入作为确认/取消答复
+            if (graphRunner != null && graphRunner.isPaused(userId)) {
+                return resumePausedConsult(userId, userInput);
+            }
+
             FashionRequest request = new FashionRequest(userId, userInput);
-            FashionResult result = coordinator.process(request);
+            FashionResult result = resolveResult(request, userId);
+
+            // HITL：本次请求命中付费操作意图，图已暂停等待确认（幂等创建确认记录）
+            if (graphRunner != null && graphRunner.isPaused(userId)) {
+                log.info("Fashion run paused for confirmation, user={}", anonymize(userId));
+                if (confirmationService != null) {
+                    confirmationService.request(userId, userId, ConfirmationService.ACTION_PAID_OPERATION);
+                }
+                return "这个请求会触发付费操作（生成图片/试穿效果）。回复「确认」继续，回复「取消」放弃。";
+            }
+
             // 基于衣橱单品的搭配：优先发衣橱单品自己的图片（图文一致）；未匹配到衣橱单品时回退 RAG 参考图
             if (!scheduleWardrobeItemImage(userId, userInput)) {
                 scheduleReferenceImages(userId, result);
@@ -198,6 +233,61 @@ public class FashionAgentService {
         } catch (Exception e) {
             log.error("Fashion pipeline unexpected error: {}", e.getMessage(), e);
             return "抱歉，穿搭推荐服务暂时遇到了问题，请稍后再试。";
+        }
+    }
+
+    /**
+     * 处理暂停 run 的确认/取消答复：无法识别时继续追问，识别后恢复图执行并格式化结果。
+     * 恢复结果照常补发衣橱单品图 / RAG 参考图。
+     */
+    private String resumePausedConsult(String userId, String userInput) {
+        Boolean decision = ConfirmationReply.parse(userInput);
+        if (decision == null) {
+            return "还在等你确认：回复「确认」继续，回复「取消」放弃。";
+        }
+        // 幂等：同一暂停 run 的确认若被重复投递，直接重放首次结果，避免重复执行付费/副作用操作
+        ConfirmationRecord record = confirmationService == null ? null
+                : confirmationService.latest(userId, ConfirmationService.ACTION_PAID_OPERATION).orElse(null);
+        if (record != null) {
+            java.util.Optional<String> replay = confirmationService.resolvedReply(record);
+            if (replay.isPresent()) {
+                log.info("HITL confirmation replayed for user={}, status={}", anonymize(userId), record.status());
+                return replay.get();
+            }
+        }
+        FashionResult resumed = graphRunner.resumeForResult(userId, decision)
+                .orElseGet(() -> FashionResultBuilders.safetyFallback("DAILY", AnalyzedQuery.fallback(userInput)));
+        if (!scheduleWardrobeItemImage(userId, userInput)) {
+            scheduleReferenceImages(userId, resumed);
+        }
+        String reply = formatter.format(resumed);
+        if (record != null) {
+            confirmationService.markResolved(record, decision, reply);
+        }
+        return reply;
+    }
+
+    /**
+     * 选择穿搭管道产出：以 Fashion 子图（spring-ai-alibaba-graph）结果为唯一权威来源。
+     *
+     * <p>图运行器缺失或执行失败/返回空时，降级为安全兜底结果（{@link FashionResultBuilders#safetyFallback}），
+     * 不再回落旧 AgentCoordinator（旧管道已于 staged cutover 第 3 步删除）。
+     */
+    private FashionResult resolveResult(FashionRequest request, String userId) {
+        if (graphRunner == null) {
+            log.error("fashion-graph runner not available; returning safety fallback");
+            return FashionResultBuilders.safetyFallback("DAILY", AnalyzedQuery.fallback(request.userInput()));
+        }
+        try {
+            Optional<FashionResult> graphResult = graphRunner.runForResult(request, userId);
+            if (graphResult.isPresent()) {
+                return graphResult.get();
+            }
+            log.warn("fashion-graph returned empty result; returning safety fallback");
+            return FashionResultBuilders.safetyFallback("DAILY", AnalyzedQuery.fallback(request.userInput()));
+        } catch (Exception e) {
+            log.error("fashion-graph execution failed, returning safety fallback: {}", e.getMessage(), e);
+            return FashionResultBuilders.safetyFallback("DAILY", AnalyzedQuery.fallback(request.userInput()));
         }
     }
 

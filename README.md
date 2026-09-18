@@ -101,6 +101,17 @@ Step 5: CoordinatorAgent 综合裁决     → 失败则降级 Stylist 首选
 | 虚拟试衣 | `app.fashion.tryon.provider` | `reference-image` |
 | 天气查询 | `app.weather.provider` | `uapis` |
 
+### Agent 运行时开关（默认值）
+
+| 配置项 | 默认 | 说明 |
+| --- | --- | --- |
+| `app.fashion.graph.enabled` | `true` | 穿搭图运行时；关闭后 `fashion_consultant` 仅安全兜底 |
+| `app.fashion.graph.critic-loop.enabled` | `false` | Critic 打回重生成的小回环 |
+| `app.fashion.graph.tool-loop.enabled` | `false` | 图内自主工具循环（天气/搜索） |
+| `app.fashion.graph.hitl.enabled` | `false` | 命中付费操作意图时暂停等人确认（HITL） |
+| `app.fashion.graph.budget.enabled` | `false` | 单 run 的模型调用次数 / Token / deadline 预算 |
+| `app.mcp.auth-token` | 空 | MCP Bearer 鉴权；留空仅限本机/内网 |
+
 ---
 
 ## 核心设计亮点
@@ -164,6 +175,7 @@ python scripts/eval/run.py --variants v1    # 只跑线上口径 V1
 > **数据隐私**：评测 TSV 含真实用户文本，不入库，仅存在于本地 `logs/`（已 gitignore）；报告只写索引号与 GT 编号，不透出原文。
 > **密钥纪律**：所有评测脚本的密钥一律从环境变量读取（`RAGFLOW_API_KEY` / `RAGFLOW_DATASET_ID`），禁止硬编码进公开仓库。
 > 历史 A/B 结论：rerank 与 query 改写均做过受控 A/B 且被数据否定（负收益），详见 [RAG 检索基准设计](docs/rag-benchmark-design.md)。
+> **多版本指标口径（24.6% / 37.29% / 85.2% 等为何不同）**：[RAG 指标口径统一](docs/rag-metrics-canonical.md)。
 
 ---
 
@@ -317,9 +329,10 @@ docker compose up -d --build
 
 ---
 
-## 工具清单（40 个）
+## 工具清单（42 个）
 
-工具通过 `@AgentTool` 注解自动注册到 `ToolRegistry`，未标注的 `@Tool` 方法默认拒绝：
+工具通过 `@AgentTool` 注解自动注册到 `ToolRegistry`，未标注的 `@Tool` 方法默认拒绝
+（`search_fashion_products` 默认 `@AgentTool(enabled=false)` 禁用）：
 
 | 工具 | 所属类 | 功能 |
 | --- | --- | --- |
@@ -328,6 +341,8 @@ docker compose up -d --build
 | `add_wardrobe_item` | `FashionTools` | 添加衣橱单品 |
 | `search_wardrobe` | `FashionTools` | 搜索衣橱单品 |
 | `get_fashion_profile` | `FashionTools` | 查看穿搭偏好画像 |
+| `forget_fashion_preference` | `FashionTools` | 忘记单条偏好（记忆治理） |
+| `clear_fashion_profile` | `FashionTools` | 清空全部偏好（记忆治理） |
 | `delete_wardrobe_item` | `FashionTools` | 归档衣橱单品 |
 | `purge_wardrobe_item` | `FashionTools` | 彻底删除衣橱单品 |
 | `virtual_try_on_wardrobe_item` | `FashionTryOnTools` | 提交虚拟试衣任务 |
@@ -441,11 +456,33 @@ mvn clean package -Dmaven.test.skip=true
 # 运行
 java -jar target/wechatbot-0.0.1-SNAPSHOT.jar
 
-# 运行测试
-mvn test
+# 测试分层（默认只跑纯单元测试，必须全绿，不依赖 MySQL/Redis/外部模型）
+mvn test                  # = -Punit：单元测试（当前 449 passed）
+mvn test -Pintegration    # 集成测试：需 MySQL（+ 可选 Redis）（48 passed / 32 skipped）
+mvn test -Plive           # 真实链路：需环境变量密钥（模型/RAGFlow/OSS/ASR/TTS），手动执行
 ```
 
-CI 流水线配置见 `.github/workflows/build.yml`。
+一键验证脚本：
+
+```powershell
+.\scripts\verify.ps1 -Mode unit         # 编译 + 单元测试
+.\scripts\verify.ps1 -Mode integration  # 集成测试（需 MySQL/Redis）
+.\scripts\verify.ps1 -Mode all          # unit + integration
+.\scripts\verify.ps1 -Mode smoke        # 上下文加载 + 图 checkpoint 恢复子集
+```
+
+| 层 | 命令 | 依赖 | 当前结果 |
+| --- | --- | --- | --- |
+| unit（默认，CI 必过门禁） | `mvn test` | 无 | **449 passed / 0 failed**，约 1~2 分钟 |
+| integration | `mvn test -Pintegration` | MySQL 必需；Redis 用于图 checkpoint | **48 passed / 32 skipped** |
+| live | `mvn test -Plive` | 真实模型 / RAGFlow / OSS / ASR / TTS 密钥 | 默认跳过，手动执行 |
+| smoke | `.\scripts\verify.ps1 -Mode smoke` | MySQL（+Redis） | 上下文加载 + checkpoint 恢复子集 |
+
+测试按类名分层：`*Live*` → live；`*IntegrationTest` / `*ApplicationContextTest` / `*ProbeTest` → integration；其余为 unit。
+FFmpeg 依赖宿主环境，相关测试仅在 `FFMPEG_INTEGRATION=true` 时运行。
+注意：`application-local.properties` 已改为从环境变量读取密钥，运行 integration/live 前需先设置对应变量（见 `.env.example`）。
+
+CI 流水线配置见 `.github/workflows/build.yml`（unit 与 integration 分 job，均上传 surefire 报告并输出测试摘要）。
 
 ---
 
