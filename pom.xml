@@ -37,6 +37,8 @@
         <jsoup.version>1.19.1</jsoup.version>
         <zxing.version>3.5.3</zxing.version>
         <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
+        <spring-ai-alibaba-graph.version>1.1.2.3</spring-ai-alibaba-graph.version>
+        <redisson.version>3.40.0</redisson.version>
     </properties>
 
     <dependencyManagement>
@@ -45,6 +47,14 @@
                 <groupId>org.springframework.ai</groupId>
                 <artifactId>spring-ai-bom</artifactId>
                 <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- OpenTelemetry BOM：统一 otel SDK 版本（Langfuse 官方 Spring AI 集成要求） -->
+            <dependency>
+                <groupId>io.opentelemetry.instrumentation</groupId>
+                <artifactId>opentelemetry-instrumentation-bom</artifactId>
+                <version>2.28.1</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -87,6 +97,19 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-client</artifactId>
         </dependency>
+        <!-- 单脊梁图运行时：spring-ai-alibaba-graph（LangGraph 启发的 Java 生产级 agent 框架，见 docs/architecture/AGENT_RUNTIME_TARGET.md §10）。
+             版本 1.1.2.3 对齐 Spring AI 1.1.x；本项目 BOM 锁定 1.1.8，传递的 spring-ai-* 会被 BOM 覆盖到 1.1.8，兼容性以编译验证为准。 -->
+        <dependency>
+            <groupId>com.alibaba.cloud.ai</groupId>
+            <artifactId>spring-ai-alibaba-graph-core</artifactId>
+            <version>${spring-ai-alibaba-graph.version}</version>
+        </dependency>
+        <!-- Redis checkpoint saver（图状态持久化，阶段 2 接 RedisSaver）。graph-core 把 redisson 声明为 optional，必须显式引入。 -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>${redisson.version}</version>
+        </dependency>
         <!-- Qdrant's Java client publishes its gRPC stack as runtime dependencies,
              while the dedicated Fashion client configuration uses those types directly. -->
         <dependency>
@@ -109,6 +132,23 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Langfuse 可观测接入：OpenTelemetry 是 Langfuse 官方唯一支持的 Java trace 上报方式 -->
+        <!-- Spring AI 自带观测能力，每次 ChatModel.call() 自动产出带 token 用量的 span -->
+        <dependency>
+            <groupId>io.opentelemetry.instrumentation</groupId>
+            <artifactId>opentelemetry-spring-boot-starter</artifactId>
+        </dependency>
+        <!-- Micrometer Observation -> OpenTelemetry 桥接（Spring AI 观测经此导出为 OTel span） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <!-- OpenTelemetry OTLP exporter（traces -> Langfuse OTel endpoint） -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
         </dependency>
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
@@ -256,4 +296,73 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- ============================================================================
+         测试分层：unit（默认，必须全绿）/ integration（需 MySQL 等基础设施）/ live（真实模型，手动）
+         命名约定：*IntegrationTest / *ApplicationContextTest / *ProbeTest → integration；
+                   *Live*（LiveTest / LiveProbeTest）→ live；其余为 unit。
+         用法：mvn test            → 只跑 unit
+               mvn test -Pintegration → 跑集成（需 MySQL/Redis）
+               mvn test -Plive        → 跑真实模型（需环境变量密钥）
+         ============================================================================ -->
+    <profiles>
+        <profile>
+            <id>unit</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/*Live*.java</exclude>
+                                <exclude>**/*IntegrationTest.java</exclude>
+                                <exclude>**/*ApplicationContextTest.java</exclude>
+                                <exclude>**/*ProbeTest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>integration</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>**/*IntegrationTest.java</include>
+                                <include>**/*ApplicationContextTest.java</include>
+                                <include>**/*ProbeTest.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>live</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>**/*Live*.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

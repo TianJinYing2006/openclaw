@@ -22,6 +22,12 @@ public interface FashionCoreRepository {
     FashionUserProfile saveProfile(String externalUserId, FashionProfileUpdate update);
     FashionUserPreference upsertPreference(String externalUserId, FashionPreferenceUpdate update);
     List<FashionUserPreference> preferences(String externalUserId);
+
+    /** 删除单条偏好（用户纠正/遗忘）。 */
+    boolean deletePreference(String externalUserId, String dimensionCode, String valueCode, String polarity);
+
+    /** 清空该用户全部偏好（关闭画像学习/隐私诉求）。返回删除条数。 */
+    int clearPreferences(String externalUserId);
     WardrobeItem createWardrobeItem(String externalUserId, WardrobeItemDraft draft);
     void attachWardrobeAsset(String externalUserId, long wardrobeItemId, long assetVersionId, String assetRole, boolean primary);
     Optional<Long> findOwnedImageAssetVersion(String externalUserId, String assetId, Integer version);

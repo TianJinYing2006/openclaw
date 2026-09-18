@@ -43,12 +43,16 @@ services:
     build:
       context: ./mcp-server
     environment:
+      # 容器内需监听 0.0.0.0 才能被 app 容器访问；对外仅通过本地回环端口映射暴露。
       MCP_SERVER_HOST: 0.0.0.0
       MCP_SERVER_PORT: "8090"
+      # 与 app 共享的鉴权令牌：设置后 MCP Server 要求 Authorization: Bearer <token>。
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       ARK_API_KEY: ${ARK_API_KEY:-}
       BOCHA_API_KEY: ${BOCHA_API_KEY:-}
     ports:
+      # 默认只映射到宿主机 127.0.0.1，避免局域网/公网直连 MCP Server。
       - "${MCP_SERVER_PORT:-127.0.0.1:8090}:8090"
     healthcheck:
       test: ["CMD", "python", "-c", "import socket,sys; s=socket.create_connection(('127.0.0.1',8090),3); s.close()"]
@@ -84,12 +88,27 @@ services:
       APP_FASHION_REFERENCE_ENABLED: ${FASHION_REFERENCE_ENABLED:-false}
       APP_ADMIN_ENABLED: ${APP_ADMIN_ENABLED:-true}
       APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:-admin}
-      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-change-me}
+      # 管理后台不提供默认密码：未在 .env 显式设置强密码则 compose 直接报错，避免 "change-me" 上生产。
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:?APP_ADMIN_PASSWORD is required - set a strong password in .env}
       APP_ADMIN_SESSION_ENCRYPTION_KEY: ${APP_ADMIN_SESSION_ENCRYPTION_KEY:-}
+      # 穿搭多 Agent 图运行时（默认开启）；关闭后 fashion_consultant 仅返回安全兜底。
+      FASHION_GRAPH_ENABLED: ${FASHION_GRAPH_ENABLED:-true}
       APP_SECURITY_TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
       SPRING_AI_MCP_CLIENT_SSE_CONNECTIONS_MCP_SERVER_URL: http://mcp-server:8090/mcp
+      # 与 MCP Server 一致的鉴权令牌（app.mcp.auth-token）。
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
+      # ---- Langfuse 用量报表 / 可观测（用量页必需；OTLP_HEADERS 需为
+      #      "Authorization=Basic <base64(pk:sk)>,x-langfuse-ingestion-version=4>"，生成命令见 docs/deploy.md）----
+      LANGFUSE_OTLP_ENABLED: ${LANGFUSE_OTLP_ENABLED:-true}
+      LANGFUSE_OTLP_ENDPOINT: ${LANGFUSE_OTLP_ENDPOINT:-https://jp.cloud.langfuse.com/api/public/otel}
+      LANGFUSE_OTLP_PROTOCOL: ${LANGFUSE_OTLP_PROTOCOL:-http/protobuf}
+      LANGFUSE_OTLP_HEADERS: ${LANGFUSE_OTLP_HEADERS:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://jp.cloud.langfuse.com}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
     ports:
       - "${APP_PORT:-8080}:8080"
+      - "${APP_ADMIN_PORT:-8081}:8081"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/actuator/health || exit 1"]
       interval: 30s

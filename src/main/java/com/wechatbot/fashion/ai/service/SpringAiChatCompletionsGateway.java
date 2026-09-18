@@ -4,6 +4,15 @@ import com.wechatbot.fashion.ai.config.AiProperties;
 import com.wechatbot.fashion.ai.fashion.look.profile.FashionConversationService;
 import com.wechatbot.fashion.ai.model.ConversationMessage;
 import com.wechatbot.fashion.ai.orchestration.BoundedToolCallingManager;
+import com.wechatbot.fashion.ai.orchestration.GovernedToolCallback;
+import com.wechatbot.fashion.ai.orchestration.ToolCallScope;
+import com.wechatbot.fashion.graph.budget.RunBudgetTracker;
+import com.wechatbot.fashion.graph.trajectory.AgentTrajectoryRecorder;
+import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.annotation.Qualifier;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import com.wechatbot.fashion.ai.orchestration.ToolRegistry;
 import com.wechatbot.fashion.ai.tool.ToolArtifactCollector;
 import org.slf4j.Logger;
@@ -130,6 +139,28 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     private volatile LocalImageAssetStore imageStore;
     /** 衣橱入库流程（兜底判断照片是否已有识别候选，决定补调识别还是提交抠图）；{@code @Autowired(required=false)}。 */
     private volatile com.wechatbot.fashion.wardrobe.application.FashionWardrobeIngestionService wardrobeIngestion;
+    /** 工具治理：run 预算（图外工具调用也纳入；未装配时仅超时生效）。 */
+    private volatile RunBudgetTracker runBudgetTracker;
+    /** 工具治理：工具调用审计写入轨迹。 */
+    private volatile AgentTrajectoryRecorder trajectoryRecorder;
+    /** 工具治理：单工具超时执行器。 */
+    private volatile ExecutorService toolTimeoutExecutor;
+
+    @Autowired(required = false)
+    public void setRunBudgetTracker(RunBudgetTracker runBudgetTracker) {
+        this.runBudgetTracker = runBudgetTracker;
+    }
+
+    @Autowired(required = false)
+    public void setTrajectoryRecorder(AgentTrajectoryRecorder trajectoryRecorder) {
+        this.trajectoryRecorder = trajectoryRecorder;
+    }
+
+    @Autowired(required = false)
+    public void setToolTimeoutExecutor(
+            @Qualifier("fashionAgentParallelExecutor") ExecutorService toolTimeoutExecutor) {
+        this.toolTimeoutExecutor = toolTimeoutExecutor;
+    }
 
     /**
      * 生产环境构造器：工具由 {@link ToolRegistry} 自动扫描注册。
@@ -203,14 +234,25 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
     public LlmGateway.ModelReply generate(
             String userId, List<ConversationMessage> history, String prompt, AiRequestBudget budget
     ) {
+        // 工具治理：每次对话请求建立一个 run 作用域，使图外工具调用也纳入预算与审计
+        String toolRunId = UUID.randomUUID().toString();
+        long toolRunStart = System.currentTimeMillis();
         try {
             if (artifacts != null) {
                 artifacts.begin(userId);
             }
+            ToolCallScope.begin(toolRunId);
+            if (runBudgetTracker != null) {
+                runBudgetTracker.begin(toolRunId);
+            }
+            if (trajectoryRecorder != null) {
+                trajectoryRecorder.startRun(new AgentTrajectoryRecorder.RunStart(
+                        toolRunId, userId, userId, prompt, "chat-gateway-v1", "n/a", null));
+            }
             Object[] tools = resolveTools(prompt);
             var request = chatClient.prompt(buildPrompt(history, prompt, outputLimit(budget)));
             if (tools.length > 0) {
-                request = request.tools(tools);
+                request = request.toolCallbacks(governedToolCallbacks(tools));
             }
             ChatResponse response = request
                     .call()
@@ -273,7 +315,25 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
             if (toolCallingManager != null) {
                 toolCallingManager.clearRequest();
             }
+            ToolCallScope.clear();
+            if (runBudgetTracker != null) {
+                runBudgetTracker.finish(toolRunId);
+            }
+            if (trajectoryRecorder != null) {
+                trajectoryRecorder.finishRun(toolRunId, "SUCCESS",
+                        System.currentTimeMillis() - toolRunStart, null);
+            }
         }
+    }
+
+    /** 把工具 Bean 转为回调并统一施加治理（预算/超时/审计）。 */
+    private ToolCallback[] governedToolCallbacks(Object[] tools) {
+        ToolCallback[] callbacks = ToolCallbacks.from(tools);
+        for (int i = 0; i < callbacks.length; i++) {
+            callbacks[i] = new GovernedToolCallback(
+                    callbacks[i], runBudgetTracker, trajectoryRecorder, toolTimeoutExecutor);
+        }
+        return callbacks;
     }
 
     /**

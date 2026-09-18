@@ -13,11 +13,20 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import java.util.Locale;
+import java.util.Set;
 
 /** A single local administrator account. The password is intentionally read only from ignored local config or env. */
 @Configuration
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class AdminSecurityConfiguration {
+
+    /** 明确拒绝的占位/默认口令，避免「有鉴权但用默认密码」这种伪安全。 */
+    private static final Set<String> REJECTED_DEFAULT_PASSWORDS = Set.of(
+            "change-me", "change-me-strong", "changeme", "admin", "password", "123456",
+            "replace-with-a-local-strong-password", "your-strong-password");
+
+    private static final int MIN_PASSWORD_LENGTH = 8;
 
     @Bean
     public PasswordEncoder adminPasswordEncoder() {
@@ -30,12 +39,19 @@ public class AdminSecurityConfiguration {
             return username -> { throw new UsernameNotFoundException("Administrator website is disabled"); };
         }
         String password = properties.getPassword();
-        if (password == null || password.isBlank() || password.equals("replace-with-a-local-strong-password")) {
+        if (password == null || password.isBlank()) {
             throw new IllegalStateException("app.admin.password is required when app.admin.enabled=true");
         }
-        String encoded = password.startsWith("$2a$") || password.startsWith("$2b$") || password.startsWith("$2y$")
-                ? password
-                : encoder.encode(password);
+        String normalized = password.strip();
+        if (normalized.length() < MIN_PASSWORD_LENGTH
+                || REJECTED_DEFAULT_PASSWORDS.contains(normalized.toLowerCase(Locale.ROOT))) {
+            throw new IllegalStateException(
+                    "app.admin.password must not be a default/placeholder value and must be at least "
+                            + MIN_PASSWORD_LENGTH + " characters when app.admin.enabled=true");
+        }
+        String encoded = normalized.startsWith("$2a$") || normalized.startsWith("$2b$") || normalized.startsWith("$2y$")
+                ? normalized
+                : encoder.encode(normalized);
         return new InMemoryUserDetailsManager(User.withUsername(properties.getUsername())
                 .password(encoded)
                 .roles("ADMIN")
@@ -44,15 +60,15 @@ public class AdminSecurityConfiguration {
 
     @Bean
     public SecurityFilterChain adminSecurityFilterChain(HttpSecurity http, AdminWebProperties properties) throws Exception {
-        // 暂时关闭管理后台登录鉴权：/admin/** 全部放行、CSRF 也对 /admin 放行，页面可直接访问无需登录。
-        // 登录页 /admin/login 与登出 /admin/logout 仍保留可用，但不强制；后续重新设计鉴权时把下方 permitAll 改回 hasRole("ADMIN") 即可。
-        http.csrf(csrf -> csrf.ignoringRequestMatchers("/api/**", "/admin/**"));
+        // /api/** 是 JSON 调试接口，靠本机限制 + 令牌保护，不做表单 CSRF；/admin/** 保留 CSRF 保护。
+        http.csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"));
         http.addFilterBefore(new AdminPortIsolationFilter(properties), UsernamePasswordAuthenticationFilter.class);
         if (!properties.isEnabled()) {
             return http.authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll()).build();
         }
         return http.authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/admin/**").permitAll()
+                        .requestMatchers("/admin/login", "/admin/assets/**", "/admin/favicon.ico").permitAll()
+                        .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll())
                 .formLogin(login -> login
                         .loginPage("/admin/login")

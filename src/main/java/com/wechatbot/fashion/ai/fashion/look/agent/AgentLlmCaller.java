@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.wechatbot.fashion.ai.config.AiProperties;
+import com.wechatbot.fashion.graph.trajectory.AgentTrajectoryRecorder;
+import com.wechatbot.fashion.graph.trajectory.TrajectoryRunContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -12,6 +14,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
@@ -26,11 +29,15 @@ import java.util.concurrent.*;
  * <p>核心能力：
  * <ul>
  *   <li>统一的 system + user prompt 构建</li>
- *   <li>JSON 响应解析与重试（6 种清洗策略逐级尝试，宽松解析 + 截断修复）</li>
+ *   <li>结构化输出（Spring AI {@link BeanOutputConverter}）反序列化（JSON 响应解析与重试）</li>
  *   <li>超时控制（通过 CompletableFuture + timeout）</li>
  *   <li>异常分类：网络超时 / LLM 报错 / 解析失败</li>
  *   <li>不注入任何工具，保证 Agent 推理纯净性</li>
  * </ul>
+ *
+ * <p>P1（2026-08-31）：解析从手搓宽松 JSON 迁移为 Spring AI 结构化输出
+ * {@link BeanOutputConverter}（复用宽松 ObjectMapper，兼容 LLM 尾逗号/单引号等脏输出），
+ * 保留超时/重试/thinking-disabled/JSON-Mode 全部既有能力。</p>
  */
 @Component
 public class AgentLlmCaller {
@@ -44,6 +51,30 @@ public class AgentLlmCaller {
     private final AiProperties aiProperties;
     private final ObjectMapper objectMapper;
     private final ExecutorService executor;
+    /** Agent 轨迹记录器；Spring 存在时注入，测试直接 new 时保持 noop。 */
+    private volatile AgentTrajectoryRecorder trajectoryRecorder = AgentTrajectoryRecorder.noop();
+    /** 单次 run 执行预算跟踪器；未注入时不限预算。 */
+    private volatile com.wechatbot.fashion.graph.budget.RunBudgetTracker runBudgetTracker;
+
+    /** LLM 原始结果 + token 用量，供轨迹记录（parse 前后都要保留 usage）。 */
+    private record LlmResult(String text, long promptTokens, long completionTokens, long totalTokens) {
+    }
+
+    /** 一次「调用 + 解析」的中间结果。 */
+    private record Attempt<T>(T parsed, LlmResult llm) {
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTrajectoryRecorder(AgentTrajectoryRecorder trajectoryRecorder) {
+        if (trajectoryRecorder != null) {
+            this.trajectoryRecorder = trajectoryRecorder;
+        }
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRunBudgetTracker(com.wechatbot.fashion.graph.budget.RunBudgetTracker runBudgetTracker) {
+        this.runBudgetTracker = runBudgetTracker;
+    }
 
     public AgentLlmCaller(ChatModel chatModel, AiProperties aiProperties,
                           @Qualifier("agentLlmCallerExecutor") ExecutorService executor) {
@@ -76,20 +107,32 @@ public class AgentLlmCaller {
     public <T> T callAgent(String systemPrompt, String userMessage,
                            Class<T> outputType, int maxTokens, Duration timeout) {
         long startTime = System.currentTimeMillis();
+        TrajectoryRunContext.Ref ref = TrajectoryRunContext.current();
+        String agent = outputType.getSimpleName();
+        if (!budgetAllows(ref, agent, startTime)) {
+            return null;
+        }
 
         for (int networkAttempt = 0; networkAttempt <= NETWORK_RETRY_MAX; networkAttempt++) {
-            CompletableFuture<T> future = null;
+            CompletableFuture<Attempt<T>> future = null;
             try {
                 future = CompletableFuture.supplyAsync(() -> {
-                    String raw = callLlm(systemPrompt, userMessage, maxTokens);
-                    return parseJsonWithRetry(raw, outputType);
+                    LlmResult llm = callLlm(systemPrompt, userMessage, maxTokens);
+                    return new Attempt<>(parseJsonWithRetry(llm.text(), outputType), llm);
                 }, executor);
 
-                T result = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+                Attempt<T> attempt = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+                T result = attempt.parsed();
+                recordTokens(ref, attempt.llm());
 
                 long elapsed = System.currentTimeMillis() - startTime;
                 if (result != null) {
                     log.info("Agent LLM call succeeded in {}ms (networkAttempt={})", elapsed, networkAttempt);
+                    recordModel(ref, agent, attempt.llm(), elapsed,
+                            AgentTrajectoryRecorder.Step.STATUS_SUCCESS, null);
+                } else {
+                    recordModel(ref, agent, attempt.llm(), elapsed,
+                            AgentTrajectoryRecorder.Step.STATUS_FAILED, "parse-failed");
                 }
                 return result;
 
@@ -106,6 +149,8 @@ public class AgentLlmCaller {
                             elapsed, networkAttempt + 1, NETWORK_RETRY_MAX + 1, cause.getMessage());
                 } else {
                     log.warn("LLM call error after {}ms: {}", elapsed, cause.getMessage());
+                    recordModel(ref, agent, null, elapsed,
+                            AgentTrajectoryRecorder.Step.STATUS_FAILED, concise(cause));
                     return null; // 非网络错误不重试
                 }
             } catch (InterruptedException e) {
@@ -117,6 +162,8 @@ public class AgentLlmCaller {
         }
 
         log.error("Agent LLM call failed after all retries");
+        recordModel(ref, agent, null, System.currentTimeMillis() - startTime,
+                AgentTrajectoryRecorder.Step.STATUS_FAILED, "timeout/network");
         return null;
     }
 
@@ -138,20 +185,32 @@ public class AgentLlmCaller {
     public <T> T callAgentGreedy(String systemPrompt, String userMessage,
                                  Class<T> outputType, int maxTokens, Duration timeout) {
         long startTime = System.currentTimeMillis();
+        TrajectoryRunContext.Ref ref = TrajectoryRunContext.current();
+        String agent = outputType.getSimpleName();
+        if (!budgetAllows(ref, agent, startTime)) {
+            return null;
+        }
 
         for (int networkAttempt = 0; networkAttempt <= NETWORK_RETRY_MAX; networkAttempt++) {
-            CompletableFuture<T> future = null;
+            CompletableFuture<Attempt<T>> future = null;
             try {
                 future = CompletableFuture.supplyAsync(() -> {
-                    String raw = callLlm(systemPrompt, userMessage, maxTokens, true);
-                    return parseJsonWithRetry(raw, outputType);
+                    LlmResult llm = callLlm(systemPrompt, userMessage, maxTokens, true);
+                    return new Attempt<>(parseJsonWithRetry(llm.text(), outputType), llm);
                 }, executor);
 
-                T result = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+                Attempt<T> attempt = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+                T result = attempt.parsed();
+                recordTokens(ref, attempt.llm());
 
                 long elapsed = System.currentTimeMillis() - startTime;
                 if (result != null) {
                     log.info("Agent greedy LLM call succeeded in {}ms (networkAttempt={})", elapsed, networkAttempt);
+                    recordModel(ref, agent, attempt.llm(), elapsed,
+                            AgentTrajectoryRecorder.Step.STATUS_SUCCESS, null);
+                } else {
+                    recordModel(ref, agent, attempt.llm(), elapsed,
+                            AgentTrajectoryRecorder.Step.STATUS_FAILED, "parse-failed");
                 }
                 return result;
 
@@ -168,6 +227,8 @@ public class AgentLlmCaller {
                             elapsed, networkAttempt + 1, NETWORK_RETRY_MAX + 1, cause.getMessage());
                 } else {
                     log.warn("LLM call error after {}ms: {}", elapsed, cause.getMessage());
+                    recordModel(ref, agent, null, elapsed,
+                            AgentTrajectoryRecorder.Step.STATUS_FAILED, concise(cause));
                     return null;
                 }
             } catch (InterruptedException e) {
@@ -179,13 +240,15 @@ public class AgentLlmCaller {
         }
 
         log.error("Agent greedy LLM call failed after all retries");
+        recordModel(ref, agent, null, System.currentTimeMillis() - startTime,
+                AgentTrajectoryRecorder.Step.STATUS_FAILED, "timeout/network");
         return null;
     }
 
     /**
      * 实际调用 LLM，返回原始文本。
      */
-    private String callLlm(String systemPrompt, String userMessage, int maxTokens) {
+    private LlmResult callLlm(String systemPrompt, String userMessage, int maxTokens) {
         return callLlm(systemPrompt, userMessage, maxTokens, false);
     }
 
@@ -194,7 +257,7 @@ public class AgentLlmCaller {
      *
      * @param greedy 是否贪婪采样（temperature=0），用于需要确定性的分析调用
      */
-    private String callLlm(String systemPrompt, String userMessage, int maxTokens, boolean greedy) {
+    private LlmResult callLlm(String systemPrompt, String userMessage, int maxTokens, boolean greedy) {
         // 穿搭管道优先使用专用快速模型（app.ai.fashion-model），未配置时回退主模型
         String model = (aiProperties.getFashionModel() == null || aiProperties.getFashionModel().isBlank())
                 ? aiProperties.getModel()
@@ -222,35 +285,98 @@ public class AgentLlmCaller {
         // 超时取消后虚拟线程会收到中断信号，在发起网络请求前检查可快速退出
         if (Thread.currentThread().isInterrupted()) {
             log.debug("Agent LLM call cancelled before network request");
-            return "";
+            return new LlmResult("", 0, 0, 0);
         }
         ChatResponse response = chatModel.call(prompt);
         long callElapsed = System.currentTimeMillis() - callStart;
         if (response == null || response.getResult() == null
                 || response.getResult().getOutput() == null) {
             log.warn("Agent LLM call returned empty response after {}ms", callElapsed);
-            return "";
+            return new LlmResult("", 0, 0, 0);
         }
         String text = response.getResult().getOutput().getText();
         // 记录 token 消耗（计费按实际生成 tokens，maxTokens 只是上限）
         org.springframework.ai.chat.metadata.Usage usage = response.getMetadata() == null
                 ? null : response.getMetadata().getUsage();
+        long promptTokens = 0;
+        long completionTokens = 0;
+        long totalTokens = 0;
         if (usage != null) {
+            promptTokens = usage.getPromptTokens() == null ? 0 : usage.getPromptTokens();
+            completionTokens = usage.getCompletionTokens() == null ? 0 : usage.getCompletionTokens();
+            totalTokens = usage.getTotalTokens() == null ? 0 : usage.getTotalTokens();
             log.info("Agent LLM tokens: prompt={}, completion={}, total={} ({}ms)",
-                    usage.getPromptTokens(), usage.getCompletionTokens(),
-                    usage.getTotalTokens(), callElapsed);
+                    promptTokens, completionTokens, totalTokens, callElapsed);
         } else {
             log.info("Agent LLM call done in {}ms (usage unavailable)", callElapsed);
         }
-        return text == null ? "" : text.strip();
+        return new LlmResult(text == null ? "" : text.strip(), promptTokens, completionTokens, totalTokens);
+    }
+
+    /** 预算护栏：不允许时记录失败 step 并返回 false，调用方应直接返回 null。 */
+    private boolean budgetAllows(TrajectoryRunContext.Ref ref, String agent, long startedAt) {
+        if (runBudgetTracker == null || ref == null || !ref.present()) {
+            return true;
+        }
+        if (runBudgetTracker.allowModelCall(ref.runId())) {
+            return true;
+        }
+        String reason = runBudgetTracker.exceededReason(ref.runId()).orElse("budget");
+        log.warn("Agent LLM call blocked by run budget ({}): runId={}", reason, ref.runId());
+        recordModel(ref, agent, null, System.currentTimeMillis() - startedAt,
+                AgentTrajectoryRecorder.Step.STATUS_FAILED, "budget:" + reason);
+        return false;
+    }
+
+    /** 统计一次模型调用消耗的 token 到 run 预算。 */
+    private void recordTokens(TrajectoryRunContext.Ref ref, LlmResult llm) {
+        if (runBudgetTracker != null && ref != null && ref.present() && llm != null) {
+            runBudgetTracker.addTokens(ref.runId(), llm.totalTokens());
+        }
+    }
+
+    /** 记录一次 MODEL step；runId 缺失（如直接单测）时静默跳过。 */
+    private void recordModel(TrajectoryRunContext.Ref ref, String agent, LlmResult llm,
+                             long durationMs, String status, String error) {
+        if (ref == null || !ref.present()) {
+            return;
+        }
+        long prompt = llm == null ? 0 : llm.promptTokens();
+        long completion = llm == null ? 0 : llm.completionTokens();
+        long total = llm == null ? 0 : llm.totalTokens();
+        trajectoryRecorder.recordStep(new AgentTrajectoryRecorder.Step(
+                ref.runId(),
+                ref.node() == null ? "" : ref.node(),
+                AgentTrajectoryRecorder.Step.TYPE_MODEL,
+                status,
+                agent,
+                null,
+                "agent=" + agent,
+                error == null ? "ok" : error,
+                prompt, completion, total,
+                durationMs,
+                error));
+    }
+
+    /** 异常简短原因（截断，避免长堆栈进入轨迹）。 */
+    private static String concise(Throwable t) {
+        if (t == null) {
+            return "unknown";
+        }
+        String msg = t.getMessage();
+        if (msg == null || msg.isBlank()) {
+            return t.getClass().getSimpleName();
+        }
+        String single = msg.replace('\n', ' ').trim();
+        return single.length() > 120 ? single.substring(0, 120) : single;
     }
 
     /**
-     * 解析 JSON 并反序列化为指定类型。
+     * 解析 LLM 输出为指定类型（Spring AI 结构化输出）。
      *
-     * <p>百炼 Qwen 已在请求中开启 {@code response_format: json_object}（JSON Mode），
-     * 输出为严格 JSON；这里只保留两种兜底：直接解析 + ```json 代码块提取。
-     * 截断导致的非法 JSON 不做括号补全修复——那应当通过调大 maxTokens 解决。</p>
+     * <p>P1：使用 {@link BeanOutputConverter}（复用宽松 ObjectMapper，容忍尾逗号/单引号等脏输出；
+     * 通过 {@code response_format: json_object} JSON-Mode 让模型输出严格 JSON）。
+     * 不再手搓清洗链，只保留两种兜底：直接解析 + ```json 代码块提取。</p>
      */
     private <T> T parseJsonWithRetry(String raw, Class<T> type) {
         if (raw == null || raw.isBlank()) {
@@ -259,17 +385,35 @@ public class AgentLlmCaller {
         }
         T direct = tryParse(raw, type, "direct");
         if (direct != null) return direct;
-        return tryParse(extractJsonBlock(raw), type, "code_block");
+        String block = extractJsonBlock(raw);
+        if (block == null) {
+            log.warn("No JSON content found in LLM response");
+            return null;
+        }
+        return tryParse(block, type, "code_block");
     }
 
     private <T> T tryParse(String json, Class<T> type, String method) {
         if (json == null || json.isBlank()) return null;
+        // 1. Spring AI 结构化输出：按 JSON-schema 反序列化（字段齐全则规范）。
+        try {
+            BeanOutputConverter<T> converter = new BeanOutputConverter<>(type, objectMapper);
+            T strict = converter.convert(json);
+            if (strict != null) {
+                log.debug("Structured output parse succeeded via {}", method);
+                return strict;
+            }
+            log.debug("Structured output parse returned null via {}", method);
+        } catch (Exception e) {
+            log.debug("Structured output strict parse failed via {}: {}", method, e.getMessage());
+        }
+        // 2. 宽松兜底：兼容 LLM 漏字段/意外结构（结构化输出失败不阻断生产路径，字段以默认值兜底）。
         try {
             T result = objectMapper.readValue(json, type);
-            log.debug("JSON parse succeeded via {}", method);
+            log.debug("Lenient fallback parse succeeded via {}", method);
             return result;
-        } catch (Exception e) {
-            log.debug("JSON parse failed via {}: {}", method, e.getMessage());
+        } catch (Exception e2) {
+            log.debug("Lenient fallback parse failed via {}: {}", method, e2.getMessage());
             return null;
         }
     }

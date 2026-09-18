@@ -1,0 +1,45 @@
+# ---------- 构建无关 / 大目录（既不入库也绝不该进 Docker 上下文）----------
+# 本地智能体记忆（可能含密钥、个人配置），严禁进镜像
+.workbuddy/
+# 个人求职材料（简历等），严禁进镜像
+resume-tian-jinying/
+tian-jinying-resume.json
+*.pptx
+# Maven / Gradle 构建产物（镜像内会重新生成）
+target/
+build/
+.gradle/
+out/
+# 运行时日志与数据
+logs/
+*.log
+data/wechat/
+# 本地密钥与环境
+.env
+.env.*
+application-local.properties
+secret.properties
+# 编辑器 / 系统
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbscale*
+# Python（mcp-server 在镜像内重建 venv）
+mcp-server/.venv/
+mcp-server/__pycache__/
+__pycache__/
+*.pyc
+# Git 历史（缩小上下文）
+.git/
+# 文档（部署无关，缩小上下文；如需保留可删此行）
+docs/
+demo/
+# 杂项本地产物
+*.tmp
+*.tmp.xml
+*.bak
+*.bak_*
+probe-*.tmp
+grill_*.tmp.xml
+quaint-*.md

@@ -56,13 +56,27 @@ class RuleRerankGridSearchLiveTest {
     @Autowired(required = false) private RagFlowClient ragFlowClient;
 
     private record RealQuery(String userInput, String groundTruth) {}
-    private record OutfitTags(List<String> scenes, List<String> seasons, List<String> styles, double formality) {}
+    private record OutfitTags(List<String> scenes, List<String> seasons, List<String> styles,
+                              List<String> colors, double formality) {}
     private record Candidate(String outfitId, double semanticScore) {}
     private record QueryPool(RealQuery query, AnalyzedQuery analyzed, List<Candidate> candidates) {}
+
+    /** 颜色/花色词（与 outfit 配色方案文本比对，单字取色基）。 */
+    private static final List<String> COLOR_WORDS = List.of(
+            "藏蓝", "卡其", "米白", "天蓝", "橄榄绿", "黑", "白", "红", "蓝", "黄", "绿", "灰", "粉", "紫", "橙", "棕");
+
+    /** 否定色前缀（判定词是偏好还是禁忌）；仅查颜色词前 8 字符窗口。 */
+    private static final Pattern NEG_COLOR_PATTERN = Pattern.compile(
+            "不要(?:穿|选|要)?|不喜欢|不愿|别(?:穿|要)?|避免|讨厌|拒绝|不想要|不要再");
+
+    /** 用户输入中的颜色偏好/禁忌集（按出现位置前 8 字符判定正/负）。 */
+    private record ColorPrefs(List<String> positive, List<String> negative) {}
+
     private record Weights(double semanticWeight,
                            double sceneWeight, double seasonWeight,
                            double styleWeight, double formalityWeight,
-                           double ruleScoreCap) {}
+                           double ruleScoreCap,
+                           double colorWeight, double negColorMultiplier) {}
 
     @Test
     void gridSearchRuleRerankWeights() throws IOException {
@@ -114,7 +128,8 @@ class RuleRerankGridSearchLiveTest {
         for (Weights w : weightList) {
             int top1 = 0, top5 = 0;
             for (QueryPool pool : pools) {
-                List<Candidate> reranked = rerank(pool.candidates, pool.analyzed, outfitTags, w);
+                List<Candidate> reranked = rerank(pool.candidates, pool.analyzed,
+                        pool.query.userInput(), outfitTags, w);
                 int rank = findRank(reranked, pool.query.groundTruth());
                 if (rank == 0) { top1++; top5++; }
                 else if (rank >= 1 && rank <= 4) top5++;
@@ -135,16 +150,19 @@ class RuleRerankGridSearchLiveTest {
                 + " season=" + best.seasonWeight
                 + " style=" + best.styleWeight
                 + " formality=" + best.formalityWeight
-                + " cap=" + best.ruleScoreCap);
+                + " cap=" + best.ruleScoreCap
+                + " colorWeight=" + best.colorWeight
+                + " negColorMultiplier=" + best.negColorMultiplier);
         System.out.println("top-1: " + bestTop1 + "/" + pools.size() + " = " + pct(bestTop1, pools.size()));
         System.out.println("top-5: " + (int) Math.round(bestTop5 * pools.size() / 100.0) + "/" + pools.size()
                 + " = " + String.format(Locale.US, "%.2f%%", bestTop5));
 
-        // 4. 与无规则重排 baseline 对比
-        Weights baselineWeights = new Weights(1.0, 0, 0, 0, 0, 0);
+        // 4. 与无规则重排 baseline 对比（颜色信号关闭）
+        Weights baselineWeights = new Weights(1.0, 0, 0, 0, 0, 0, 0.0, 1.0);
         int baselineTop1 = 0, baselineTop5 = 0;
         for (QueryPool pool : pools) {
-            List<Candidate> reranked = rerank(pool.candidates, pool.analyzed, outfitTags, baselineWeights);
+            List<Candidate> reranked = rerank(pool.candidates, pool.analyzed,
+                    pool.query.userInput(), outfitTags, baselineWeights);
             int rank = findRank(reranked, pool.query.groundTruth());
             if (rank == 0) { baselineTop1++; baselineTop5++; }
             else if (rank >= 1 && rank <= 4) baselineTop5++;
@@ -176,6 +194,9 @@ class RuleRerankGridSearchLiveTest {
         double[] styleWeights = {0.10, 0.15, 0.20};
         double[] formalityWeights = {0.05, 0.10, 0.15};
         double[] ruleScoreCaps = {0.50, 0.65, 0.80};
+        // 颜色维度：0=关闭（与旧基线对照）、0.15=轻、0.30=重；禁忌乘子放大负惩罚
+        double[] colorWeights = {0.0, 0.15, 0.30};
+        double[] negColorMultipliers = {1.0, 1.5, 2.0};
 
         List<Weights> list = new ArrayList<>();
         for (double sw : semanticWeights) {
@@ -184,7 +205,11 @@ class RuleRerankGridSearchLiveTest {
                     for (double style : styleWeights) {
                         for (double formality : formalityWeights) {
                             for (double cap : ruleScoreCaps) {
-                                list.add(new Weights(sw, scene, season, style, formality, cap));
+                                for (double cw : colorWeights) {
+                                    for (double nm : negColorMultipliers) {
+                                        list.add(new Weights(sw, scene, season, style, formality, cap, cw, nm));
+                                    }
+                                }
                             }
                         }
                     }
@@ -194,14 +219,17 @@ class RuleRerankGridSearchLiveTest {
         return list;
     }
 
-    private List<Candidate> rerank(List<Candidate> candidates, AnalyzedQuery aq,
+    private List<Candidate> rerank(List<Candidate> candidates, AnalyzedQuery aq, String userInput,
                                    Map<String, OutfitTags> outfitTags, Weights w) {
         AnalyzedQuery.QueryParams params = aq.params();
+        ColorPrefs prefs = extractColorPrefs(userInput);
         List<ScoredCandidate> scored = new ArrayList<>(candidates.size());
         for (Candidate c : candidates) {
             OutfitTags tags = outfitTags.get(c.outfitId());
             double ruleScore = (tags == null) ? 0.0 : computeRuleScore(params, tags, w);
-            double finalScore = w.semanticWeight() * c.semanticScore() + (1.0 - w.semanticWeight()) * ruleScore;
+            double colorScore = (tags == null) ? 0.0 : computeColorScore(prefs, tags, w);
+            double finalScore = w.semanticWeight() * c.semanticScore()
+                    + (1.0 - w.semanticWeight()) * ruleScore + colorScore;
             scored.add(new ScoredCandidate(c, finalScore));
         }
         scored.sort((a, b) -> Double.compare(b.finalScore, a.finalScore));
@@ -209,6 +237,41 @@ class RuleRerankGridSearchLiveTest {
     }
 
     private record ScoredCandidate(Candidate candidate, double finalScore) {}
+
+    /** 从用户原文提取颜色偏好/禁忌：颜色词向前 8 字符窗口内出现否定词 → 禁忌，否则偏好。 */
+    private static ColorPrefs extractColorPrefs(String userInput) {
+        if (userInput == null || userInput.isBlank()) return new ColorPrefs(List.of(), List.of());
+        List<String> positive = new ArrayList<>();
+        List<String> negative = new ArrayList<>();
+        for (String color : COLOR_WORDS) {
+            int idx = userInput.indexOf(color);
+            if (idx < 0) continue;
+            int start = Math.max(0, idx - 8);
+            String window = userInput.substring(start, idx);
+            if (NEG_COLOR_PATTERN.matcher(window).find()) negative.add(color);
+            else positive.add(color);
+        }
+        return new ColorPrefs(positive, negative);
+    }
+
+    /** 颜色信号分：outfit 配色任含偏好色 → +colorWeight；任含禁忌色 → -colorWeight*negMultiplier。 */
+    private double computeColorScore(ColorPrefs prefs, OutfitTags tags, Weights w) {
+        if (w.colorWeight() <= 0 || tags.colors().isEmpty()) return 0.0;
+        double score = 0.0;
+        for (String p : prefs.positive()) {
+            if (tags.colors().stream().anyMatch(c -> c.contains(p))) {
+                score += w.colorWeight();
+                break;
+            }
+        }
+        for (String n : prefs.negative()) {
+            if (tags.colors().stream().anyMatch(c -> c.contains(n))) {
+                score -= w.colorWeight() * w.negColorMultiplier();
+                break;
+            }
+        }
+        return score;
+    }
 
     private double computeRuleScore(AnalyzedQuery.QueryParams params, OutfitTags tags, Weights w) {
         double score = 0.0;
@@ -440,7 +503,15 @@ class RuleRerankGridSearchLiveTest {
         List<String> seasons = extractList(overview, "适合季节[:：]\\s*(.+?)\\s*(?:\\n|$)");
         List<String> scenes = extractList(overview, "适合场合[:：]\\s*(.+?)\\s*(?:\\n|$)");
         double formality = extractDouble(overview, "整体正式度[:：]\\s*([\\d.]+)/5");
-        return new OutfitTags(scenes, seasons, styles, formality);
+        List<String> colors = extractColors(overview);
+        return new OutfitTags(scenes, seasons, styles, colors, formality);
+    }
+
+    /** 配色方案行（形如「配色方案：白色 + 藏蓝色 + 白色」）→ 颜色列表。 */
+    private static List<String> extractColors(String overview) {
+        Matcher m = Pattern.compile("配色方案[:：]\\s*(.+?)\\s*(?:\\n|$)").matcher(overview);
+        if (!m.find() || m.group(1).isBlank()) return List.of();
+        return List.of(m.group(1).split("\\s*\\+\\s*"));
     }
 
     private static List<String> extractList(String text, String pattern) {
@@ -533,8 +604,9 @@ class RuleRerankGridSearchLiveTest {
     }
 
     private static String key(Weights w) {
-        return String.format(Locale.US, "sem=%.2f scene=%.2f season=%.2f style=%.2f formality=%.2f cap=%.2f",
-                w.semanticWeight(), w.sceneWeight(), w.seasonWeight(), w.styleWeight(), w.formalityWeight(), w.ruleScoreCap());
+        return String.format(Locale.US, "sem=%.2f scene=%.2f season=%.2f style=%.2f formality=%.2f cap=%.2f color=%.2f negMult=%.2f",
+                w.semanticWeight(), w.sceneWeight(), w.seasonWeight(), w.styleWeight(), w.formalityWeight(),
+                w.ruleScoreCap(), w.colorWeight(), w.negColorMultiplier());
     }
 
     private static String pct(int n, int d) {

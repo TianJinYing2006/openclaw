@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>轨迹详情 · WeChatBot 管理</title>
+    <link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
+</head>
+<body>
+<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a><a th:href="@{/admin/agent-trace}">链路耗时</a><a class="active" th:href="@{/admin/agent-trajectory}">轨迹回放</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<main class="page">
+    <div class="page-heading"><div><h1>轨迹详情</h1><p><a th:href="@{/admin/agent-trajectory}">← 返回轨迹列表</a></p></div></div>
+
+    <div th:if="${error}" class="alert error" th:text="${error}">错误</div>
+
+    <section class="table-section" th:if="${run != null}">
+        <div class="section-title"><h2 th:text="${'Run ' + run.runId()}">Run</h2><span th:text="${run.createdAt()}">-</span></div>
+        <div class="metrics">
+            <section><span>状态</span><strong th:text="${run.status()}">-</strong></section>
+            <section><span>总耗时</span><strong th:text="${#numbers.formatDecimal(run.durationMs(), 0, 0) + ' ms'}">-</strong></section>
+            <section><span>总 Token</span><strong th:text="${run.totalTokens()}">0</strong></section>
+            <section><span>用户</span><strong th:text="${run.user()}">-</strong></section>
+            <section><span>版本</span><strong th:text="${run.graphVersion() + ' / ' + run.promptVersion()}">-</strong></section>
+        </div>
+        <p class="mono" th:text="'请求：' + ${run.query()}">-</p>
+    </section>
+
+    <section class="table-section" th:if="${nodes != null}">
+        <div class="section-title"><h2>按节点聚合</h2><span>节点耗时 / 模型 Token / 失败步数（定位成本与质量热点）</span></div>
+        <table>
+            <thead><tr><th>节点</th><th>节点耗时</th><th>Token</th><th>模型调用</th><th>失败步</th></tr></thead>
+            <tbody>
+            <tr th:each="n : ${nodes}" th:classappend="${n.failedSteps() > 0} ? 'row-failed'">
+                <td class="mono" th:text="${n.nodeName()}">-</td>
+                <td class="mono" th:text="${#numbers.formatDecimal(n.nodeMs(), 0, 0) + ' ms'}">-</td>
+                <td class="mono" th:text="${n.tokens()}">0</td>
+                <td class="mono" th:text="${n.modelCalls()}">0</td>
+                <td class="mono" th:text="${n.failedSteps()}">0</td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(nodes)}"><td colspan="5" class="empty">无节点记录。</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section class="table-section" th:if="${steps != null}">
+        <div class="section-title"><h2>事件流</h2><span>按发生顺序（NODE / MODEL），含输入输出摘要</span></div>
+        <table>
+            <thead><tr><th>#</th><th>时间</th><th>类型</th><th>节点</th><th>模型/工具</th><th>耗时</th><th>Token</th><th>状态</th><th>摘要</th></tr></thead>
+            <tbody>
+            <tr th:each="s : ${steps}" th:classappend="${s.status() == 'FAILED'} ? 'row-failed'">
+                <td th:text="${s.seq()}">0</td>
+                <td class="mono" th:text="${s.time()}">-</td>
+                <td th:text="${s.stepType()}">-</td>
+                <td class="mono" th:text="${s.nodeName()}">-</td>
+                <td class="mono" th:text="${s.model() != null and !#strings.isEmpty(s.model()) ? s.model() : s.toolName()}">-</td>
+                <td class="mono" th:text="${#numbers.formatDecimal(s.durationMs(), 0, 0) + ' ms'}">-</td>
+                <td class="mono" th:text="${s.totalTokens()}">0</td>
+                <td th:text="${s.status()}">-</td>
+                <td class="mono" th:text="${#strings.isEmpty(s.errorMessage()) ? s.outputSummary() : s.errorMessage()}">-</td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(steps)}"><td colspan="9" class="empty">无步骤记录。</td></tr>
+            </tbody>
+        </table>
+    </section>
+</main>
+</body>
+</html>

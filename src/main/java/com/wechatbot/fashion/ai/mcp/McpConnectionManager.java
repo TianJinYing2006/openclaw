@@ -37,10 +37,13 @@ public class McpConnectionManager {
     private static final String MCP_URL_PROP = "spring.ai.mcp.client.streamable-http.connections.unified-mcp.url";
     private static final String MCP_ENDPOINT_PROP = "spring.ai.mcp.client.streamable-http.connections.unified-mcp.endpoint";
     private static final String MCP_TIMEOUT_PROP = "spring.ai.mcp.client.request-timeout";
+    private static final String MCP_AUTH_TOKEN_PROP = "app.mcp.auth-token";
 
     private final String baseUrl;
     private final String endpoint;
     private final Duration requestTimeout;
+    /** 与 MCP Server 共享的 Bearer 令牌；为空时不带鉴权头（仅适用于本机/内网隔离部署）。 */
+    private final String authToken;
 
     private final AtomicReference<SyncMcpToolCallbackProvider> providerRef = new AtomicReference<>();
     private final AtomicReference<List<McpSyncClient>> clientsRef = new AtomicReference<>(List.of());
@@ -50,6 +53,11 @@ public class McpConnectionManager {
         this.baseUrl = environment.getProperty(MCP_URL_PROP, "");
         this.endpoint = environment.getProperty(MCP_ENDPOINT_PROP, "/mcp");
         this.requestTimeout = parseDuration(environment.getProperty(MCP_TIMEOUT_PROP, "300s"));
+        String token = environment.getProperty(MCP_AUTH_TOKEN_PROP, "");
+        this.authToken = token == null ? "" : token.strip();
+        if (baseUrl != null && !baseUrl.isBlank() && authToken.isBlank()) {
+            log.warn("MCP 未配置 {}，请求不带鉴权头；请确保 MCP Server 仅在本机/内网可达", MCP_AUTH_TOKEN_PROP);
+        }
     }
 
     /**
@@ -114,8 +122,13 @@ public class McpConnectionManager {
                     .connectTimeout(requestTimeout)
                     // 请求级超时兜底：MCP SDK 同步调用可能无限阻塞，HttpRequest.timeout 确保
                     // 长耗时工具（照片识别/抠图/试衣）在异常时能抛出 HttpTimeoutException 走失败重试，
-                    // 而不是永久挂起占用后台线程。
-                    .customizeRequest(request -> request.timeout(requestTimeout))
+                    // 而不是永久挂起占用后台线程。同时按需注入 MCP 鉴权头。
+                    .customizeRequest(request -> {
+                        request.timeout(requestTimeout);
+                        if (!authToken.isBlank()) {
+                            request.header("Authorization", "Bearer " + authToken);
+                        }
+                    })
                     // 强制 HTTP/1.1：Java HttpClient 默认发 h2c 升级，hypercorn 长连接复用后
                     // 半关闭的 HTTP/2 流会导致响应永远等不到（偶发挂起），HTTP/1.1 连接语义更可靠。
                     .customizeClient(client -> client.version(java.net.http.HttpClient.Version.HTTP_1_1))

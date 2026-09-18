@@ -1,0 +1,208 @@
+{
+  "version": "golden-v1",
+  "description": "穿搭 Agent 确定性 golden 集（mock LLM）。每条用例喂入脚本化的 QueryAnalyzer 计划/评审分数，运行真实 Fashion 子图，断言路由、工具门控、终止与降级恢复是否符合预期。",
+  "cases": [
+    {
+      "id": "formal_wedding_deep",
+      "query": "我要去海边婚礼穿什么，帮我搭一套正式的礼服",
+      "plan": {"scene": "FORMAL_EVENT", "season": "SUMMER", "formality": 4, "subQueries": ["海边婚礼", "正式礼服"], "styleHint": "优雅"},
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "critic", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "workplace_formality3_simple",
+      "query": "上班通勤穿什么比较得体",
+      "plan": {"scene": "WORKPLACE", "season": "SPRING", "formality": 3, "subQueries": ["通勤", "得体"], "styleHint": "简约"},
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "casual_daily_simple",
+      "query": "周末逛街随便穿点什么",
+      "plan": {"scene": "DAILY", "season": "SUMMER", "formality": 2, "subQueries": ["周末", "休闲"], "styleHint": "休闲"},
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "weather_tool_gate_hit",
+      "query": "杭州今天天气很热，穿什么合适",
+      "plan": {"scene": "DAILY", "season": "SUMMER", "formality": 2, "subQueries": ["杭州天气", "夏天"], "styleHint": "清凉"},
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "responder"],
+        "needsTool": true,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "trend_info_tool_gate_hit",
+      "query": "最近流行什么款式，帮我推荐一下",
+      "plan": {"scene": "DAILY", "season": "AUTUMN", "formality": 2, "subQueries": ["流行趋势", "推荐"], "styleHint": "时髦"},
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "responder"],
+        "needsTool": true,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "no_tool_gate",
+      "query": "帮我配一套约会装",
+      "plan": {"scene": "DATE", "season": "SUMMER", "formality": 3, "subQueries": ["约会", "甜美"], "styleHint": "甜美"},
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "formality5_complex",
+      "query": "参加颁奖典礼穿什么，要非常正式",
+      "plan": {"scene": "FORMAL_EVENT", "season": "WINTER", "formality": 5, "subQueries": ["颁奖典礼", "正式礼服"], "styleHint": "隆重"},
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "critic", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "many_subqueries_complex",
+      "query": "帮我从海边度假到晚上正式晚宴都搭一套",
+      "plan": {"scene": "TRAVEL", "season": "SUMMER", "formality": 2, "subQueries": ["海边", "度假", "晚宴", "正式"], "styleHint": "多变"},
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "critic", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "fault_stylist_down",
+      "query": "参加婚礼穿什么，要正式",
+      "plan": {"scene": "FORMAL_EVENT", "season": "SUMMER", "formality": 4, "subQueries": ["婚礼", "正式"], "styleHint": "优雅"},
+      "fault": "stylist",
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "responder"],
+        "needsTool": false,
+        "finalStatus": "DEGRADED",
+        "degraded": true,
+        "coordinatorPresent": false
+      }
+    },
+    {
+      "id": "fault_coordinator_down",
+      "query": "参加婚礼穿什么，要正式",
+      "plan": {"scene": "FORMAL_EVENT", "season": "SUMMER", "formality": 4, "subQueries": ["婚礼", "正式"], "styleHint": "优雅"},
+      "fault": "coordinator",
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "critic", "responder"],
+        "needsTool": false,
+        "finalStatus": "DEGRADED",
+        "degraded": true,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "fault_critic_down",
+      "query": "参加婚礼穿什么，要正式",
+      "plan": {"scene": "FORMAL_EVENT", "season": "SUMMER", "formality": 4, "subQueries": ["婚礼", "正式"], "styleHint": "优雅"},
+      "fault": "critic",
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "critic", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "fault_trend_down",
+      "query": "参加婚礼穿什么，要正式",
+      "plan": {"scene": "FORMAL_EVENT", "season": "SUMMER", "formality": 4, "subQueries": ["婚礼", "正式"], "styleHint": "优雅"},
+      "fault": "trend",
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "critic", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "fault_review_both_down",
+      "query": "参加婚礼穿什么，要正式",
+      "plan": {"scene": "FORMAL_EVENT", "season": "SUMMER", "formality": 4, "subQueries": ["婚礼", "正式"], "styleHint": "优雅"},
+      "fault": "critic_and_trend",
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "critic", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "fault_rag_down",
+      "query": "参加婚礼穿什么，要正式",
+      "plan": {"scene": "FORMAL_EVENT", "season": "SUMMER", "formality": 4, "subQueries": ["婚礼", "正式"], "styleHint": "优雅"},
+      "fault": "rag",
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "critic", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "critic_reject_loop_disabled_terminates",
+      "query": "参加婚礼穿什么，要正式",
+      "plan": {"scene": "FORMAL_EVENT", "season": "SUMMER", "formality": 4, "subQueries": ["婚礼", "正式"], "styleHint": "优雅"},
+      "criticScore": 0,
+      "loopEnabled": false,
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "critic", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    },
+    {
+      "id": "critic_reject_loop_enabled_bounded",
+      "query": "参加婚礼穿什么，要正式",
+      "plan": {"scene": "FORMAL_EVENT", "season": "SUMMER", "formality": 4, "subQueries": ["婚礼", "正式"], "styleHint": "优雅"},
+      "criticScore": 0,
+      "loopEnabled": true,
+      "expect": {
+        "nodesVisited": ["retrieve_memory", "planner", "rag", "tool_loop", "stylist", "critic", "stylist", "critic", "stylist", "critic", "responder"],
+        "needsTool": false,
+        "finalStatus": "SUCCESS",
+        "degraded": false,
+        "coordinatorPresent": true
+      }
+    }
+  ]
+}

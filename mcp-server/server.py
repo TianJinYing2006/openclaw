@@ -53,6 +53,21 @@ def _url_label(url: str) -> str:
 # 默认仅绑定本机，防止局域网其它机器直接调用；需要跨机访问时改为 0.0.0.0
 _host = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
 _port = int(os.getenv("MCP_SERVER_PORT", "8090"))
+# 鉴权令牌：与 Java 侧 app.mcp.auth-token / MCP_AUTH_TOKEN 一致；留空则不校验（仅限本机/内网隔离部署）。
+_auth_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
+
+
+def is_authorized(headers, token: str) -> bool:
+    """校验请求头里的 Bearer 令牌；token 为空视为未启用鉴权。"""
+    if not token:
+        return True
+    for key, value in headers:
+        if key.lower() == b"authorization":
+            try:
+                return value.decode("latin-1").strip() == f"Bearer {token}"
+            except Exception:
+                return False
+    return False
 
 # 创建 MCP Server 实例
 # stateless_http=True: 每个请求创建独立 transport，无需 session ID
@@ -170,6 +185,7 @@ if __name__ == "__main__":
                 "已配置" if os.getenv("DASHSCOPE_API_KEY", "") else "未配置")
     logger.info("BOCHA_API_KEY: %s",
                 "已配置" if os.getenv("BOCHA_API_KEY", "") else "未配置（使用 cn.bing.com 免费搜索）")
+    logger.info("MCP_AUTH_TOKEN: %s", "已启用鉴权" if _auth_token else "未启用（仅限本机/内网隔离部署）")
     logger.info("=" * 60)
 
     # 使用 streamable-http 传输 + hypercorn ASGI 服务器（支持 h2c HTTP/2 升级）。
@@ -181,22 +197,40 @@ if __name__ == "__main__":
     from hypercorn.asyncio import serve
     from hypercorn.config import Config as HypercornConfig
 
-    class AcceptHeaderASGIMiddleware:
-        """ASGI 中间件：为 /mcp 请求注入 Accept 头。"""
+    class AcceptHeaderAndAuthASGIMiddleware:
+        """ASGI 中间件：/mcp 请求先校验 Bearer 令牌，再注入 Accept 头。"""
         REQUIRED_ACCEPT = b"application/json, text/event-stream"
 
-        def __init__(self, app):
+        def __init__(self, app, token: str):
             self.app = app
+            self.token = token
 
         async def __call__(self, scope, receive, send):
             if (scope["type"] == "http"
                     and scope.get("path", "").rstrip("/") == "/mcp"):
-                original_headers = scope.get("headers", [])
-                filtered = [(k, v) for k, v in original_headers if k.lower() != b"accept"]
+                headers = scope.get("headers", [])
+                if not is_authorized(headers, self.token):
+                    logger.warning("MCP 请求鉴权失败，返回 401: path=%s", scope.get("path"))
+                    await self._unauthorized(send)
+                    return
+                filtered = [(k, v) for k, v in headers if k.lower() != b"accept"]
                 filtered.append((b"accept", self.REQUIRED_ACCEPT))
                 scope = dict(scope)
                 scope["headers"] = filtered
             await self.app(scope, receive, send)
+
+        @staticmethod
+        async def _unauthorized(send):
+            body = b'{"error":"unauthorized"}'
+            await send({
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            })
+            await send({"type": "http.response.body", "body": body})
 
     hypercorn_config = HypercornConfig()
     hypercorn_config.bind = [f"{_host}:{_port}"]
@@ -206,5 +240,5 @@ if __name__ == "__main__":
     hypercorn_config.use_reloader = False
 
     http_app = mcp.streamable_http_app()
-    app = AcceptHeaderASGIMiddleware(http_app)
+    app = AcceptHeaderAndAuthASGIMiddleware(http_app, _auth_token)
     asyncio.run(serve(app, hypercorn_config))

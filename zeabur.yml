@@ -1,0 +1,65 @@
+# Zeabur 多服务部署定义
+# 用法：在 Zeabur 新建项目 → 连接 GitHub 仓库（origin = TianJinYing2006/openclaw.git）
+#       → 平台读取本文件，自动构建并部署下列服务。
+#
+# 前置（在 Zeabur Dashboard 一键添加，它们会自动注入连接变量）：
+#   - Add Service → MySQL  （注入 MYSQL_HOST/PORT/USERNAME/PASSWORD/DATABASE）
+#   - Add Service → Redis  （注入 REDIS_HOST/PORT/PASSWORD）
+# 下方 app 服务用 ${...} 直接引用（Zeabur 扁平命名空间，跨服务可见）。
+# 注：CLI 对 ${} 展开有已知 bug，请用 Dashboard 操作 / 本文件由平台解析，不要走 zeabur CLI。
+
+name: wechatbot
+
+services:
+  # ---------- 向量库：无官方模板，用镜像 ----------
+  qdrant:
+    image: qdrant/qdrant:v1.14.1
+    ports:
+      - 6333
+      - 6334
+
+  # ---------- MCP Server（子目录 Dockerfile）----------
+  mcp-server:
+    dockerfile: ./mcp-server/Dockerfile
+    env:
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      ARK_API_KEY: ${ARK_API_KEY}
+      BOCHA_API_KEY: ${BOCHA_API_KEY}
+
+  # ---------- 主应用 ----------
+  app:
+    dockerfile: ./Dockerfile
+    # 公开主端口（API / Web）；后台 8081 在 Dashboard → Networking 开启 Port Forwarding
+    ports:
+      - 8080
+      - 8081
+    env:
+      SPRING_AI_OPENAI_API_KEY: ${DASHSCOPE_API_KEY}
+      SPRING_AI_OPENAI_CHAT_OPTIONS_MODEL: ${SPRING_AI_MODEL:-qwen3.7-plus}
+      ILINK_ENABLED: ${ILINK_ENABLED:-false}
+      PERSISTENCE_ENABLED: "true"
+      PERSISTENCE_JDBC_URL: "jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+      PERSISTENCE_USERNAME: ${MYSQL_USERNAME}
+      PERSISTENCE_PASSWORD: ${MYSQL_PASSWORD}
+      PERSISTENCE_REDIS_ENABLED: "true"
+      PERSISTENCE_REDIS_HOST: ${REDIS_HOST}
+      PERSISTENCE_REDIS_PORT: ${REDIS_PORT}
+      PERSISTENCE_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      QDRANT_HOST: qdrant
+      QDRANT_GRPC_PORT: "6334"
+      APP_FASHION_SEMANTIC_ENABLED: ${FASHION_SEMANTIC_ENABLED:-false}
+      APP_FASHION_REFERENCE_ENABLED: ${FASHION_REFERENCE_ENABLED:-false}
+      APP_ADMIN_ENABLED: ${APP_ADMIN_ENABLED:-true}
+      APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:-admin}
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-change-me}
+      APP_ADMIN_SESSION_ENCRYPTION_KEY: ${APP_ADMIN_SESSION_ENCRYPTION_KEY:-}
+      APP_SECURITY_TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      SPRING_AI_MCP_CLIENT_SSE_CONNECTIONS_MCP_SERVER_URL: "http://mcp-server:8090/mcp"
+      # ---- Langfuse 用量报表 / 可观测（OTLP_HEADERS 格式见下方说明）----
+      LANGFUSE_OTLP_ENABLED: ${LANGFUSE_OTLP_ENABLED:-true}
+      LANGFUSE_OTLP_ENDPOINT: ${LANGFUSE_OTLP_ENDPOINT:-https://jp.cloud.langfuse.com/api/public/otel}
+      LANGFUSE_OTLP_PROTOCOL: ${LANGFUSE_OTLP_PROTOCOL:-http/protobuf}
+      LANGFUSE_OTLP_HEADERS: ${LANGFUSE_OTLP_HEADERS:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://jp.cloud.langfuse.com}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}

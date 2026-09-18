@@ -6,7 +6,7 @@
     <link rel="stylesheet" th:href="@{/admin/assets/admin.css}">
 </head>
 <body>
-<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a><a class="active" th:href="@{/admin/agent-trace}">链路耗时</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
+<header class="topbar"><a class="brand" th:href="@{/admin}">WeChatBot 管理</a><nav><a th:href="@{/admin}">概览</a><a th:href="@{/admin/users}">用户与实例</a><a th:href="@{/admin/chat-users}">聊天用户</a><a th:href="@{/admin/catalog}">商品橱窗</a><a th:href="@{/admin/retrieval}">检索调试</a><a class="active" th:href="@{/admin/agent-trace}">链路耗时</a><a th:href="@{/admin/agent-trajectory}">轨迹回放</a></nav><form th:action="@{/admin/logout}" method="post"><button class="link-button" type="submit">退出</button></form></header>
 <main class="page">
     <div class="page-heading"><div><h1>Agent 链路耗时</h1><p>基于 <code>ai_usage_events</code> 时序（每次模型/工具调用自动落库 duration_ms）。面试演示：Critic 与 Trend 的模型调用会出现在同一时间窗口，佐证「并行评审」与 21s → 10.5s 时延优化。</p></div></div>
 

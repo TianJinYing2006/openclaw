@@ -25,7 +25,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
         "app.persistence.enabled=true",
         "app.persistence.redis.enabled=false",
         "app.fashion.semantic.enabled=false",
-        "app.fashion.reference.enabled=false"
+        "app.fashion.reference.enabled=false",
+        // 固定默认值断言：不依赖开发者本机被 gitignore 的 application-local.properties
+        "openai.image.base-url=",
+        "app.ai.max-completion-tokens=600",
+        "app.ai.image-model=gpt-image-2"
 }, webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class ILinkApplicationContextTest {
 

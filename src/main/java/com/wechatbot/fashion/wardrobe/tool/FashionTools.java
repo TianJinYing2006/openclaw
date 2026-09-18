@@ -57,6 +57,42 @@ public class FashionTools implements AiTool {
         }
     }
 
+    @Tool(name = "forget_fashion_preference", description = "当用户明确要求忘记/删除某条穿搭偏好"
+            + "（如\"以后别记我不喜欢红色\"）时调用。按维度+值+极性精确删除一条偏好。")
+    public String forgetFashionPreference(
+            @ToolParam(description = "偏好维度：COLOR、STYLE、FIT、PATTERN、MATERIAL、CATEGORY") String dimensionCode,
+            @ToolParam(description = "规范化值，如 RED、MINIMAL、RELAXED") String valueCode,
+            @ToolParam(required = false, description = "极性：POSITIVE 或 NEGATIVE，默认 POSITIVE") String polarity) {
+        String userId = currentUser();
+        if (userId == null) return unavailableIdentity();
+        trace.toolCall("forget_fashion_preference", dimensionCode + "/" + valueCode);
+        try {
+            boolean removed = fashion.deletePreference(userId, dimensionCode, valueCode,
+                    polarity == null || polarity.isBlank() ? "POSITIVE" : polarity);
+            String result = removed ? "已忘记该条偏好。" : "没有找到匹配的偏好，无需删除。";
+            trace.toolResult("forget_fashion_preference", result);
+            return result;
+        } catch (RuntimeException failure) {
+            return failed("forget_fashion_preference", failure, "删除偏好失败，请稍后再试。");
+        }
+    }
+
+    @Tool(name = "clear_fashion_profile", description = "当用户明确要求清空/关闭穿搭画像学习"
+            + "（如\"忘掉我的所有偏好\"）时调用。删除该用户全部偏好，不影响衣橱单品。")
+    public String clearFashionProfile() {
+        String userId = currentUser();
+        if (userId == null) return unavailableIdentity();
+        trace.toolCall("clear_fashion_profile", "current user");
+        try {
+            int cleared = fashion.clearPreferences(userId);
+            String result = "已清空 " + cleared + " 条穿搭偏好。";
+            trace.toolResult("clear_fashion_profile", result);
+            return result;
+        } catch (RuntimeException failure) {
+            return failed("clear_fashion_profile", failure, "清空偏好失败，请稍后再试。");
+        }
+    }
+
     @Tool(name = "search_wardrobe", description = "当用户询问个人衣橱、已有衣服，或要求按多个条件筛选时调用。"
             + "所有非空条件必须同时满足：类目、颜色、风格、版型、图案、季节、场景、材质。"
             + "categoryCode 可以传中文或标准代码，例如 牛仔裤/JEANS、外套/OUTERWEAR、裤子、鞋；"

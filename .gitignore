@@ -83,6 +83,8 @@ mcp-server/_tryon_test/
 resume-tian-jinying/
 tian-jinying-resume.json
 /*.pptx
+# 根目录本地打包/证据产物
+/*.zip
 
 # 个人面试/求职准备材料（不入库）
 docs/INTERVIEW_DEFENSE.md

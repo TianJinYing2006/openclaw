@@ -1,5 +1,6 @@
 package com.wechatbot.fashion;
 
+import com.wechatbot.fashion.ai.config.AgentBudgetProperties;
 import com.wechatbot.fashion.ai.config.AiProperties;
 import com.wechatbot.fashion.ai.config.AiTraceProperties;
 import com.wechatbot.fashion.ai.config.AiUsageProperties;
@@ -54,6 +55,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 @EnableScheduling
 @EnableConfigurationProperties({
+        AgentBudgetProperties.class,
         AiProperties.class,
         AiTraceProperties.class,
         AiUsageProperties.class,

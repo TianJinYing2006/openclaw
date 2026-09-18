@@ -3,6 +3,7 @@ package com.wechatbot.fashion.bot.audio;
 import com.wechatbot.fashion.bot.config.TencentAsrProperties;
 import com.wechatbot.fashion.bot.config.VideoProcessingProperties;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -18,7 +19,13 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-/** 本地存在 FFmpeg 时，验证视频音轨确实会变成腾讯 ASR 可接收的 WAV。 */
+/**
+ * 本地存在 FFmpeg 时，验证视频音轨确实会变成腾讯 ASR 可接收的 WAV。
+ *
+ * <p>FFmpeg 是宿主依赖且部分环境会卡住/占用临时文件，默认跳过；显式设置
+ * {@code FFMPEG_INTEGRATION=true} 时才运行。</p>
+ */
+@EnabledIfEnvironmentVariable(named = "FFMPEG_INTEGRATION", matches = "true")
 class FfmpegVideoAudioExtractorIntegrationTest {
 
     @TempDir
