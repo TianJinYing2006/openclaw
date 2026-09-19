@@ -6,7 +6,7 @@
 
 - [ ] `[本地]` JDK 21（`java -version`）
 - [ ] `[本地]` Maven 编译成功：`mvn -B -DskipTests test-compile`
-- [ ] `[本地]` 单元测试全绿：`mvn test`（当前 **449 passed / 0 failed**）
+- [ ] `[本地]` 单元测试全绿：`mvn test`（当前 **462 passed / 0 failed**）
 - [ ] `[本地]` 集成测试全绿：`mvn test -Pintegration`（当前 **48 passed / 32 skipped**，需 MySQL；Redis 用于图 checkpoint）
 - [ ] `[本地]` 一键验证：`.\scripts\verify.ps1 -Mode unit|integration|all|smoke`
 - [ ] `[本地]` 数据库迁移成功（Flyway 至 **V27**）
@@ -26,6 +26,11 @@
 - [ ] `[本地]` 用户确认流程可恢复（`FashionGraphHitlTest`）
 - [ ] `[本地]` 重复确认不重复执行副作用（`ConfirmationServiceTest` 结果重放）
 - [ ] `[本地]` 过期确认可清理（`ConfirmationServiceTest.expireOverdue`）
+- [ ] `[本地]` **试穿工具未确认不执行**（`GovernedToolCallback` HITL 闸门）
+- [ ] `[本地]` **试穿确认后仅执行一次、重复确认重放**（`GovernedToolCallbackTest.confirmationGateExecutesOnceThenReplays`）
+- [ ] `[本地]` **工具失败不误报成功**（网关 run 写 `FAILED`；工具失败文案记 `FAILURE`）
+- [ ] `[本地]` **「重新推荐」编号不重复**（`FashionResultBuildersReferenceTest`：按检索上下文校验编号）
+- [ ] `[本地]` **肯定回复不漏调试穿**（`SpringAiChatCompletionsGatewayTryOnOfferTest`）
 
 ## 3. 安全
 

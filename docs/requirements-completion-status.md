@@ -104,7 +104,7 @@
 - CI 拆成 `unit`（必过门禁，无服务依赖）与 `integration`（MySQL + Redis service containers）。
 
 **证据（实测）**
-- `mvn test` → **449 用例，0 失败 / 0 错误 / 0 跳过**。
+- `mvn test` → **462 用例，0 失败 / 0 错误 / 0 跳过**。
 - `mvn test -Pintegration` → 48 用例，0 失败 / 0 错误 / 32 跳过。
 
 ---
@@ -191,6 +191,9 @@ Critic 误跑。正确配方是 `updateState(...)` + **把 state 作为 inputs �
 **仍存边界（面试主动说明）**
 - 生产需显式开启 `FASHION_GRAPH_HITL_ENABLED=true`；恢复依赖 checkpoint（Redis 或框架内存 saver）；
   「确认」能否稳定再次触发 `fashion_consultant` 依赖网关意图路由（未真机验证）。
+- **试穿工具级确认（独立于图，默认开启）**：`virtual_try_on_*` 在工具回调层做 HITL 闸门
+  （`PENDING→拦 / CONFIRMED→执行后 CONSUMED / CONSUMED→重放`），由 `ToolGovernance.requiresConfirmation` 驱动，
+  不受 `FASHION_GRAPH_HITL_ENABLED` 控制；与图内 `confirm` 节点互补。
 - **内存兜底非高可用**：持久化关闭时用进程内内存，重启丢失、不跨实例共享，仅开发/降级用。
 - **“副作用成功但落库失败”窗口**：外部副作用已成功、`markResolved` 未落库时，重复确认仍可能重放；
   缓解方向：外部请求携带幂等键、outbox/事件、持久化外部任务 ID、失败窗口补偿扫描。
@@ -288,6 +291,29 @@ Critic 误跑。正确配方是 `updateState(...)` + **把 state 作为 inputs �
 - **替代已具备**：轨迹/预算/HITL 已提供状态可观测与恢复；`FashionState` 的读写在节点边界集中且有测试。
 - **建议**：如要做，先做 `schemaVersion` + 兼容读写（渐进），并在 `FashionGraphRedisRecoveryIntegrationTest`
   加迁移用例后再逐步替换，不一次性重写。
+
+---
+
+### 交付后真机联调修复（2026-09-19，PR #5）
+
+真机联调暴露并修复以下问题（commit `b4e4400`）：
+
+1. **穿搭 consult 报错**：`GovernedToolCallback` 把工具放到超时执行器线程执行，`AgentSessionContext`（ThreadLocal）
+   跨线程丢失 → `requireUserId()` 抛错 → 安全兜底。修复：提交前捕获 `AgentExecutionContext`，
+   工作线程内 `callWith(...)` 应用并恢复。
+2. **管理台「失败写成功」**：网关轨迹状态恒写 `SUCCESS` → 改为按 `ok`/失败原因写 `SUCCESS|FAILED` 并带
+   `failure_reason`；工具以「抱歉…」文案表达失败时审计记 `FAILURE`；并修复 `/admin/agent-trace`
+   因 SQL `LIKE 'TOOL%'` 经 `.formatted()` 触发 `UnknownFormatConversionException`（改 `'TOOL%%'`）。
+3. **试穿漏调**：用户对邀约回「好呀/确认」（不含"试穿"关键词）时模型只口头承诺不调工具 →
+   新增「上一句机器人邀约试穿 + 用户简短肯定」判定并自动补调。
+4. **试穿 HITL 工具级闸门**：试穿工具不走图，`ConfirmationIntent` 管不到；改为工具回调层闸门：
+   `virtual_try_on_*` 标记 `requiresConfirmation`，状态机 `PENDING→拦 / CONFIRMED→执行后 CONSUMED /
+   CONSUMED→重放`，网关结算「确认/取消」，防重复付费副作用。
+5. **重新推荐却重复**：检索已排除上套编号，但最终 `referenceOutfitId` 未校验，LLM 从画像摘要复用了上套编号 →
+   `FashionResultBuilders.validOutfitIds / withValidatedReferenceOutfit`，`ResponderNode` 落库/回传前
+   按检索上下文校验并纠正。
+
+**验证**：unit **462** / 0 失败；integration 48 / 0 失败；两次 PR 的 CI（unit + integration）均通过。
 
 ---
 
@@ -399,7 +425,7 @@ Critic 误跑。正确配方是 `updateState(...)` + **把 state 作为 inputs �
 ## 6. 如何验证
 
 ```bash
-# 单元（默认，必须全绿，不依赖 MySQL/Redis/外部模型）——449 passed / 0 failed
+# 单元（默认，必须全绿，不依赖 MySQL/Redis/外部模型）——462 passed / 0 failed
 mvn test
 
 # 集成（需 MySQL；Redis 用于图 checkpoint）——48 passed / 32 skipped
@@ -429,5 +455,5 @@ live 需真实模型/RAGFlow/OSS/ASR/TTS 密钥。发布前自检见 [release-ch
 仍欠（均因外部条件而非未实现）：HITL 微信链路真机验证与幂等、**0.4 密钥值轮换**（已重定位到环境变量，
 但需到控制台吊销重发才算安全闭环）、Critic 质量维度的 LLM-as-judge 评分（2.2 已给出延迟/打回实测与决策）、
 图状态强类型化的框架级改造（3.2，已论证推迟）。
-其余 0.x–3.x 能本地确定性验证的项均已完成并全绿（unit 449 / integration 48）；
+其余 0.x–3.x 能本地确定性验证的项均已完成并全绿（unit 462 / integration 48）；
 工具治理已补全到「预算 / 超时 / 审计 + 生产 ToolCallback 接线」，HITL 已补全「幂等 + 待确认列表」。

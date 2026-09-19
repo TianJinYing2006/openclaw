@@ -7,7 +7,7 @@
 ## 一句话定位
 
 > 一个生产级微信对话 Agent：**spring-ai-alibaba-graph 单图脊梁 + 6 节点编排 + RAG 检索 + 衣橱 DDD 引擎**，
-> 从手搓多 Agent 框架迁移到图运行时（影子对照验证 → 权威接管），配套 unit 449 + integration 48 项测试、量化守门与可观测基建。
+> 从手搓多 Agent 框架迁移到图运行时（影子对照验证 → 权威接管），配套 unit 462 + integration 48 项测试、量化守门与可观测基建。
 
 ## 六维证据速览
 
@@ -18,7 +18,7 @@
 | 韧性 | **故障注入 4/4**：Stylist/Coordinator/Critic∥Trend/RAG 挂 → 不崩 + 定向降级 | 降级是设计态，不是补丁 |
 | 性能 | 图管线 **p50 9.1s / p95 24.6s**（n=60 实测） | 串行 5-6 次 LLM 调用是主因；critic∥trend 已并行 |
 | 成本 | Langfuse 实测 3 次 generation ≈ 输入 3,112 + 输出 965 tokens ≈ **¥0.008** | flash 快模型主链路，可审计 |
-| 工程治理 | unit 449 + integration 48 测试 / ArchUnit 边界 / Redis checkpoint 恢复 / 序列化 round-trip / 影子→权威迁移 | "正经工程"而非 demo |
+| 工程治理 | unit 462 + integration 48 测试 / ArchUnit 边界 / Redis checkpoint 恢复 / 序列化 round-trip / 影子→权威迁移 | "正经工程"而非 demo |
 
 ## 开场五分钟：系统怎么设计的（对着图讲）
 

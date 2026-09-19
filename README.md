@@ -108,7 +108,8 @@ Step 5: CoordinatorAgent 综合裁决     → 失败则降级 Stylist 首选
 | `app.fashion.graph.enabled` | `true` | 穿搭图运行时；关闭后 `fashion_consultant` 仅安全兜底 |
 | `app.fashion.graph.critic-loop.enabled` | `false` | Critic 打回重生成的小回环 |
 | `app.fashion.graph.tool-loop.enabled` | `false` | 图内自主工具循环（天气/搜索） |
-| `app.fashion.graph.hitl.enabled` | `false` | 命中付费操作意图时暂停等人确认（HITL） |
+| `app.fashion.graph.hitl.enabled` | `false` | 图内 HITL：命中付费操作意图时暂停等确认 |
+| `ToolGovernance.requiresConfirmation` | 试穿工具开启 | 工具级 HITL：`virtual_try_on_*` 未确认不执行、确认后仅执行一次 |
 | `app.fashion.graph.budget.enabled` | `false` | 单 run 的模型调用次数 / Token / deadline 预算 |
 | `app.mcp.auth-token` | 空 | MCP Bearer 鉴权；留空仅限本机/内网 |
 
@@ -457,7 +458,7 @@ mvn clean package -Dmaven.test.skip=true
 java -jar target/wechatbot-0.0.1-SNAPSHOT.jar
 
 # 测试分层（默认只跑纯单元测试，必须全绿，不依赖 MySQL/Redis/外部模型）
-mvn test                  # = -Punit：单元测试（当前 449 passed）
+mvn test                  # = -Punit：单元测试（当前 462 passed）
 mvn test -Pintegration    # 集成测试：需 MySQL（+ 可选 Redis）（48 passed / 32 skipped）
 mvn test -Plive           # 真实链路：需环境变量密钥（模型/RAGFlow/OSS/ASR/TTS），手动执行
 ```
@@ -473,7 +474,7 @@ mvn test -Plive           # 真实链路：需环境变量密钥（模型/RAGFlo
 
 | 层 | 命令 | 依赖 | 当前结果 |
 | --- | --- | --- | --- |
-| unit（默认，CI 必过门禁） | `mvn test` | 无 | **449 passed / 0 failed**，约 1~2 分钟 |
+| unit（默认，CI 必过门禁） | `mvn test` | 无 | **462 passed / 0 failed**，约 1~2 分钟 |
 | integration | `mvn test -Pintegration` | MySQL 必需；Redis 用于图 checkpoint | **48 passed / 32 skipped** |
 | live | `mvn test -Plive` | 真实模型 / RAGFlow / OSS / ASR / TTS 密钥 | 默认跳过，手动执行 |
 | smoke | `.\scripts\verify.ps1 -Mode smoke` | MySQL（+Redis） | 上下文加载 + checkpoint 恢复子集 |
