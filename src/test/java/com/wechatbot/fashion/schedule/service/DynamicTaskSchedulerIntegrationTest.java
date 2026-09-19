@@ -24,7 +24,8 @@
         "app.fashion.semantic.enabled=false",
         "app.fashion.reference.enabled=false"
 })
-class DynamicTaskSchedulerIntegrationTest {
+@org.springframework.test.context.ActiveProfiles("test")
+class DynamicTaskSchedulerIntegrationTest extends com.wechatbot.fashion.testing.IntegrationTestcontainers {
 
     @Autowired
     private DynamicTaskScheduler scheduler;
