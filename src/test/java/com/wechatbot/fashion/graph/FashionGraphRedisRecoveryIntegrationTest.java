@@ -25,6 +25,10 @@ import com.wechatbot.fashion.graph.trajectory.AgentTrajectoryRecorder;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -59,11 +63,18 @@ import static org.mockito.Mockito.when;
  * <p>复用本地 Redis（127.0.0.1:6379，无密码）。命名带 {@code IntegrationTest} 后缀，由 unit profile
  * 排除（unit 不应依赖 Redis）、integration profile 纳入。
  */
+@Testcontainers
 class FashionGraphRedisRecoveryIntegrationTest {
+
+    /** 集成测试自包含：Redis 由 Testcontainers 提供，不依赖本机 6379。 */
+    @Container
+    static final GenericContainer<?> REDIS =
+            new GenericContainer<>(DockerImageName.parse("redis:7-alpine")).withExposedPorts(6379);
 
     private static RedissonClient redisson() {
         Config config = new Config();
-        config.useSingleServer().setAddress("redis://127.0.0.1:6379");
+        config.useSingleServer()
+                .setAddress("redis://" + REDIS.getHost() + ":" + REDIS.getMappedPort(6379));
         return Redisson.create(config);
     }
 

@@ -31,7 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
         "app.ai.max-completion-tokens=600",
         "app.ai.image-model=gpt-image-2"
 }, webEnvironment = SpringBootTest.WebEnvironment.NONE)
-class ILinkApplicationContextTest {
+@org.springframework.test.context.ActiveProfiles("test")
+class ILinkApplicationContextTest extends com.wechatbot.fashion.testing.IntegrationTestcontainers {
 
     @Autowired
     private ILinkBotService botService;
