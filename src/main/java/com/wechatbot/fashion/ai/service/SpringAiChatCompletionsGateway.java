@@ -255,8 +255,11 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                 runBudgetTracker.begin(toolRunId);
             }
             if (trajectoryRecorder != null) {
+                // 落库用户可见原文（剥离 [内部...] 工作流上下文），避免管理台/日志泄露内部提示词
+                String cleanQuery = stripInternalContext(prompt);
                 trajectoryRecorder.startRun(new AgentTrajectoryRecorder.RunStart(
-                        toolRunId, userId, userId, prompt, "chat-gateway-v1", "n/a", null));
+                        toolRunId, userId, userId, cleanQuery == null || cleanQuery.isBlank() ? prompt : cleanQuery,
+                        "chat-gateway-v1", "n/a", null));
             }
             Object[] tools = resolveTools(prompt);
             var request = chatClient.prompt(buildPrompt(history, prompt, outputLimit(budget)));
@@ -297,6 +300,14 @@ public class SpringAiChatCompletionsGateway implements TextChatGateway {
                     : response.getMetadata().getModel();
             log.info("Spring AI chat completion completed, model={}", actualModel);
             trace.modelReply("Chat Completions", actualModel, text);
+            // 把本轮模型 token 归集进轨迹 run（此前 gateway run 的 total_tokens 恒为 0，与用量表两套账）
+            if (trajectoryRecorder != null) {
+                AiModelUsage usage = extractUsage(response);
+                trajectoryRecorder.recordStep(new AgentTrajectoryRecorder.Step(
+                        toolRunId, "", AgentTrajectoryRecorder.Step.TYPE_MODEL, "SUCCESS",
+                        actualModel, null, "gateway", "ok",
+                        usage.promptTokens(), usage.completionTokens(), usage.totalTokens(), 0, null));
+            }
             ok = true;
             return new LlmGateway.ModelReply(
                     text,
