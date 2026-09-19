@@ -92,7 +92,7 @@ class FashionResponseFormatterTest {
     }
 
     @Test
-    void appendsReferenceOutfitIdForTryOnFromCoordinator() {
+    void doesNotExposeInternalTryOnIdFromCoordinator() {
         FashionResult result = new FashionResult(
                 true,
                 new CoordinatorOutput(
@@ -112,11 +112,11 @@ class FashionResponseFormatterTest {
 
         String text = formatter.format(result);
 
-        assertTrue(text.contains("可试穿方案编号：034"));
+        assertFalse(text.contains("可试穿方案编号"), "用户文案不应暴露内部编号工件：" + text);
     }
 
     @Test
-    void fallsBackToStylistReferenceOutfitIdWhenCoordinatorHasNone() {
+    void doesNotExposeInternalTryOnIdFromStylistFallback() {
         FashionResult result = new FashionResult(
                 true,
                 new CoordinatorOutput(
@@ -140,7 +140,7 @@ class FashionResponseFormatterTest {
 
         String text = formatter.format(result);
 
-        assertTrue(text.contains("可试穿方案编号：010"));
+        assertFalse(text.contains("可试穿方案编号"), "用户文案不应暴露内部编号工件：" + text);
     }
 
     @Test
@@ -193,8 +193,8 @@ class FashionResponseFormatterTest {
 
         assertFalse(text.contains("outfit_"), "用户可见文案不应出现内部知识库编号：" + text);
         assertTrue(text.contains("上衣：白色T恤"));
-        // 试穿对齐所需的编号由独立字段输出，不受清理影响
-        assertTrue(text.contains("可试穿方案编号：235"));
+        // 内部试穿编号不再出现在用户文案中（改由内部上下文/网关自动补调使用）
+        assertFalse(text.contains("可试穿方案编号"));
     }
 
     private static AnalyzedQuery analyzed(String scene) {
